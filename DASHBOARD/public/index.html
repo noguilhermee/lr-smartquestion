@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#ffffff">
+  <title>Gestão SmartQuestion | Labor Rural</title>
+
+  <script>
+    (() => {
+      try {
+        document.documentElement.dataset.theme = localStorage.getItem('lr-dashboard-theme') === 'dark' ? 'dark' : 'light';
+      } catch (_) {
+        document.documentElement.dataset.theme = 'light';
+      }
+    })();
+  </script>
+
+  <link rel="icon" type="image/png" href="./img/lr.png">
+  <link rel="apple-touch-icon" href="./img/lr.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,500,0,0" rel="stylesheet">
+  <link rel="stylesheet" href="./css/dashboard.css?v=20260812-8">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="progress-bar" aria-hidden="true"><span id="progressBarFill"></span></div>
+
+  <header class="app-header">
+    <div class="header-title-box">
+      <span class="screen-code">TELA GERENCIAL BI LABOR</span>
+      <h1>Gestão SmartQuestion</h1>
+      <p>Visitas, vínculos, inativação, cadastro e grupo</p>
+    </div>
+
+    <div class="header-actions">
+      <div class="sync-badge" aria-live="polite">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span id="lastUpdateTag">Sincronização automática</span>
+      </div>
+      <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false" aria-label="Ativar modo escuro">
+        <span class="theme-icon" aria-hidden="true">◔</span>
+        <span class="theme-toggle-label">Modo escuro</span>
+      </button>
+      <div class="update-block">
+        <span>Última atualização</span>
+        <strong id="lastUpdateDate">--/--/----</strong>
+      </div>
+      <time class="clock-box" id="headerClock">00:00:00</time>
+    </div>
+  </header>
+
+  <section class="filter-shell" aria-label="Filtros da análise">
+    <label class="filter-control">
+      <span>Agroindústria</span>
+      <select id="filterIndustry" aria-label="Agroindústria"><option value="">Todas</option></select>
+    </label>
+    <label class="filter-control">
+      <span>Região</span>
+      <select id="filterRegion" aria-label="Região"><option value="">Todas</option></select>
+    </label>
+    <label class="filter-control">
+      <span>Projeto</span>
+      <select id="filterProject" aria-label="Projeto"><option value="">Todos</option></select>
+    </label>
+    <label class="filter-control">
+      <span>Status</span>
+      <select id="filterStatus" aria-label="Status"><option value="">Todos</option></select>
+    </label>
+    <label class="filter-control">
+      <span>Consultor</span>
+      <select id="filterConsultant" aria-label="Consultor"><option value="">Todos</option></select>
+    </label>
+    <label class="filter-control">
+      <span>Produtor</span>
+      <select id="filterProducer" aria-label="Produtor"><option value="">Todos</option></select>
+    </label>
+    <label class="filter-control">
+      <span>Mês</span>
+      <select id="filterMonth" aria-label="Mês de referência"><option value="">Atual</option></select>
+    </label>
+  </section>
+
+  <div class="loading-overlay" id="loadingOverlay" aria-hidden="true">
+    <div class="loading-spinner"></div>
+    <span class="loading-text">Atualizando dados...</span>
+  </div>
+
+  <main class="carousel-viewport" aria-live="polite">
+    <div class="carousel-track" id="carouselTrack">
+      <section class="slide" id="slide1" aria-label="Visitas e cobertura">
+        <div class="kpi-grid">
+          <article class="metric-card metric-card--primary"><span class="metric-icon material-symbols-rounded" aria-hidden="true">calendar_month</span><span class="metric-label">Visitas no período</span><strong id="kpiVisitsTotal">—</strong><small>Atendimentos realizados</small></article>
+          <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">agriculture</span><span class="metric-label">Fazendas ativas</span><strong id="kpiVisitsActive">—</strong><small>Base ativa monitorada</small></article>
+          <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">location_on</span><span class="metric-label">Fazendas visitadas</span><strong id="kpiVisitsVisited">—</strong><small>Produtores únicos visitados</small></article>
+          <article class="metric-card metric-card--soft"><span class="metric-icon material-symbols-rounded" aria-hidden="true">monitoring</span><span class="metric-label">% Visitadas</span><strong id="kpiVisitsCoverage">—</strong><small>Índice de cobertura</small></article>
+          <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">groups</span><span class="metric-label">Visitas por produtor</span><strong id="kpiVisitsPerProducer">—</strong><small>Frequência média</small></article>
+          <article class="metric-card metric-card--warning"><span class="metric-icon material-symbols-rounded" aria-hidden="true">notification_important</span><span class="metric-label">Sem visita</span><strong id="kpiVisitsMissing">—</strong><small>Produtores ativos sem visita</small></article>
+        </div>
+
+        <div class="grid-two grid-two--visits">
+          <article class="panel-card"><div class="panel-heading"><h2>Evolução mensal da cobertura</h2></div><div class="chart-box"><canvas id="chartVisitsCoverage"></canvas></div></article>
+          <article class="panel-card"><div class="panel-heading"><div><h2>Quantidade de visitas</h2><p id="rankingSubtitle">Ranking por produtor</p></div><div class="segmented-control" aria-label="Dimensão do ranking"><button class="active" type="button" data-ranking="producer" aria-pressed="true">Produtor(a)</button><button type="button" data-ranking="consultant" aria-pressed="false">Consultor(a)</button></div></div><div class="chart-box chart-box--ranking" id="rankingChartViewport"><div class="ranking-chart-inner" id="rankingChartInner"><canvas id="chartVisitsRanking"></canvas></div></div></article>
+        </div>
+
+        <div class="grid-two grid-two--tables">
+          <article class="panel-card table-card">
+            <div class="panel-heading"><h2>Produtores sem visita</h2><span class="record-count" id="countWithoutVisit">0 registros</span></div>
+            <div class="table-scroll"><table class="data-table"><thead><tr><th>Consultor(a)</th><th>ID</th><th>Produtor(a)</th><th>Data de vinculação</th><th>Dias sem visita</th><th>Status</th></tr></thead><tbody id="tbodySemVisita"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+          </article>
+          <article class="panel-card table-card">
+            <div class="panel-heading"><h2>Produtores visitados</h2><span class="record-count" id="countVisited">0 registros</span></div>
+            <div class="table-scroll"><table class="data-table"><thead><tr><th>Consultor(a)</th><th>ID</th><th>Produtor(a)</th><th>Profissão</th><th>Nº atendimento</th><th>Data da visita</th><th>Elabore</th></tr></thead><tbody id="tbodyVisitados"><tr><td colspan="7" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="slide" id="slide2" aria-label="Movimentações e vínculos">
+        <div class="kpi-grid">
+          <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">login</span><span class="metric-label">Entradas no mês</span><strong id="kpiTurnEntradas">—</strong><small>Novos vínculos</small></article>
+          <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">logout</span><span class="metric-label">Saídas no mês</span><strong id="kpiTurnSaidas">—</strong><small>Inativações</small></article>
+          <article class="metric-card metric-card--soft"><span class="metric-icon material-symbols-rounded" aria-hidden="true">balance</span><span class="metric-label">Saldo</span><strong id="kpiTurnSaldo">—</strong><small>Variação líquida</small></article>
+          <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">person_check</span><span class="metric-label">Produtores ativos</span><strong id="kpiTurnActive">—</strong><small>Carteira atual</small></article>
+          <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">support_agent</span><span class="metric-label">Consultores ativos</span><strong id="kpiTurnConsultants">—</strong><small>Equipe com carteira</small></article>
+          <article class="metric-card metric-card--alert"><span class="metric-icon material-symbols-rounded" aria-hidden="true">trending_down</span><span class="metric-label">Taxa de churn</span><strong id="kpiTurnChurn">—</strong><small>Saídas sobre a base ativa</small></article>
+        </div>
+
+        <div class="grid-two grid-two--turnover">
+          <article class="panel-card"><div class="panel-heading"><h2>Entradas e saídas por mês</h2></div><div class="chart-box"><canvas id="chartTurnoverHistory"></canvas></div></article>
+          <article class="panel-card"><div class="panel-heading"><h2>Evolução de produtores ativos</h2></div><div class="chart-box"><canvas id="chartPortfolioHistory"></canvas></div></article>
+        </div>
+
+        <div class="grid-two grid-two--tables">
+          <article class="panel-card table-card">
+            <div class="panel-heading"><h2>Movimentação dos produtores</h2><span class="record-count" id="countTurnover">0 registros</span></div>
+            <div class="table-scroll"><table class="data-table"><thead><tr><th>Produtor(a)</th><th>Movimentação</th><th>Data da solicitação</th><th>Grupo / Consultor</th><th>Motivo</th></tr></thead><tbody id="tbodyTurnover"><tr><td colspan="5" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+          </article>
+          <article class="panel-card table-card">
+            <div class="panel-heading"><h2>Consultores ativos</h2><span class="record-count" id="countConsultants">0 registros</span></div>
+            <div class="table-scroll"><table class="data-table"><thead><tr><th>Consultor(a)</th><th>Fazendas</th><th>Visitadas</th><th>Visitas</th><th>Cobertura</th><th>Status</th></tr></thead><tbody id="tbodyConsultants"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="slide" id="slide3" aria-label="Dados e consistência">
+        <div class="kpi-grid">
+          <article class="metric-card metric-card--primary"><span class="metric-icon material-symbols-rounded" aria-hidden="true">database</span><span class="metric-label">Produtores com dados</span><strong id="kpiDataProducers">—</strong><small>Registros aptos à análise</small></article>
+          <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">verified</span><span class="metric-label">Fazendas aptas</span><strong id="kpiDataEligible">—</strong><small>Presença de dados válida</small></article>
+          <article class="metric-card metric-card--soft"><span class="metric-icon material-symbols-rounded" aria-hidden="true">fact_check</span><span class="metric-label">Consistência mensal</span><strong id="kpiDataMonthly">—</strong><small>Índice do mês</small></article>
+          <article class="metric-card metric-card--soft"><span class="metric-icon material-symbols-rounded" aria-hidden="true">date_range</span><span class="metric-label">Consistência anual</span><strong id="kpiDataAnnual">—</strong><small>Índice acumulado</small></article>
+          <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">analytics</span><span class="metric-label">Base analisada</span><strong id="kpiDataBase">—</strong><small>Registros avaliados</small></article>
+          <article class="metric-card metric-card--alert"><span class="metric-icon material-symbols-rounded" aria-hidden="true">warning</span><span class="metric-label">Registros divergentes</span><strong id="kpiDataDivergent">—</strong><small>Necessitam revisão</small></article>
+        </div>
+
+        <div class="grid-two grid-two--data">
+          <article class="panel-card"><div class="panel-heading panel-heading--with-legend"><h2>Evolução da consistência</h2><div class="legend-inline" aria-label="Legenda"><span><i class="legend-swatch swatch-dark"></i>Mensal</span><span><i class="legend-swatch swatch-medium"></i>Anual</span></div></div><div class="chart-box"><canvas id="chartConsistencyHistory"></canvas></div></article>
+          <article class="panel-card panel-card--quality">
+            <div class="panel-heading"><h2>Qualidade dos dados</h2></div>
+            <div class="quality-content">
+              <div class="chart-box chart-box--quality"><canvas id="chartDataQuality"></canvas></div>
+              <div class="criteria-strip"><span class="criteria-icon">i</span><div><strong>Critérios de consistência</strong><p>Os indicadores de presença de dados e consistência são calculados exclusivamente a partir das fontes analíticas autorizadas.</p></div></div>
+            </div>
+          </article>
+        </div>
+
+        <div class="grid-two grid-two--tables">
+          <article class="panel-card table-card">
+            <div class="panel-heading"><h2>Produtores com dados</h2><span class="record-count" id="countDataProducers">0 registros</span></div>
+            <div class="table-scroll"><table class="data-table"><thead><tr><th>ID</th><th>Produtor(a)</th><th>Consultor(a)</th><th>Presença de dados</th><th>Última referência</th><th>Status</th></tr></thead><tbody id="tbodyDataProducers"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+          </article>
+          <article class="panel-card table-card">
+            <div class="panel-heading"><h2>Inconsistências identificadas</h2><span class="record-count" id="countInconsistencies">0 registros</span></div>
+            <div class="table-scroll"><table class="data-table"><thead><tr><th>Produtor(a)</th><th>Consultor(a)</th><th>Projeto</th><th>Meses sequenciais</th><th>Situação</th><th>Ação</th></tr></thead><tbody id="tbodyInconsistencies"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+          </article>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <div class="footer-logo"><img src="./img/logo-branco.png" alt="Labor Rural"></div>
+    <div class="carousel-navigation" aria-label="Navegação entre páginas">
+      <div class="current-slide-title" id="currentSlideTitle">Visitas e cobertura</div>
+      <div class="carousel-controls">
+        <button class="carousel-arrow" id="prevSlide" type="button" aria-label="Página anterior">‹</button>
+        <button class="page-dot active" type="button" data-slide="0" aria-label="Ir para Visitas e cobertura">1</button>
+        <button class="page-dot" type="button" data-slide="1" aria-label="Ir para Movimentações e vínculos">2</button>
+        <button class="page-dot" type="button" data-slide="2" aria-label="Ir para Dados e consistência">3</button>
+        <button class="carousel-arrow" id="nextSlide" type="button" aria-label="Próxima página">›</button>
+      </div>
+    </div>
+    <div class="footer-brand">© Labor Rural | 2026</div>
+  </footer>
+
+  <script src="./js/carousel.js?v=20260812-8"></script>
+  <script src="./js/charts.js?v=20260812-8"></script>
+  <script src="./js/main.js?v=20260812-8"></script>
+</body>
+</html>

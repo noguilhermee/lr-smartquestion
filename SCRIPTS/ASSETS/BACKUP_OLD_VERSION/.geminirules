@@ -1,0 +1,4 @@
+# Regras do Projeto - BI Labor Rural
+
+1. **REGRA ABSOLUTA DE BANCO DE DADOS (SUPABASE)**:
+   - NUNCA execute comandos SQL, scripts Python, chamadas da SDK do Supabase ou ações que insiram (`INSERT`), alterem (`UPDATE`/`UPSERT`), excluam (`DELETE`/`TRUNCATE`/`DROP`) ou modifiquem qualquer estrutura ou dado no banco de dados do Supabase sem solicitar e receber a PERMISSÃO E AUTORIZAÇÃO EXPLÍCITA do usuário primeiro.

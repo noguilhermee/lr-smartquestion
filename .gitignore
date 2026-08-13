@@ -1,0 +1,49 @@
+.idea/
+.vscode/
+
+# Python & Jupyter
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.ipynb_checkpoints/
+
+# Ambientes virtuais
+.venv/
+venv/
+ENV/
+env/
+
+# Configurações sensíveis
+.env
+.env*
+api/
+api/*
+DASHBOARD/api/
+DASHBOARD/api/*
+
+# Banco de dados local / arquivos pesados de entrada e saída
+DB/INPUT/*
+!DB/INPUT/.gitkeep
+
+DB/OUTPUT/PROCESSED/*
+!DB/OUTPUT/PROCESSED/.gitkeep
+
+DB/OUTPUT/FIGURES/*
+!DB/OUTPUT/FIGURES/.gitkeep
+
+DB/OUTPUT/HTML/*
+!DB/OUTPUT/HTML/.gitkeep
+
+DB/OUTPUT/LOGS/*
+!DB/OUTPUT/LOGS/.gitkeep
+
+DB/OUTPUT/.temp_build/
+
+# Distribuição / Pacotes
+build/
+dist/
+*.egg-info/
+
+.vercel
+.env*

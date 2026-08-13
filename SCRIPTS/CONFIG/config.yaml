@@ -1,0 +1,64 @@
+# Configurações do Projeto Analytics — SmartQuestion
+projeto:
+  nome: "lr-smartquestion"
+  departamento: "Labor Rural - Analytics"
+  descricao: "Pipeline de ETL e consistência para relatórios do SmartQuestion"
+
+# 📁 CAMINHOS DE DIRETÓRIOS (Ajuste aqui caso mude de computador ou ambiente)
+caminhos:
+  # Pasta principal de leitura dos relatórios exportados do SmartQuestion
+  bd_smartquestion: "C:/Users/Guilherme/LABOR RURAL/Analytics - Departamento Analytics/POWER_BI/PROJETOS/BI_LABOR_RURAL/BD_SMARTQUESTION"
+  
+  # Pastas internas do projeto
+  input: "DB/INPUT"
+  output: "DB/OUTPUT"
+  processed: "DB/OUTPUT/PROCESSED"
+  logs: "DB/OUTPUT/LOGS"
+  assets: "SCRIPTS/ASSETS"
+  functions: "SCRIPTS/FUNCTIONS"
+  scripts: "SCRIPTS"
+
+# 🗄️ TABELAS DO SUPABASE (Configuração Oficial de Produção / Staging / Fato)
+supabase:
+  tabelas:
+    vinculos_staging: "tab_vinculos_sq"
+    visitas_staging: "tab_visitas_sq"
+    visitas_fato: "f_visitas_bi_lr"
+    inativacao_produtores_staging: "tab_inativacoes_sq"
+    inativacao_consultores_staging: "tab_inativacao_consultor_sq"
+    consistencia_fato: "f_consistente_bi_lr"
+    movimentacao_fato: "f_movimentacao_produtores_bi_lr"
+
+# 📄 NOMES E PADRÕES DOS ARQUIVOS DE RELATÓRIO EXCEL
+smartquestion:
+  arquivos:
+    inativacao_padrao: "*_LISTA_INATIVACAO.xlsx"
+    inativacao_historico: "BD_INATIVACAO_2023_2025.xlsx"
+    inativacao_consultores: "BD_STATUS_USUARIO_SQ.xlsx"
+    vinculos_completo: "BD_BI_VINCULOS_COMPLETO.xlsx"
+    resgate_vinculos: "RESGATE_VINCULOS_VF.xlsx"
+    cadastro_padrao: "*_LISTA_CADASTRO.xlsx"
+    relatorio_grupo: "LISTA_GERAL_RELATORIO_DE_GRUPO.xlsx"
+    visita_regenera: "LISTA_REGENERA_VISITA.xlsx"
+    visita_alvoar: "LISTA_ALVOAR_VISITA.xlsx"
+    visita_semear: "LISTA_SEMEAR_VISITA.xlsx"
+    visita_ccpr: "LISTA_CCPR_VISITA.xlsx"
+    visita_lpa: "LISTA_LPA_VISITA.xlsx"
+    visita_geral: "LISTA_GERAL_VISITAS.xlsx"
+
+# ⚙️ PARÂMETROS DE EXECUÇÃO DO PIPELINE
+execucao:
+  chunk_size_upsert: 100               # Tamanho do lote para envio ao Supabase
+  pausa_lote_segundos: 0.5             # Pausa entre lotes para não sobrecarregar a API
+  formato_data: "%Y-%m-%d"
+  encoding: "utf-8"
+
+# 📅 PARÂMETROS TEMPORAIS E DATAS DE CORTE
+referencia:
+  mes_referencia: "2026-08-01"            # Mês de referência oficial da análise (AAAA-MM ou AAAA-MM-DD)
+  periodo_checagem_inicio: "2024-01-01"   # Início do período amplo de checagem
+  data_inicial_analise: "2025-01-01"      # Data inicial padrão para consistência e análises gerais
+  data_inicial_elabore: "2025-12-01"      # Data inicial específica do projeto Elabore
+  data_inicial_fato_visitas: "2026-01-01" # Data inicial da carga da Fato Visitas
+  ano_filtro_inicio: 2024                 # Ano inicial de filtragem para bases históricas
+  meses_consecutivos_minimos: 12          # Quantidade mínima de meses consecutivos

@@ -1,0 +1,733 @@
+/**
+ * Controlador da interface e integração somente leitura com as APIs do dashboard.
+ */
+document.addEventListener('DOMContentLoaded', () => {
+  const root = document.documentElement;
+  const themeToggle = document.getElementById('themeToggle');
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  const carousel = new DashboardCarousel({ slideDuration: 30000 });
+  const charts = new DashboardCharts();
+  const state = { overview: null, visits: null, turnover: null, consistency: null, rankingDimension: 'producer' };
+  const projectOptions = [
+    { value: 'ALVOAR ASSIST', label: 'Alvoar Assist' },
+    { value: 'ALVOAR ECO', label: 'Alvoar Eco' },
+    { value: 'ATEG_CCPR', label: 'Ateg_Ccpr' },
+    { value: 'LPA', label: 'Lpa' },
+    { value: 'REGENERA', label: 'Regenera' },
+    { value: 'SEMEAR', label: 'Semear' }
+  ];
+
+  const emptyState = {
+    overview: {
+      refMonth: null,
+      kpis: {},
+      evolucaoMensal: { labels: [], fazendasAtivas: [], fazendasVisitadas: [], percCobertura: [] },
+      evolucaoVisitas: { labels: [], values: [] },
+      rankingProdutores: { labels: [], values: [] },
+      filterOptions: { agroindustrias: [], regioes: [], projetos: projectOptions.map((p) => p.value), status: ['ATIVO', 'INATIVO'], meses: [] },
+      tabelas: { movimentacao: [], sem_visita: [], visitados: [] }
+    },
+    visits: {
+      kpis: {},
+      rankingConsultores: { labels: [], coberturas: [], visitas: [] },
+      tabelaConsultores: []
+    },
+    turnover: {
+      kpis: {},
+      historicoMovimentacao: { labels: [], entradas: [], saidas: [] },
+      historicoCarteira: { labels: [], values: [] },
+      tabelaMovimentacao: []
+    },
+    consistency: {
+      kpis: {},
+      evolucaoConsistencia: { labels: [], mensal: [], anual: [] },
+      distribuicaoDonut: { labels: ['Registros aptos', 'Registros incompletos', 'Registros divergentes'], values: [0, 0, 0] },
+      tabelaProdutoresComDados: [],
+      tabelaInconsistentes: []
+    }
+  };
+
+  const el = (id) => document.getElementById(id);
+  const escapeHtml = (value) => String(value ?? '—').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
+  const number = (value) => Number.isFinite(Number(value)) ? Number(value).toLocaleString('pt-BR') : '—';
+  const percent = (value) => value === null || value === undefined || value === '' ? '—' : `${String(value).replace('.', ',')}%`;
+  const date = (value) => {
+    if (!value) return '—';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('pt-BR');
+  };
+
+  function updateValue(id, value) {
+    const node = el(id);
+    if (!node) return;
+    const text = String(value ?? '—');
+    if (node.textContent !== text) {
+      node.textContent = text;
+      node.classList.remove('pulse-update');
+      void node.offsetWidth;
+      node.classList.add('pulse-update');
+    }
+  }
+
+  function setTheme(theme, persist = true) {
+    root.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+    const isDark = root.dataset.theme === 'dark';
+    themeToggle?.setAttribute('aria-pressed', String(isDark));
+    themeToggle?.setAttribute('aria-label', `Ativar modo ${isDark ? 'claro' : 'escuro'}`);
+    const label = themeToggle?.querySelector('.theme-toggle-label');
+    if (label) label.textContent = `Modo ${isDark ? 'claro' : 'escuro'}`;
+    if (themeMeta) themeMeta.content = isDark ? '#072824' : '#ffffff';
+    if (persist) {
+      try { localStorage.setItem('lr-dashboard-theme', root.dataset.theme); } catch (_) { /* preferência opcional */ }
+    }
+    charts.applyTheme();
+  }
+
+  setTheme(root.dataset.theme, false);
+  themeToggle?.addEventListener('click', () => setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'));
+
+  function updateClock() {
+    const now = new Date();
+    if (el('headerClock')) el('headerClock').textContent = now.toLocaleTimeString('pt-BR');
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  async function getJson(url) {
+    try {
+      const response = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      console.error(`${url} indisponível.`, error);
+      return null;
+    }
+  }
+
+  function renderOverview(data) {
+    const kpi = data.kpis || {};
+    const totalActive = Number(kpi.produtores_ativos) || 0;
+    const totalVisited = Number(kpi.produtores_visitados) || Math.max(0, totalActive - Number(state.visits?.kpis?.fazendas_nao_visitadas || 0));
+    updateValue('kpiVisitsTotal', number(kpi.total_visitas));
+    updateValue('kpiVisitsActive', number(kpi.produtores_ativos));
+    updateValue('kpiVisitsVisited', number(totalVisited));
+    updateValue('kpiVisitsCoverage', percent(kpi.perc_visitados));
+    updateValue('kpiVisitsPerProducer', String(kpi.visitas_por_produtor || '—').replace('.', ','));
+    updateValue('kpiVisitsMissing', number(Math.max(0, totalActive - totalVisited)));
+
+    updateValue('kpiTurnActive', number(kpi.produtores_ativos));
+    updateValue('kpiDataProducers', number(kpi.produtores_com_dados));
+    updateValue('kpiDataEligible', number(state.consistency?.kpis?.fazendas_aptas || kpi.produtores_com_dados));
+
+    charts.renderCoverage('chartVisitsCoverage', data.evolucaoMensal || emptyState.overview.evolucaoMensal);
+    renderSelectedRanking();
+  }
+
+  function renderSelectedRanking() {
+    const isConsultant = state.rankingDimension === 'consultant';
+    const producerRanking = state.overview?.rankingProdutores || emptyState.overview.rankingProdutores;
+    const consultantSource = state.visits?.rankingConsultores || emptyState.visits.rankingConsultores;
+    let rawRanking = isConsultant
+      ? { labels: consultantSource.labels || [], values: consultantSource.visitas || [] }
+      : { labels: producerRanking.labels || [], values: producerRanking.values || [] };
+
+    // Ordenação estrita do MAIOR para o MENOR valor
+    const paired = (rawRanking.labels || []).map((label, idx) => ({
+      label,
+      value: Number(rawRanking.values?.[idx]) || 0
+    }));
+    paired.sort((a, b) => b.value - a.value);
+
+    const ranking = {
+      labels: paired.map((item) => item.label),
+      values: paired.map((item) => item.value)
+    };
+
+    const viewport = el('rankingChartViewport');
+    const inner = el('rankingChartInner');
+    if (viewport && inner) {
+      const availableHeight = Math.max(viewport.clientHeight, 170);
+      inner.style.height = `${Math.max(availableHeight, ranking.labels.length * 28 + 8)}px`;
+      viewport.scrollTop = 0;
+    }
+    charts.renderRanking('chartVisitsRanking', ranking);
+    if (el('rankingSubtitle')) el('rankingSubtitle').textContent = `Ranking por ${isConsultant ? 'consultor' : 'produtor'}`;
+    document.querySelectorAll('[data-ranking]').forEach((button) => {
+      const active = button.dataset.ranking === state.rankingDimension;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+  }
+
+  function renderVisits(data) {
+    const kpi = data.kpis || {};
+    updateValue('kpiVisitsCoverage', percent(kpi.perc_cobertura_geral || state.overview?.kpis?.perc_visitados));
+    updateValue('kpiVisitsTotal', number(kpi.total_visitas || state.overview?.kpis?.total_visitas));
+    updateValue('kpiVisitsMissing', number(kpi.fazendas_nao_visitadas));
+    updateValue('kpiTurnConsultants', number(data.tabelaConsultores?.length || state.overview?.kpis?.consultores_ativos));
+  }
+
+  function renderTurnover(data) {
+    const kpi = data.kpis || {};
+    updateValue('kpiTurnEntradas', number(kpi.entradas_mes));
+    updateValue('kpiTurnSaidas', number(kpi.saidas_mes));
+    updateValue('kpiTurnSaldo', Number(kpi.saldo) >= 0 ? `+${number(kpi.saldo)}` : number(kpi.saldo));
+    updateValue('kpiTurnChurn', percent(kpi.taxa_churn));
+    charts.renderTurnover('chartTurnoverHistory', data.historicoMovimentacao || emptyState.turnover.historicoMovimentacao);
+    charts.renderPortfolio('chartPortfolioHistory', data.historicoCarteira || emptyState.turnover.historicoCarteira);
+  }
+
+  function renderConsistency(data) {
+    const kpi = data.kpis || {};
+    const values = data.distribuicaoDonut?.values || [];
+    const base = Number(kpi.base_analisada) || values.reduce((sum, item) => sum + Number(item || 0), 0);
+    const divergences = Number(kpi.registros_divergentes) || Number(values[1] || 0);
+    updateValue('kpiDataProducers', number(kpi.produtores_com_dados || state.overview?.kpis?.produtores_com_dados));
+    updateValue('kpiDataEligible', number(kpi.fazendas_aptas || kpi.produtores_com_dados || state.overview?.kpis?.produtores_com_dados));
+    updateValue('kpiDataMonthly', percent(kpi.perc_consistente));
+    updateValue('kpiDataAnnual', percent(kpi.perc_anual));
+    updateValue('kpiDataDivergent', number(divergences));
+    updateValue('kpiDataBase', number(base));
+    charts.renderConsistencyHistory('chartConsistencyHistory', data.evolucaoConsistencia || emptyState.consistency.evolucaoConsistencia);
+    charts.renderQuality('chartDataQuality', data.distribuicaoDonut || emptyState.consistency.distribuicaoDonut);
+  }
+
+  function currentFilter() {
+    return {
+      industry: el('filterIndustry')?.value || '',
+      region: el('filterRegion')?.value || '',
+      project: el('filterProject')?.value || '',
+      status: el('filterStatus')?.value || '',
+      consultant: el('filterConsultant')?.value || '',
+      producer: el('filterProducer')?.value || '',
+      month: el('filterMonth')?.value || ''
+    };
+  }
+
+  function dimensionMatches(rowValue, filterValue) {
+    if (!filterValue) return true;
+    if (rowValue === null || rowValue === undefined || rowValue === '' || rowValue === 'Todos') return true;
+    const expected = String(filterValue).toLocaleLowerCase('pt-BR');
+    const values = Array.isArray(rowValue) ? rowValue : [rowValue];
+    return values.some((value) => String(value).toLocaleLowerCase('pt-BR') === expected);
+  }
+
+  function normalizeStatus(value) {
+    const normalized = String(value || '').trim().toLocaleUpperCase('pt-BR');
+    if (normalized.startsWith('INATIV')) return 'INATIVO';
+    if (normalized.startsWith('ATIV')) return 'ATIVO';
+    return normalized;
+  }
+
+  function matches(row, filter) {
+    const consultant = String(row.consultor || row.nome_consultor || '').toLocaleLowerCase('pt-BR');
+    const producer = String(row.produtor || row.nome_produtor || row.propriedade || '').toLocaleLowerCase('pt-BR');
+    return (!filter.consultant || consultant === filter.consultant.toLocaleLowerCase('pt-BR')) &&
+      (!filter.producer || producer === filter.producer.toLocaleLowerCase('pt-BR')) &&
+      dimensionMatches(row.agroindustria || row.agroindustrias, filter.industry) &&
+      dimensionMatches(row.regiao || row.regioes, filter.region) &&
+      dimensionMatches(row.projeto || row.projetos, filter.project) &&
+      (!filter.status || normalizeStatus(row.status) === normalizeStatus(filter.status)) &&
+      dimensionMatches(String(row.mes_referencia || row.data_referencia || '').slice(0, 10), filter.month);
+  }
+
+  // Estado de ordenação para cada tabela do dashboard
+  const tableSort = {
+    tbodySemVisita: { colKey: null, dir: 'asc' },
+    tbodyVisitados: { colKey: null, dir: 'asc' },
+    tbodyTurnover: { colKey: null, dir: 'asc' },
+    tbodyConsultants: { colKey: null, dir: 'asc' },
+    tbodyDataProducers: { colKey: null, dir: 'asc' },
+    tbodyInconsistencies: { colKey: null, dir: 'asc' }
+  };
+
+  let loadingTimeout = null;
+
+  function showLoading(message = 'Atualizando dados...') {
+    const overlay = el('loadingOverlay');
+    if (!overlay) return;
+    const textEl = overlay.querySelector('.loading-text');
+    if (textEl) textEl.textContent = message;
+    overlay.classList.add('active');
+    overlay.setAttribute('aria-hidden', 'false');
+  }
+
+  function hideLoading(delay = 200) {
+    clearTimeout(loadingTimeout);
+    loadingTimeout = setTimeout(() => {
+      const overlay = el('loadingOverlay');
+      if (!overlay) return;
+      overlay.classList.remove('active');
+      overlay.setAttribute('aria-hidden', 'true');
+    }, delay);
+  }
+
+  function parseSortValue(value) {
+    if (value === null || value === undefined || value === '' || value === '—') return null;
+    if (typeof value === 'number') return value;
+    const str = String(value).trim();
+    if (/^-?\d+([.,]\d+)?%?$/.test(str)) {
+      return parseFloat(str.replace('%', '').replace(/\./g, '').replace(',', '.'));
+    }
+    const brDateMatch = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(str);
+    if (brDateMatch) {
+      return new Date(`${brDateMatch[3]}-${brDateMatch[2]}-${brDateMatch[1]}`).getTime();
+    }
+    return str.toLocaleLowerCase('pt-BR');
+  }
+
+  function sortRows(rows, sortConfig, keyGetter) {
+    if (!sortConfig || !sortConfig.colKey) return rows;
+    const { colKey, dir } = sortConfig;
+    return [...rows].sort((a, b) => {
+      const valA = parseSortValue(keyGetter(a, colKey));
+      const valB = parseSortValue(keyGetter(b, colKey));
+      if (valA === null && valB === null) return 0;
+      if (valA === null) return 1;
+      if (valB === null) return -1;
+      let res = 0;
+      if (typeof valA === 'number' && typeof valB === 'number') {
+        res = valA - valB;
+      } else {
+        res = String(valA).localeCompare(String(valB), 'pt-BR');
+      }
+      return dir === 'asc' ? res : -res;
+    });
+  }
+
+  function rowsOrEmpty(rows, columns, mapper) {
+    if (!rows.length) return `<tr><td colspan="${columns}" class="empty-cell">Nenhum registro para os filtros selecionados.</td></tr>`;
+    return rows.map(mapper).join('');
+  }
+
+  function updateCount(id, rows) {
+    const node = el(id);
+    if (!node) return;
+    node.textContent = `${rows.length} registros`;
+  }
+
+  function updateTableHeadIcons(tbodyId, activeColKey, dir) {
+    const tbody = el(tbodyId);
+    if (!tbody) return;
+    const table = tbody.closest('table');
+    if (!table) return;
+    table.querySelectorAll('th').forEach((th) => {
+      const key = th.dataset.sortKey;
+      th.classList.remove('sort-asc', 'sort-desc');
+      if (key && key === activeColKey) {
+        th.classList.add(dir === 'asc' ? 'sort-asc' : 'sort-desc');
+      }
+    });
+  }
+
+  function setupTableSorting() {
+    const MAPPINGS = {
+      tbodySemVisita: ['consultor', 'codigo_lr', 'produtor', 'data_vinculacao', 'dias_sem_visita', 'status'],
+      tbodyVisitados: ['consultor', 'codigo_lr', 'produtor', 'profissao', 'atendimento', 'data_visita', 'elabore_ok'],
+      tbodyTurnover: ['produtor', 'tipo', 'data', 'grupo', 'motivo'],
+      tbodyConsultants: ['consultor', 'total_fazendas', 'fazendas_visitadas', 'total_visitas', 'perc_cobertura', 'status'],
+      tbodyDataProducers: ['codigo_lr', 'produtor', 'consultor', 'possui_dados', 'referencia', 'status'],
+      tbodyInconsistencies: ['produtor', 'consultor', 'projeto', 'meses_sequenciais', 'consistencia', 'acao']
+    };
+
+    Object.entries(MAPPINGS).forEach(([tbodyId, colKeys]) => {
+      const tbody = el(tbodyId);
+      if (!tbody) return;
+      const table = tbody.closest('table');
+      if (!table) return;
+      const ths = table.querySelectorAll('thead th');
+      ths.forEach((th, idx) => {
+        const key = colKeys[idx];
+        if (!key || key === 'acao') return;
+        th.dataset.sortKey = key;
+        th.classList.add('sortable');
+        th.title = `Clique para ordenar por ${th.textContent.trim()}`;
+        th.addEventListener('click', () => {
+          const current = tableSort[tbodyId] || { colKey: null, dir: 'asc' };
+          if (current.colKey === key) {
+            current.dir = current.dir === 'asc' ? 'desc' : 'asc';
+          } else {
+            current.colKey = key;
+            current.dir = 'asc';
+          }
+          tableSort[tbodyId] = current;
+          showLoading('Ordenando dados...');
+          setTimeout(() => {
+            renderTables();
+            hideLoading(150);
+          }, 60);
+        });
+      });
+    });
+  }
+
+  function renderTables() {
+    const filter = currentFilter();
+    const overview = state.overview || emptyState.overview;
+    const visits = state.visits || emptyState.visits;
+    const turnover = state.turnover || emptyState.turnover;
+    const consistency = state.consistency || emptyState.consistency;
+
+    // Tabela 1: Sem Visita
+    let withoutVisit = (overview.tabelas?.sem_visita || []).filter((row) => matches(row, filter));
+    updateCount('countWithoutVisit', withoutVisit);
+    withoutVisit = sortRows(withoutVisit, tableSort.tbodySemVisita, (row, key) => row[key] ?? row.data_referencia);
+    updateTableHeadIcons('tbodySemVisita', tableSort.tbodySemVisita.colKey, tableSort.tbodySemVisita.dir);
+    if (el('tbodySemVisita')) el('tbodySemVisita').innerHTML = rowsOrEmpty(withoutVisit, 6, (row) => {
+      const hasDays = row.dias_sem_visita !== null && row.dias_sem_visita !== undefined && row.dias_sem_visita !== '';
+      const days = hasDays ? Number(row.dias_sem_visita) : null;
+      const isGrave = hasDays && days >= 60;
+      const status = !hasDays ? 'Sem visita no período' : isGrave ? 'Sem visita > 60 dias' : days >= 45 ? 'Sem visita > 45 dias' : 'Sem visita > 30 dias';
+      const rowClass = isGrave ? 'table-row-grave' : 'table-row-pending';
+      const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
+      return `<tr class="${rowClass}"><td>${escapeHtml(row.consultor)}</td><td><strong>${escapeHtml(row.codigo_lr)}</strong></td><td>${escapeHtml(row.produtor)}</td><td>${escapeHtml(row.data_vinculacao || row.data_referencia || '—')}</td><td>${hasDays ? days : '—'}</td><td><span class="badge ${badgeClass}">${escapeHtml(status)}</span></td></tr>`;
+    });
+
+    // Tabela 2: Visitados
+    let visited = (overview.tabelas?.visitados || []).filter((row) => matches(row, filter));
+    updateCount('countVisited', visited);
+    visited = sortRows(visited, tableSort.tbodyVisitados, (row, key) => row[key]);
+    updateTableHeadIcons('tbodyVisitados', tableSort.tbodyVisitados.colKey, tableSort.tbodyVisitados.dir);
+    if (el('tbodyVisitados')) el('tbodyVisitados').innerHTML = rowsOrEmpty(visited, 7, (row) => `<tr><td>${escapeHtml(row.consultor)}</td><td><strong>${escapeHtml(row.codigo_lr)}</strong></td><td>${escapeHtml(row.produtor)}</td><td>${escapeHtml(row.profissao || '—')}</td><td>${escapeHtml(row.atendimento)}</td><td>${escapeHtml(row.data_visita)}</td><td><span class="badge ${row.elabore_ok === false ? 'badge-danger' : 'badge-positive'}">${row.elabore_ok === false ? 'NÃO' : 'SIM'}</span></td></tr>`);
+
+    // Tabela 3: Turnover / Movimentação
+    let movements = (turnover.tabelaMovimentacao || []).filter((row) => matches(row, filter));
+    updateCount('countTurnover', movements);
+    movements = sortRows(movements, tableSort.tbodyTurnover, (row, key) => key === 'grupo' ? (row.grupo || row.consultor) : row[key]);
+    updateTableHeadIcons('tbodyTurnover', tableSort.tbodyTurnover.colKey, tableSort.tbodyTurnover.dir);
+    if (el('tbodyTurnover')) el('tbodyTurnover').innerHTML = rowsOrEmpty(movements, 5, (row) => {
+      const isSaida = row.tipo === 'SAÍDA';
+      return `<tr class="${isSaida ? 'table-row-grave' : ''}"><td><strong>${escapeHtml(row.produtor)}</strong></td><td><span class="badge ${isSaida ? 'badge-danger' : 'badge-positive'}">${escapeHtml(row.tipo)}</span></td><td>${escapeHtml(row.data)}</td><td>${escapeHtml(row.grupo || row.consultor)}</td><td>${escapeHtml(row.motivo)}</td></tr>`;
+    });
+
+    // Tabela 4: Consultores
+    let consultants = (visits.tabelaConsultores || []).filter((row) => matches(row, filter));
+    updateCount('countConsultants', consultants);
+    consultants = sortRows(consultants, tableSort.tbodyConsultants, (row, key) => row[key]);
+    updateTableHeadIcons('tbodyConsultants', tableSort.tbodyConsultants.colKey, tableSort.tbodyConsultants.dir);
+    if (el('tbodyConsultants')) el('tbodyConsultants').innerHTML = rowsOrEmpty(consultants, 6, (row) => `<tr><td><strong>${escapeHtml(row.consultor)}</strong></td><td>${number(row.total_fazendas)}</td><td>${number(row.fazendas_visitadas)}</td><td>${number(row.total_visitas)}</td><td>${percent(row.perc_cobertura)}</td><td><span class="badge badge-positive">ATIVO</span></td></tr>`);
+
+    // Tabela 5: Produtores com Dados
+    let withData = (consistency.tabelaProdutoresComDados || []).filter((row) => matches(row, filter));
+    updateCount('countDataProducers', withData);
+    withData = sortRows(withData, tableSort.tbodyDataProducers, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
+    updateTableHeadIcons('tbodyDataProducers', tableSort.tbodyDataProducers.colKey, tableSort.tbodyDataProducers.dir);
+    if (el('tbodyDataProducers')) el('tbodyDataProducers').innerHTML = rowsOrEmpty(withData, 6, (row) => {
+      const noData = row.possui_dados === false;
+      return `<tr class="${noData ? 'table-row-grave' : ''}"><td><strong>${escapeHtml(row.codigo_lr)}</strong></td><td>${escapeHtml(row.produtor || row.codigo_lr)}</td><td>${escapeHtml(row.consultor)}</td><td><span class="badge ${noData ? 'badge-danger' : 'badge-positive'}">${noData ? 'NÃO' : 'SIM'}</span></td><td>${escapeHtml(row.referencia || '—')}</td><td><span class="badge ${String(row.status).toUpperCase() === 'INATIVO' ? 'badge-danger' : 'badge-positive'}">${escapeHtml(row.status || 'ATIVO')}</span></td></tr>`;
+    });
+
+    // Tabela 6: Inconsistências
+    let inconsistencies = (consistency.tabelaInconsistentes || []).filter((row) => matches(row, filter));
+    updateCount('countInconsistencies', inconsistencies);
+    inconsistencies = sortRows(inconsistencies, tableSort.tbodyInconsistencies, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
+    updateTableHeadIcons('tbodyInconsistencies', tableSort.tbodyInconsistencies.colKey, tableSort.tbodyInconsistencies.dir);
+    if (el('tbodyInconsistencies')) el('tbodyInconsistencies').innerHTML = rowsOrEmpty(inconsistencies, 6, (row) => {
+      const st = String(row.consistencia || 'PENDENTE').toUpperCase();
+      const isGrave = st.includes('INCONSISTENT') || st.includes('DIVERGENT');
+      const rowClass = isGrave ? 'table-row-grave' : 'table-row-pending';
+      const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
+      return `<tr class="${rowClass}"><td><strong>${escapeHtml(row.produtor || row.codigo_lr)}</strong></td><td>${escapeHtml(row.consultor)}</td><td>${escapeHtml(row.projeto)}</td><td>${number(row.meses_sequenciais)}</td><td><span class="badge ${badgeClass}">${escapeHtml(row.consistencia || 'PENDENTE')}</span></td><td><button class="link-button" type="button">Ver detalhes ›</button></td></tr>`;
+    });
+  }
+
+  function populateSelect(selectId, values, placeholder) {
+    const select = el(selectId);
+    if (!select) return;
+    const current = select.value;
+    const unique = [...new Set(values.filter(Boolean).map(String))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    select.innerHTML = `<option value="">${placeholder}</option>${unique.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}`;
+    if (unique.includes(current)) select.value = current;
+  }
+
+  function populateMonthSelect(values) {
+    const select = el('filterMonth');
+    if (!select) return;
+    const current = select.value;
+    const unique = [...new Set(values.filter(Boolean).map((value) => String(value).slice(0, 10)))].sort().reverse();
+    const options = unique.map((value) => {
+      const parsed = new Date(`${value}T12:00:00`);
+      const label = Number.isNaN(parsed.getTime())
+        ? value
+        : parsed.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^./, (letter) => letter.toUpperCase());
+      return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+    }).join('');
+    select.innerHTML = `<option value="">Atual</option>${options}`;
+    if (unique.includes(current)) select.value = current;
+  }
+
+  function populateStatusSelect(values) {
+    const select = el('filterStatus');
+    if (!select) return;
+    const current = normalizeStatus(select.value);
+    const available = new Set(values.map(normalizeStatus));
+    const ordered = ['ATIVO', 'INATIVO'].filter((value) => available.has(value));
+    const labels = { ATIVO: 'Ativa', INATIVO: 'Inativo' };
+    select.innerHTML = `<option value="">Todos</option>${ordered.map((value) => `<option value="${value}">${labels[value]}</option>`).join('')}`;
+    if (ordered.includes(current)) select.value = current;
+  }
+
+  function populateProjectSelect() {
+    const select = el('filterProject');
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = `<option value="">Todos</option>${projectOptions.map((project) => `<option value="${project.value}">${project.label}</option>`).join('')}`;
+    if (projectOptions.some((project) => project.value === current)) select.value = current;
+  }
+
+  function populateFilters() {
+    const overview = state.overview || emptyState.overview;
+    const visits = state.visits || emptyState.visits;
+    const turnover = state.turnover || emptyState.turnover;
+    const consistency = state.consistency || emptyState.consistency;
+    const allRows = [
+      ...(overview.tabelas?.sem_visita || []),
+      ...(overview.tabelas?.visitados || []),
+      ...(visits.tabelaConsultores || []),
+      ...(turnover.tabelaMovimentacao || []),
+      ...(consistency.tabelaProdutoresComDados || []),
+      ...(consistency.tabelaInconsistentes || [])
+    ];
+    const consultants = [
+      ...(overview.tabelas?.sem_visita || []).map((row) => row.consultor),
+      ...(overview.tabelas?.visitados || []).map((row) => row.consultor),
+      ...(visits.tabelaConsultores || []).map((row) => row.consultor),
+      ...(turnover.tabelaMovimentacao || []).map((row) => row.consultor),
+      ...(consistency.tabelaProdutoresComDados || []).map((row) => row.consultor)
+    ];
+    const producers = [
+      ...(overview.tabelas?.sem_visita || []).map((row) => row.produtor),
+      ...(overview.tabelas?.visitados || []).map((row) => row.produtor),
+      ...(turnover.tabelaMovimentacao || []).map((row) => row.produtor),
+      ...(consistency.tabelaProdutoresComDados || []).map((row) => row.produtor)
+    ];
+    const industries = [
+      ...(overview.filterOptions?.agroindustrias || []),
+      ...allRows.flatMap((row) => row.agroindustrias || row.agroindustria || [])
+    ];
+    const regions = [
+      ...(overview.filterOptions?.regioes || []),
+      ...allRows.flatMap((row) => row.regioes || row.regiao || [])
+    ].filter(r => r && r !== 'LABOR RURAL' && r !== 'UNIDADE GENERICA');
+    const statuses = [
+      ...(overview.filterOptions?.status || []),
+      ...allRows.map((row) => row.status)
+    ];
+    const months = [
+      ...(overview.filterOptions?.meses || []),
+      overview.refMonth,
+      ...allRows.map((row) => row.mes_referencia || row.data_referencia)
+    ];
+    populateSelect('filterIndustry', industries, 'Todas');
+    populateSelect('filterRegion', regions, 'Todas');
+    populateProjectSelect();
+    populateStatusSelect(statuses);
+    populateSelect('filterConsultant', consultants, 'Todos');
+    populateSelect('filterProducer', producers, 'Todos');
+    populateMonthSelect(months);
+    setupCustomSelectDropdowns();
+  }
+
+  function updateTimestamp() {
+    const now = new Date();
+    if (el('lastUpdateTag')) el('lastUpdateTag').textContent = 'Sincronização automática';
+    if (el('lastUpdateDate')) el('lastUpdateDate').textContent = `${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+  }
+
+  async function loadAllData() {
+    showLoading('Atualizando dashboard com filtros...');
+    try {
+      const filter = currentFilter();
+      const params = new URLSearchParams();
+      if (filter.month) params.set('month', filter.month);
+      if (filter.industry) params.set('industry', filter.industry);
+      if (filter.region) params.set('region', filter.region);
+      if (filter.project) params.set('project', filter.project);
+      if (filter.consultant) params.set('consultant', filter.consultant);
+      if (filter.status) params.set('status', filter.status);
+      if (filter.producer) params.set('producer', filter.producer);
+
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const [overview, visits, turnover, consistency] = await Promise.all([
+        getJson(`/api/overview${query}`),
+        getJson(`/api/visits${query}`),
+        getJson(`/api/turnover${query}`),
+        getJson(`/api/consistency${query}`)
+      ]);
+      state.overview = overview;
+      state.visits = visits;
+      state.turnover = turnover;
+      state.consistency = consistency;
+      renderVisits(visits);
+      renderConsistency(consistency);
+      renderOverview(overview);
+      renderTurnover(turnover);
+      populateFilters();
+      renderTables();
+      updateTimestamp();
+    } finally {
+      hideLoading(250);
+    }
+  }
+
+  function handleFilterChange() {
+    loadAllData();
+  }
+
+  function closeAllPopups() {
+    document.querySelectorAll('.custom-select-popup').forEach((p) => p.classList.remove('open'));
+    document.querySelectorAll('.filter-control').forEach((fc) => fc.classList.remove('active-popup'));
+  }
+
+  function normalizeText(str) {
+    return String(str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  function setupCustomSelectDropdowns() {
+    const filterControls = document.querySelectorAll('.filter-control');
+    
+    filterControls.forEach((control) => {
+      const select = control.querySelector('select');
+      if (!select) return;
+
+      let displayValue = control.querySelector('.select-display-value');
+      if (!displayValue) {
+        displayValue = document.createElement('div');
+        displayValue.className = 'select-display-value';
+        control.appendChild(displayValue);
+      }
+
+      function syncDisplayValue() {
+        const selectedOpt = select.options[select.selectedIndex];
+        displayValue.textContent = selectedOpt ? selectedOpt.text : (select.value || '');
+      }
+
+      syncDisplayValue();
+
+      let popup = control.querySelector('.custom-select-popup');
+      if (!popup) {
+        popup = document.createElement('div');
+        popup.className = 'custom-select-popup';
+        control.appendChild(popup);
+      }
+
+      select.onchange = syncDisplayValue;
+
+      if (control.dataset.customSelectInitialized === 'true') {
+        return;
+      }
+      control.dataset.customSelectInitialized = 'true';
+
+      function updatePopupOptions(searchQuery = '') {
+        const options = Array.from(select.options);
+        const queryNorm = normalizeText(searchQuery);
+
+        const filtered = options.filter(opt => {
+          if (!queryNorm) return true;
+          return normalizeText(opt.text).includes(queryNorm);
+        });
+
+        let searchWrap = popup.querySelector('.custom-select-search-wrap');
+        let optionsList = popup.querySelector('.custom-select-options-list');
+
+        if (!searchWrap || !optionsList) {
+          popup.innerHTML = `
+            <div class="custom-select-search-wrap">
+              <input type="text" class="custom-select-search-input" placeholder="Pesquisar..." aria-label="Pesquisar opção">
+            </div>
+            <div class="custom-select-options-list"></div>
+          `;
+          searchWrap = popup.querySelector('.custom-select-search-wrap');
+          optionsList = popup.querySelector('.custom-select-options-list');
+
+          const inputEl = searchWrap.querySelector('.custom-select-search-input');
+          inputEl.addEventListener('click', (e) => e.stopPropagation());
+          inputEl.addEventListener('mousedown', (e) => e.stopPropagation());
+          inputEl.addEventListener('keydown', (e) => {
+            e.stopPropagation();
+            if (e.key === 'Escape') closeAllPopups();
+          });
+          inputEl.addEventListener('input', (e) => {
+            updatePopupOptions(e.target.value);
+          });
+        }
+
+        if (filtered.length === 0) {
+          optionsList.innerHTML = `<div class="custom-select-no-results">Nenhum resultado encontrado</div>`;
+        } else {
+          optionsList.innerHTML = filtered.map((opt) => {
+            const isSelected = opt.value === select.value;
+            return `<div class="custom-select-option ${isSelected ? 'selected' : ''}" data-value="${escapeHtml(opt.value)}">
+              <span>${escapeHtml(opt.text)}</span>
+              ${isSelected ? '<span style="font-size:10px;">✓</span>' : ''}
+            </div>`;
+          }).join('');
+        }
+
+        optionsList.querySelectorAll('.custom-select-option').forEach((optEl) => {
+          optEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const val = optEl.dataset.value;
+            select.value = val;
+            syncDisplayValue();
+            closeAllPopups();
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+        });
+      }
+
+      function togglePopup(e) {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        const isOpen = popup.classList.contains('open');
+        closeAllPopups();
+        if (!isOpen) {
+          updatePopupOptions('');
+          popup.classList.add('open');
+          control.classList.add('active-popup');
+          const searchInput = popup.querySelector('.custom-select-search-input');
+          if (searchInput) {
+            searchInput.value = '';
+            setTimeout(() => searchInput.focus(), 60);
+          }
+        }
+      }
+
+      control.addEventListener('click', (e) => {
+        if (e.target.closest('.custom-select-popup')) return;
+        togglePopup(e);
+      });
+    });
+
+    if (!window._customSelectDocumentListenerAttached) {
+      window._customSelectDocumentListenerAttached = true;
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.filter-control')) {
+          closeAllPopups();
+        }
+      });
+    }
+  }
+
+  ['filterIndustry', 'filterRegion', 'filterProject', 'filterStatus', 'filterConsultant', 'filterProducer']
+    .forEach((id) => el(id)?.addEventListener('change', handleFilterChange));
+  el('filterMonth')?.addEventListener('change', loadAllData);
+  document.querySelectorAll('[data-ranking]').forEach((button) => button.addEventListener('click', () => {
+    state.rankingDimension = button.dataset.ranking;
+    renderSelectedRanking();
+  }));
+
+  setupTableSorting();
+  setupCustomSelectDropdowns();
+  loadAllData();
+  setInterval(loadAllData, 300000);
+
+  window.dashboard = { carousel, reload: loadAllData };
+});
