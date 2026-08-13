@@ -1,0 +1,186 @@
+const { createClient } = require('@supabase/supabase-js');
+
+function getSupabaseClient() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    throw new Error('Supabase credentials missing in environment variables');
+  }
+  return createClient(url, key);
+}
+
+async function fetchAll(createQuery, pageSize = 1000) {
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await createQuery().range(from, from + pageSize - 1);
+    if (error) throw error;
+    const page = data || [];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return rows;
+}
+
+function mapAgroindustria(projeto) {
+  if (!projeto) return 'NÃO INFORMADA';
+  const p = String(projeto).toUpperCase();
+  if (p.includes('ALVOAR')) return 'Alvoar';
+  if (p.includes('CCPR')) return 'CCPR';
+  if (p.includes('LPA')) return 'Laticínios Porto Alegre';
+  if (p.includes('REGENERA')) return 'Nestlé';
+  if (p.includes('SEMEAR')) return 'Danone';
+  return projeto;
+}
+
+module.exports = async (req, res) => {
+  try {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+
+    const supabase = getSupabaseClient();
+    
+    // Descobrir mês mais recente
+    const { data: ultimasVisitas } = await supabase
+      .from('f_visitas_bi_lr')
+      .select('mes_referencia')
+      .order('mes_referencia', { ascending: false })
+      .limit(1);
+
+    const requestedMonth = String(req.query?.month || '').slice(0, 10);
+    const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
+      ? requestedMonth
+      : ((ultimasVisitas && ultimasVisitas.length > 0) ? ultimasVisitas[0].mes_referencia : null);
+
+    const fazendasDB = await fetchAll(() => supabase.from('tab_fazenda').select('codAgroindustria, regiaoLeiteira').not('regiaoLeiteira', 'is', null));
+    const regiaoMap = new Map();
+    (fazendasDB || []).forEach(f => {
+      if (f.codAgroindustria && f.regiaoLeiteira) {
+        regiaoMap.set(String(f.codAgroindustria).trim(), String(f.regiaoLeiteira).trim());
+      }
+    });
+
+    function getRegiao(codigoLr, fallback) {
+      if (codigoLr && regiaoMap.has(String(codigoLr).trim())) {
+        return regiaoMap.get(String(codigoLr).trim());
+      }
+      if (fallback && fallback !== 'LABOR RURAL' && fallback !== 'UNIDADE GENERICA') {
+        return fallback;
+      }
+      return 'NÃO INFORMADA';
+    }
+
+    const filters = {
+      industry: String(req.query?.industry || '').trim(),
+      region: String(req.query?.region || '').trim(),
+      project: String(req.query?.project || '').trim(),
+      consultant: String(req.query?.consultant || '').trim(),
+      producer: String(req.query?.producer || '').trim(),
+      status: String(req.query?.status || '').trim()
+    };
+
+    function rowMatches(row) {
+      if (filters.industry && mapAgroindustria(row.projeto || row.agroindustria) !== filters.industry) return false;
+      if (filters.region && getRegiao(row.codigo_lr, row.unidade_atendimento || row.regiao) !== filters.region) return false;
+      if (filters.project && String(row.projeto || '') !== filters.project) return false;
+      if (filters.consultant && String(row.nome_consultor || row.consultor || '').toLowerCase() !== filters.consultant.toLowerCase()) return false;
+      if (filters.producer) {
+        const pName = String(row.nome_produtor || row.produtor || row.codigo_lr || '').toLowerCase();
+        if (!pName.includes(filters.producer.toLowerCase())) return false;
+      }
+      if (filters.status) {
+        const rowStatus = String(row.status || 'ATIVO').toUpperCase();
+        if (filters.status.toUpperCase() === 'ATIVO' && rowStatus.includes('INATIV')) return false;
+        if (filters.status.toUpperCase() === 'INATIVO' && !rowStatus.includes('INATIV')) return false;
+      }
+      return true;
+    }
+
+    const produtoresBrutos = await fetchAll(() => supabase
+      .from('tab_produtores_ativos_mensal')
+      .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
+      .eq('data_referencia', refMonth)
+      .order('codigo_lr', { ascending: true }));
+
+    const visitasBrutas = await fetchAll(() => supabase
+      .from('f_visitas_bi_lr')
+      .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia')
+      .eq('mes_referencia', refMonth)
+      .order('codigo_lr', { ascending: true }));
+
+    const produtoresFiltrados = (produtoresBrutos || []).filter(rowMatches);
+    const visitasFiltradas = (visitasBrutas || []).filter(rowMatches);
+
+    const totalAtivos = produtoresFiltrados.length;
+    const totalVisitas = visitasFiltradas.length;
+
+    // Agrupamento por consultor
+    const consultoresMap = {};
+    produtoresFiltrados.forEach(p => {
+      const c = p.nome_consultor || 'NÃO ATRIBUÍDO';
+      if (!consultoresMap[c]) {
+        consultoresMap[c] = { consultor: c, totalFarms: 0, visitedFarms: new Set(), visitasCount: 0, industries: new Set(), projects: new Set(), regions: new Set() };
+      }
+      consultoresMap[c].totalFarms++;
+      if (p.projeto) {
+        consultoresMap[c].projects.add(p.projeto);
+        consultoresMap[c].industries.add(mapAgroindustria(p.projeto));
+      }
+      const reg = getRegiao(p.codigo_lr, p.unidade_atendimento);
+      if (reg) consultoresMap[c].regions.add(reg);
+    });
+
+    visitasFiltradas.forEach(v => {
+      const c = v.nome_consultor || 'NÃO ATRIBUÍDO';
+      if (!consultoresMap[c]) {
+        consultoresMap[c] = { consultor: c, totalFarms: 0, visitedFarms: new Set(), visitasCount: 0, industries: new Set(), regions: new Set() };
+      }
+      consultoresMap[c].visitasCount++;
+      if (v.codigo_lr) consultoresMap[c].visitedFarms.add(v.codigo_lr);
+    });
+
+    const consultoresList = Object.values(consultoresMap).map(c => {
+      const visitedCount = c.visitedFarms.size;
+      const total = c.totalFarms || visitedCount || 1;
+      const cob = ((visitedCount / total) * 100).toFixed(1);
+      return {
+        consultor: c.consultor,
+        total_fazendas: total,
+        fazendas_visitadas: visitedCount,
+        total_visitas: c.visitasCount,
+        perc_cobertura: Number(cob),
+        agroindustrias: [...c.industries],
+        regioes: [...c.regions],
+        projetos: [...(c.projects || [])],
+        status: 'ATIVO',
+        mes_referencia: refMonth
+      };
+    }).sort((a, b) => b.perc_cobertura - a.perc_cobertura);
+
+    const topConsultores = consultoresList;
+    const totalConsultoresAtivos = consultoresList.length;
+    const mediaVisitasConsultor = (totalVisitas / (totalConsultoresAtivos || 1)).toFixed(1);
+
+    const visitadosUnicos = new Set(visitasFiltradas.map(v => v.codigo_lr).filter(Boolean)).size;
+    const fazendasNaoVisitadas = Math.max(0, totalAtivos - visitadosUnicos);
+
+    return res.status(200).json({
+      timestamp: new Date().toISOString(),
+      refMonth,
+      kpis: {
+        perc_cobertura_geral: totalAtivos > 0 ? ((visitadosUnicos / totalAtivos) * 100).toFixed(1) : '0.0',
+        total_visitas: totalVisitas,
+        media_visitas_consultor: mediaVisitasConsultor,
+        fazendas_nao_visitadas: fazendasNaoVisitadas
+      },
+      rankingConsultores: {
+        labels: topConsultores.map(c => c.consultor),
+        coberturas: topConsultores.map(c => c.perc_cobertura),
+        visitas: topConsultores.map(c => c.total_visitas)
+      },
+      tabelaConsultores: consultoresList
+    });
+  } catch (error) {
+    console.error('Erro em /api/visits:', error);
+    return res.status(500).json({ error: error.message });
+  }
+};

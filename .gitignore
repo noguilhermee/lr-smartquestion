@@ -17,10 +17,6 @@ env/
 # Configurações sensíveis
 .env
 .env*
-api/
-api/*
-DASHBOARD/api/
-DASHBOARD/api/*
 
 # Banco de dados local / arquivos pesados de entrada e saída
 DB/INPUT/*

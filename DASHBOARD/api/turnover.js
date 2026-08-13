@@ -1,0 +1,228 @@
+const { createClient } = require('@supabase/supabase-js');
+
+function getSupabaseClient() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    throw new Error('Supabase credentials missing in environment variables');
+  }
+  return createClient(url, key);
+}
+
+async function fetchAll(createQuery, pageSize = 1000) {
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await createQuery().range(from, from + pageSize - 1);
+    if (error) throw error;
+    const page = data || [];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return rows;
+}
+
+function monthLabel(value) {
+  if (!value) return '-';
+  const parsed = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  const month = parsed.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+  return `${month.charAt(0).toUpperCase()}${month.slice(1)}/${String(parsed.getFullYear()).slice(-2)}`;
+}
+
+function mapAgroindustria(projeto) {
+  if (!projeto) return 'NÃO INFORMADA';
+  const p = String(projeto).toUpperCase();
+  if (p.includes('ALVOAR')) return 'Alvoar';
+  if (p.includes('CCPR')) return 'CCPR';
+  if (p.includes('LPA')) return 'Laticínios Porto Alegre';
+  if (p.includes('REGENERA')) return 'Nestlé';
+  if (p.includes('SEMEAR')) return 'Danone';
+  return projeto;
+}
+
+module.exports = async (req, res) => {
+  try {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+
+    const supabase = getSupabaseClient();
+
+    const fazendasDB = await fetchAll(() => supabase.from('tab_fazenda').select('codAgroindustria, regiaoLeiteira').not('regiaoLeiteira', 'is', null));
+    const regiaoMap = new Map();
+    (fazendasDB || []).forEach(f => {
+      if (f.codAgroindustria && f.regiaoLeiteira) {
+        regiaoMap.set(String(f.codAgroindustria).trim(), String(f.regiaoLeiteira).trim());
+      }
+    });
+
+    function getRegiao(codigoLr, fallback) {
+      if (codigoLr && regiaoMap.has(String(codigoLr).trim())) {
+        return regiaoMap.get(String(codigoLr).trim());
+      }
+      if (fallback && fallback !== 'LABOR RURAL' && fallback !== 'UNIDADE GENERICA') {
+        return fallback;
+      }
+      return 'NÃO INFORMADA';
+    }
+
+    const filters = {
+      industry: String(req.query?.industry || '').trim(),
+      region: String(req.query?.region || '').trim(),
+      project: String(req.query?.project || '').trim(),
+      consultant: String(req.query?.consultant || '').trim(),
+      producer: String(req.query?.producer || '').trim(),
+      status: String(req.query?.status || '').trim()
+    };
+
+    function rowMatches(row) {
+      if (filters.industry && mapAgroindustria(row.projeto || row.agroindustria) !== filters.industry) return false;
+      if (filters.region && getRegiao(row.codigo_lr, row.unidade_atendimento || row.regiao) !== filters.region) return false;
+      if (filters.project && String(row.projeto || '') !== filters.project) return false;
+      if (filters.consultant && String(row.nome_consultor || row.consultor || '').toLowerCase() !== filters.consultant.toLowerCase()) return false;
+      if (filters.producer) {
+        const pName = String(row.nome_produtor || row.produtor || row.codigo_lr || '').toLowerCase();
+        if (!pName.includes(filters.producer.toLowerCase())) return false;
+      }
+      if (filters.status) {
+        const rowStatus = String(row.status || 'ATIVO').toUpperCase();
+        if (filters.status.toUpperCase() === 'ATIVO' && rowStatus.includes('INATIV')) return false;
+        if (filters.status.toUpperCase() === 'INATIVO' && !rowStatus.includes('INATIV')) return false;
+      }
+      return true;
+    }
+
+    const movimentacoesBrutas = await fetchAll(() => supabase
+      .from('tab_movimentacao_produtor')
+      .select('codigo_lr, nome_consultor, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
+      .order('data_movimentacao', { ascending: false }));
+
+    const produtoresBrutos = await fetchAll(() => supabase
+      .from('tab_produtores_ativos_mensal')
+      .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
+      .order('data_referencia', { ascending: false }));
+
+    const produtores = (produtoresBrutos || []).filter(rowMatches);
+
+    const produtoresMap = new Map();
+    (produtores || []).forEach((produtor) => {
+      if (produtor.codigo_lr && !produtoresMap.has(produtor.codigo_lr)) produtoresMap.set(produtor.codigo_lr, produtor);
+    });
+
+    const movimentacoes = (movimentacoesBrutas || []).filter(m => {
+      const p = produtoresMap.get(m.codigo_lr);
+      return rowMatches({ ...m, projeto: p?.projeto, unidade_atendimento: p?.unidade_atendimento, nome_produtor: p?.nome_produtor });
+    });
+
+    const maxDataRef = (produtores && produtores.length > 0) ? produtores[0].data_referencia : null;
+    const latestMovementKey = String(movimentacoes?.[0]?.data_movimentacao || '').slice(0, 7);
+    const latestMovementMonth = /^\d{4}-\d{2}$/.test(latestMovementKey) ? `${latestMovementKey}-01` : null;
+    const requestedMonth = String(req.query?.month || '').slice(0, 10);
+    const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth) ? requestedMonth : (latestMovementMonth || maxDataRef);
+    const produtoresFiltrados = refMonth
+      ? produtores.filter(p => p.data_referencia === refMonth)
+      : (produtores || []);
+
+    const totalAtivos = new Set(produtoresFiltrados.map(p => p.codigo_lr).filter(Boolean)).size || produtoresFiltrados.length;
+    const totalConsultores = new Set(produtoresFiltrados.map(p => p.nome_consultor).filter(Boolean)).size;
+
+    const currentMonthKey = refMonth ? String(refMonth).slice(0, 7) : null;
+    const movimentacoesDoMes = currentMonthKey
+      ? (movimentacoes || []).filter(m => String(m.data_movimentacao || '').slice(0, 7) === currentMonthKey)
+      : (movimentacoes || []);
+
+    let entradas = 0;
+    let saidas = 0;
+    const motivosMap = {};
+    const tabelaMov = [];
+
+    movimentacoesDoMes.forEach(m => {
+      const isSaida = String(m.movimentacao || '').toLowerCase().includes('sa');
+      const tipo = isSaida ? 'SAÍDA' : 'ENTRADA';
+      if (tipo === 'ENTRADA') {
+        entradas++;
+      } else {
+        saidas++;
+        const mot = m.motivo_inativacao || m.outro_motivo || 'Outro Motivo';
+        motivosMap[mot] = (motivosMap[mot] || 0) + 1;
+      }
+    });
+
+    (movimentacoes || []).forEach(m => {
+      const isSaida = String(m.movimentacao || '').toLowerCase().includes('sa');
+      const tipo = isSaida ? 'SAÍDA' : 'ENTRADA';
+      const produtorAtivo = produtoresMap.get(m.codigo_lr);
+      const movementMonthKey = String(m.data_movimentacao || '').slice(0, 7);
+      tabelaMov.push({
+        produtor: produtorAtivo?.nome_produtor || m.codigo_lr || 'PRODUTOR',
+        consultor: m.nome_consultor || 'NÃO ATRIBUÍDO',
+        grupo: m.nome_consultor || 'NÃO ATRIBUÍDO',
+        agroindustria: mapAgroindustria(produtorAtivo?.projeto),
+        regiao: getRegiao(m.codigo_lr, produtorAtivo?.unidade_atendimento),
+        projeto: produtorAtivo?.projeto || 'NÃO INFORMADO',
+        status: tipo === 'SAÍDA' ? 'INATIVO' : 'ATIVO',
+        mes_referencia: /^\d{4}-\d{2}$/.test(movementMonthKey) ? `${movementMonthKey}-01` : refMonth,
+        tipo,
+        data: m.data_movimentacao ? new Date(`${String(m.data_movimentacao).slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR') : '-',
+        motivo: m.motivo_inativacao || m.outro_motivo || (tipo === 'ENTRADA' ? 'Novo Cadastro' : 'Desligamento')
+      });
+    });
+
+    const saldo = entradas - saidas;
+    const taxaChurn = ((saidas / (totalAtivos || 1)) * 100).toFixed(1);
+
+    const referencias = [...new Set((produtores || []).map(p => p.data_referencia).filter(Boolean))]
+      .filter(ref => !refMonth || ref <= refMonth)
+      .sort();
+    const movimentosPorMes = new Map();
+    (movimentacoes || []).forEach(m => {
+      const key = String(m.data_movimentacao || '').slice(0, 7);
+      if (!key) return;
+      if (!movimentosPorMes.has(key)) movimentosPorMes.set(key, { entradas: 0, saidas: 0 });
+      const item = movimentosPorMes.get(key);
+      if (String(m.movimentacao || '').toLowerCase().includes('sa')) item.saidas += 1;
+      else item.entradas += 1;
+    });
+    const historicoMovimentacao = {
+      labels: referencias.map(monthLabel),
+      entradas: referencias.map(ref => movimentosPorMes.get(String(ref).slice(0, 7))?.entradas || 0),
+      saidas: referencias.map(ref => movimentosPorMes.get(String(ref).slice(0, 7))?.saidas || 0)
+    };
+
+    const carteiraPorMes = new Map();
+    (produtores || []).forEach(p => {
+      if (!p.data_referencia) return;
+      if (!carteiraPorMes.has(p.data_referencia)) carteiraPorMes.set(p.data_referencia, new Set());
+      if (p.codigo_lr) carteiraPorMes.get(p.data_referencia).add(p.codigo_lr);
+    });
+
+    const topMotivos = Object.entries(motivosMap)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+
+    return res.status(200).json({
+      timestamp: new Date().toISOString(),
+      refMonth,
+      kpis: {
+        entradas_mes: entradas,
+        saidas_mes: saidas,
+        saldo: saldo,
+        taxa_churn: taxaChurn,
+        produtores_ativos: totalAtivos,
+        consultores_ativos: totalConsultores
+      },
+      historicoMovimentacao,
+      historicoCarteira: {
+        labels: referencias.map(monthLabel),
+        values: referencias.map(ref => carteiraPorMes.get(ref)?.size || 0)
+      },
+      motivosInativacao: {
+        labels: topMotivos.map(m => m[0]),
+        values: topMotivos.map(m => m[1])
+      },
+      tabelaMovimentacao: tabelaMov
+    });
+  } catch (error) {
+    console.error('Erro em /api/turnover:', error);
+    return res.status(500).json({ error: error.message });
+  }
+};
