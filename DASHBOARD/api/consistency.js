@@ -124,6 +124,7 @@ module.exports = async (req, res) => {
     const produtoresMap = new Map((produtoresAtivos || []).map(p => [p.codigo_lr, p]));
 
     const consistenciaHistorica = (consistenciaHistoricaBruta || []).filter(c => {
+      if (!produtoresMap.has(c.codigo_lr)) return false; // REGRA: Desconsidera produtores fora do SmartQuestion
       const p = produtoresMap.get(c.codigo_lr);
       return rowMatches({ ...c, unidade_atendimento: p?.unidade_atendimento, nome_produtor: p?.nome_produtor });
     });

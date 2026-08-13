@@ -169,7 +169,12 @@ module.exports = async (req, res) => {
       .eq('mes_referencia', refMonth)
       .order('codigo_lr', { ascending: true }));
 
-    const consistenciaFiltrada = consistenciaList.filter(rowMatches);
+    const produtoresMap = new Map((produtoresFiltrados || []).map(p => [p.codigo_lr, p]));
+    const consistenciaFiltrada = consistenciaList.filter(c => {
+      if (!produtoresMap.has(c.codigo_lr)) return false;
+      const p = produtoresMap.get(c.codigo_lr);
+      return rowMatches({ ...c, unidade_atendimento: p?.unidade_atendimento, nome_produtor: p?.nome_produtor });
+    });
 
     // Cálculos de KPIs
     const totalAtivos = new Set(produtoresFiltrados.map(p => p.codigo_lr).filter(Boolean)).size || produtoresFiltrados.length;
@@ -191,13 +196,14 @@ module.exports = async (req, res) => {
       : '0.0';
     const comDadosCount = consistenciaFiltrada.filter(c => c.mes_elabore !== null || c.consistencia_mensal !== null).length;
 
-    // Evolução mensal calculada com as referências disponíveis nas fontes analíticas (limitado até o mês de referência selecionado).
-    const referencias = [...new Set([
-      ...(produtoresHistFiltrados || []).map(p => p.data_referencia),
-      ...(visitasHistFiltradas || []).map(v => v.mes_referencia)
-    ].filter(Boolean))]
-      .filter(ref => !refMonth || ref <= refMonth)
-      .sort();
+    // Evolução mensal calculada com as referências disponíveis nas fontes analíticas.
+    const todosMesesDisponiveis = [...new Set([
+      ...(produtoresHistoricos || []).map(p => p.data_referencia),
+      ...(visitasHistoricas || []).map(v => v.mes_referencia)
+    ].filter(Boolean))].sort();
+
+    const referencias = todosMesesDisponiveis
+      .filter(ref => !refMonth || ref <= refMonth);
     const visitasPorMes = new Map();
     const ativosPorMes = new Map();
     (visitasHistFiltradas || []).forEach(v => {
@@ -237,7 +243,6 @@ module.exports = async (req, res) => {
       rankingMap.set(nome, (rankingMap.get(nome) || 0) + 1);
     });
     const ranking = [...rankingMap.entries()].sort((a, b) => b[1] - a[1]);
-    const produtoresMap = new Map(produtoresFiltrados.map(p => [p.codigo_lr, p]));
 
     // Mapear última data de visita por codigo_lr no histórico
     const ultimaVisitaMap = new Map();
@@ -361,7 +366,7 @@ module.exports = async (req, res) => {
         regioes: [...new Set([...Array.from(regiaoMap.values()), ...produtoresList.map(p => getRegiao(p.codigo_lr, p.unidade_atendimento))])].filter(Boolean).sort(),
         projetos: ['ALVOAR ASSIST', 'ALVOAR ECO', 'ATEG_CCPR', 'LPA', 'REGENERA', 'SEMEAR'],
         status: ['ATIVO', 'INATIVO'],
-        meses: referencias
+        meses: todosMesesDisponiveis
       },
       tabelas: {
         movimentacao: listaMovimentacao,

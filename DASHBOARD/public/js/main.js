@@ -431,11 +431,25 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function populateSelect(selectId, values, placeholder) {
+  const masterFilterOptions = {
+    months: new Set(),
+    industries: new Set(),
+    regions: new Set(),
+    consultants: new Set(),
+    producers: new Set()
+  };
+
+  function populateSelect(selectId, values, placeholder, masterKey) {
     const select = el(selectId);
     if (!select) return;
     const current = select.value;
-    const unique = [...new Set(values.filter(Boolean).map(String))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    if (masterKey && masterFilterOptions[masterKey]) {
+      values.filter(Boolean).map(String).forEach((v) => masterFilterOptions[masterKey].add(v));
+    }
+    const sourceArray = masterKey && masterFilterOptions[masterKey]?.size > 0
+      ? Array.from(masterFilterOptions[masterKey])
+      : values.filter(Boolean).map(String);
+    const unique = [...new Set(sourceArray)].sort((a, b) => a.localeCompare(b, 'pt-BR'));
     select.innerHTML = `<option value="">${placeholder}</option>${unique.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}`;
     if (unique.includes(current)) select.value = current;
   }
@@ -444,7 +458,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const select = el('filterMonth');
     if (!select) return;
     const current = select.value;
-    const unique = [...new Set(values.filter(Boolean).map((value) => String(value).slice(0, 10)))].sort().reverse();
+    values.filter(Boolean).map((v) => String(v).slice(0, 10)).forEach((v) => masterFilterOptions.months.add(v));
+    const sourceArray = masterFilterOptions.months.size > 0
+      ? Array.from(masterFilterOptions.months)
+      : values.filter(Boolean).map((v) => String(v).slice(0, 10));
+    const unique = [...new Set(sourceArray)].sort().reverse();
     const options = unique.map((value) => {
       const parsed = new Date(`${value}T12:00:00`);
       const label = Number.isNaN(parsed.getTime())
@@ -518,12 +536,12 @@ document.addEventListener('DOMContentLoaded', () => {
       overview.refMonth,
       ...allRows.map((row) => row.mes_referencia || row.data_referencia)
     ];
-    populateSelect('filterIndustry', industries, 'Todas');
-    populateSelect('filterRegion', regions, 'Todas');
+    populateSelect('filterIndustry', industries, 'Todas', 'industries');
+    populateSelect('filterRegion', regions, 'Todas', 'regions');
     populateProjectSelect();
     populateStatusSelect(statuses);
-    populateSelect('filterConsultant', consultants, 'Todos');
-    populateSelect('filterProducer', producers, 'Todos');
+    populateSelect('filterConsultant', consultants, 'Todos', 'consultants');
+    populateSelect('filterProducer', producers, 'Todos', 'producers');
     populateMonthSelect(months);
     setupCustomSelectDropdowns();
   }
