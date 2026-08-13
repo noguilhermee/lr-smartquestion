@@ -51,13 +51,8 @@ module.exports = async (req, res) => {
       ? requestedMonth
       : ((ultimasVisitas && ultimasVisitas.length > 0) ? ultimasVisitas[0].mes_referencia : null);
 
-    const fazendasDB = await fetchAll(() => supabase.from('tab_fazenda').select('codAgroindustria, regiaoLeiteira').not('regiaoLeiteira', 'is', null));
-    const regiaoMap = new Map();
-    (fazendasDB || []).forEach(f => {
-      if (f.codAgroindustria && f.regiaoLeiteira) {
-        regiaoMap.set(String(f.codAgroindustria).trim(), String(f.regiaoLeiteira).trim());
-      }
-    });
+    const { getRegiaoMap } = require('./azurePostgres');
+    const regiaoMap = await getRegiaoMap(supabase, fetchAll);
 
     function getRegiao(codigoLr, fallback) {
       if (codigoLr && regiaoMap.has(String(codigoLr).trim())) {

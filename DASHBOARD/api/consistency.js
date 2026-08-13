@@ -57,14 +57,8 @@ module.exports = async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
 
     const supabase = getSupabaseClient();
-
-    const fazendasDB = await fetchAll(() => supabase.from('tab_fazenda').select('codAgroindustria, regiaoLeiteira').not('regiaoLeiteira', 'is', null));
-    const regiaoMap = new Map();
-    (fazendasDB || []).forEach(f => {
-      if (f.codAgroindustria && f.regiaoLeiteira) {
-        regiaoMap.set(String(f.codAgroindustria).trim(), String(f.regiaoLeiteira).trim());
-      }
-    });
+    const { getRegiaoMap } = require('./azurePostgres');
+    const regiaoMap = await getRegiaoMap(supabase, fetchAll);
 
     function getRegiao(codigoLr, fallback) {
       if (codigoLr && regiaoMap.has(String(codigoLr).trim())) {

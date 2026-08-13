@@ -53,19 +53,13 @@ module.exports = async (req, res) => {
 
     const supabase = getSupabaseClient();
 
-    // 0. Consultar lista oficial de agroindústrias, regiões das fazendas e consultores
-    const [{ data: agrosDB }, fazendasDB, consultoresDB] = await Promise.all([
+    const { getRegiaoMap } = require('./azurePostgres');
+    const [{ data: agrosDB }, consultoresDB, regiaoMap] = await Promise.all([
       supabase.from('tab_agroindustria').select('nomeAgroindustria').order('nomeAgroindustria', { ascending: true }),
-      fetchAll(() => supabase.from('tab_fazenda').select('codAgroindustria, regiaoLeiteira').not('regiaoLeiteira', 'is', null)),
-      fetchAll(() => supabase.from('tab_consultor').select('nomeConsultor, formacaoConsultor'))
+      fetchAll(() => supabase.from('tab_consultor').select('nomeConsultor, formacaoConsultor')),
+      getRegiaoMap(supabase, fetchAll)
     ]);
     const agroindustriasOficiais = (agrosDB || []).map(a => a.nomeAgroindustria).filter(Boolean);
-    const regiaoMap = new Map();
-    (fazendasDB || []).forEach(f => {
-      if (f.codAgroindustria && f.regiaoLeiteira) {
-        regiaoMap.set(String(f.codAgroindustria).trim(), String(f.regiaoLeiteira).trim());
-      }
-    });
 
     function normalizeName(str) {
       return String(str || '')

@@ -460,3 +460,46 @@ def consultar_tabela_supabase(
     return pd.DataFrame(resposta.data or [])
 
 
+def consultar_view_azure_postgres(
+    view: str = "vw_dim_property",
+    schema: str | None = None,
+    raiz: Path | str | None = None,
+) -> pd.DataFrame:
+    """
+    Consulta uma view/tabela no banco de dados Azure PostgreSQL (ex: analytics_mart.vw_dim_property)
+    usando as credenciais definidas em SCRIPTS/CONFIG/.env.
+    """
+    import os
+    import psycopg2
+    
+    env_vars = carregar_env(raiz)
+    pg_host = env_vars.get("PG_HOST") or os.getenv("PG_HOST")
+    pg_port = env_vars.get("PG_PORT") or os.getenv("PG_PORT") or 5432
+    pg_database = env_vars.get("PG_DATABASE") or os.getenv("PG_DATABASE") or "postgres"
+    pg_user = env_vars.get("PG_USER") or os.getenv("PG_USER")
+    pg_password = env_vars.get("PG_PASSWORD") or os.getenv("PG_PASSWORD")
+    pg_schema = schema or env_vars.get("PG_SCHEMA") or os.getenv("PG_SCHEMA") or "analytics_mart"
+
+    if not pg_host or not pg_user or not pg_password:
+        raise ValueError(
+            "Credenciais do Postgres Azure ausentes. Verifique PG_HOST, PG_USER e PG_PASSWORD em SCRIPTS/CONFIG/.env"
+        )
+
+    conn = psycopg2.connect(
+        host=pg_host,
+        port=int(pg_port),
+        dbname=pg_database,
+        user=pg_user,
+        password=pg_password,
+        sslmode="require"
+    )
+
+    try:
+        query = f"SELECT * FROM {pg_schema}.{view};"
+        df = pd.read_sql_query(query, conn)
+        return df
+    finally:
+        conn.close()
+
+
+
