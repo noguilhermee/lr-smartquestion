@@ -10,13 +10,31 @@ function getSupabaseClient() {
 }
 
 async function fetchAll(createQuery, pageSize = 1000) {
-  const rows = [];
-  for (let from = 0; ; from += pageSize) {
-    const { data, error } = await createQuery().range(from, from + pageSize - 1);
-    if (error) throw error;
-    const page = data || [];
-    rows.push(...page);
-    if (page.length < pageSize) break;
+  const { data: firstPage, error: err0 } = await createQuery().range(0, pageSize - 1);
+  if (err0) throw err0;
+  const rows = firstPage ? [...firstPage] : [];
+  if (rows.length < pageSize) return rows;
+
+  let from = pageSize;
+  while (true) {
+    const promises = [];
+    for (let i = 0; i < 5; i++) {
+      const pageFrom = from + i * pageSize;
+      promises.push(createQuery().range(pageFrom, pageFrom + pageSize - 1));
+    }
+    const results = await Promise.all(promises);
+    let done = false;
+    for (const res of results) {
+      if (res.error) throw res.error;
+      const page = res.data || [];
+      rows.push(...page);
+      if (page.length < pageSize) {
+        done = true;
+        break;
+      }
+    }
+    if (done) break;
+    from += 5 * pageSize;
   }
   return rows;
 }
