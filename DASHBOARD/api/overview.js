@@ -107,17 +107,19 @@ module.exports = async (req, res) => {
       return 'NÃO INFORMADA';
     }
 
-    // 1. Descobrir mês de referência mais recente nas visitas
+    // 1. Descobrir mês de referência mais recente nas visitas (limitado ao mês atual maxAllowedMonth)
+    const maxAllowedMonth = new Date().toISOString().slice(0, 7) + '-01';
     const { data: ultimasVisitas } = await supabase
       .from('f_visitas_bi_lr')
       .select('mes_referencia')
+      .lte('mes_referencia', maxAllowedMonth)
       .order('mes_referencia', { ascending: false })
       .limit(1);
 
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
     const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
       ? requestedMonth
-      : ((ultimasVisitas && ultimasVisitas.length > 0) ? ultimasVisitas[0].mes_referencia : null);
+      : ((ultimasVisitas && ultimasVisitas.length > 0) ? ultimasVisitas[0].mes_referencia : maxAllowedMonth);
 
     // 2. Consultar produtores ativos no mês de referência
     const produtoresList = await fetchAll(() => supabase
@@ -221,7 +223,9 @@ module.exports = async (req, res) => {
     const todosMesesDisponiveis = [...new Set([
       ...(produtoresHistoricos || []).map(p => p.data_referencia),
       ...(visitasHistoricas || []).map(v => v.mes_referencia)
-    ].filter(Boolean))].sort();
+    ].filter(Boolean))]
+      .filter(m => m <= maxAllowedMonth)
+      .sort();
 
     const referencias = todosMesesDisponiveis
       .filter(ref => !refMonth || ref <= refMonth);

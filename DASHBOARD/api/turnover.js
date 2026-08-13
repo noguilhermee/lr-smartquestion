@@ -111,9 +111,11 @@ module.exports = async (req, res) => {
       .select('codigo_lr, nome_consultor, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
       .order('data_movimentacao', { ascending: false }));
 
+    const maxAllowedMonth = new Date().toISOString().slice(0, 7) + '-01';
     const produtoresBrutos = await fetchAll(() => supabase
       .from('tab_produtores_ativos_mensal')
       .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
+      .lte('data_referencia', maxAllowedMonth)
       .order('data_referencia', { ascending: false }));
 
     const produtores = (produtoresBrutos || []).filter(rowMatches);

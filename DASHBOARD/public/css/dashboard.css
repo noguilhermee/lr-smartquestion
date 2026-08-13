@@ -1148,3 +1148,135 @@ button { color: inherit; }
   .page-dot { width: 23px; height: 23px; }
   .page-dot.active { width: 48px; }
 }
+
+/* Modal de Detalhes da Inconsistência */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+.modal-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 580px;
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+  transform: scale(0.95);
+  transition: transform 200ms ease;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-overlay.active .modal-card {
+  transform: scale(1);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: var(--surface-soft);
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-header h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-strong);
+  margin: 0;
+}
+
+.modal-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 120ms ease;
+}
+
+.modal-close-btn:hover {
+  background: var(--line-soft);
+  color: var(--ink);
+}
+
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px 20px;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+}
+
+.detail-value {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.modal-footer {
+  padding: 12px 20px;
+  background: var(--surface-soft);
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.modal-btn-primary {
+  background: var(--green-700);
+  color: #ffffff;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.modal-btn-primary:hover {
+  background: var(--green-800);
+}
+

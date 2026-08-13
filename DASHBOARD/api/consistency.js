@@ -92,16 +92,18 @@ module.exports = async (req, res) => {
     }
     
     // Descobrir mês mais recente
+    const maxAllowedMonth = new Date().toISOString().slice(0, 7) + '-01';
     const { data: ultimasVisitas } = await supabase
       .from('f_visitas_bi_lr')
       .select('mes_referencia')
+      .lte('mes_referencia', maxAllowedMonth)
       .order('mes_referencia', { ascending: false })
       .limit(1);
 
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
     const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
       ? requestedMonth
-      : ((ultimasVisitas && ultimasVisitas.length > 0) ? ultimasVisitas[0].mes_referencia : null);
+      : ((ultimasVisitas && ultimasVisitas.length > 0) ? ultimasVisitas[0].mes_referencia : maxAllowedMonth);
 
     const filters = {
       industry: String(req.query?.industry || '').trim(),

@@ -422,12 +422,12 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCount('countInconsistencies', inconsistencies);
     inconsistencies = sortRows(inconsistencies, tableSort.tbodyInconsistencies, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
     updateTableHeadIcons('tbodyInconsistencies', tableSort.tbodyInconsistencies.colKey, tableSort.tbodyInconsistencies.dir);
-    if (el('tbodyInconsistencies')) el('tbodyInconsistencies').innerHTML = rowsOrEmpty(inconsistencies, 6, (row) => {
+    if (el('tbodyInconsistencies')) el('tbodyInconsistencies').innerHTML = rowsOrEmpty(inconsistencies, 6, (row, idx) => {
       const st = String(row.consistencia || 'PENDENTE').toUpperCase();
       const isGrave = st.includes('INCONSISTENT') || st.includes('DIVERGENT');
       const rowClass = isGrave ? 'table-row-grave' : 'table-row-pending';
       const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
-      return `<tr class="${rowClass}"><td><strong>${escapeHtml(row.produtor || row.codigo_lr)}</strong></td><td>${escapeHtml(row.consultor)}</td><td>${escapeHtml(row.projeto)}</td><td>${number(row.meses_sequenciais)}</td><td><span class="badge ${badgeClass}">${escapeHtml(row.consistencia || 'PENDENTE')}</span></td><td><button class="link-button" type="button">Ver detalhes ›</button></td></tr>`;
+      return `<tr class="${rowClass}"><td><strong>${escapeHtml(row.produtor || row.codigo_lr)}</strong></td><td>${escapeHtml(row.consultor)}</td><td>${escapeHtml(row.projeto)}</td><td>${number(row.meses_sequenciais)}</td><td><span class="badge ${badgeClass}">${escapeHtml(row.consistencia || 'PENDENTE')}</span></td><td><button class="link-button btn-view-details" type="button" data-idx="${idx}">Ver detalhes ›</button></td></tr>`;
     });
   }
 
@@ -458,10 +458,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const select = el('filterMonth');
     if (!select) return;
     const current = select.value;
-    values.filter(Boolean).map((v) => String(v).slice(0, 10)).forEach((v) => masterFilterOptions.months.add(v));
-    const sourceArray = masterFilterOptions.months.size > 0
-      ? Array.from(masterFilterOptions.months)
-      : values.filter(Boolean).map((v) => String(v).slice(0, 10));
+    const maxAllowedMonth = new Date().toISOString().slice(0, 7) + '-01';
+    values.filter(Boolean)
+      .map((v) => String(v).slice(0, 10))
+      .filter((v) => v <= maxAllowedMonth)
+      .forEach((v) => masterFilterOptions.months.add(v));
+    const sourceArray = Array.from(masterFilterOptions.months).filter((v) => v <= maxAllowedMonth);
     const unique = [...new Set(sourceArray)].sort().reverse();
     const options = unique.map((value) => {
       const parsed = new Date(`${value}T12:00:00`);
@@ -742,8 +744,100 @@ document.addEventListener('DOMContentLoaded', () => {
     renderSelectedRanking();
   }));
 
+  function setupDetailsModal() {
+    const detailsModal = el('detailsModal');
+    const modalBody = el('modalBody');
+    const modalCloseBtn = el('modalCloseBtn');
+    const modalOkBtn = el('modalOkBtn');
+
+    function openDetailsModal(item) {
+      if (!item || !detailsModal || !modalBody) return;
+      const st = String(item.consistencia || 'PENDENTE').toUpperCase();
+      const isGrave = st.includes('INCONSISTENT') || st.includes('DIVERGENT');
+      const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
+      const statusBadge = String(item.status || 'ATIVO').toUpperCase() === 'INATIVO' ? 'badge-danger' : 'badge-positive';
+
+      modalBody.innerHTML = `
+        <div class="detail-grid">
+          <div class="detail-item">
+            <span class="detail-label">Código LR</span>
+            <span class="detail-value">${escapeHtml(item.codigo_lr || '—')}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Produtor</span>
+            <span class="detail-value">${escapeHtml(item.produtor || '—')}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Consultor</span>
+            <span class="detail-value">${escapeHtml(item.consultor || '—')}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Agroindústria</span>
+            <span class="detail-value">${escapeHtml(item.agroindustria || item.projeto || '—')}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Região Leiteira</span>
+            <span class="detail-value">${escapeHtml(item.regiao || '—')}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Projeto</span>
+            <span class="detail-value">${escapeHtml(item.projeto || '—')}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Status Cadastral</span>
+            <span class="detail-value"><span class="badge ${statusBadge}">${escapeHtml(item.status || 'ATIVO')}</span></span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Mês Referência</span>
+            <span class="detail-value">${escapeHtml(item.mes_referencia || '—')}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Meses Consecutivos</span>
+            <span class="detail-value">${number(item.meses_sequenciais)} mês(es)</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Classificação</span>
+            <span class="detail-value"><span class="badge ${badgeClass}">${escapeHtml(item.consistencia || 'PENDENTE')}</span></span>
+          </div>
+        </div>
+      `;
+
+      detailsModal.classList.add('active');
+      detailsModal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDetailsModal() {
+      if (!detailsModal) return;
+      detailsModal.classList.remove('active');
+      detailsModal.setAttribute('aria-hidden', 'true');
+    }
+
+    modalCloseBtn?.addEventListener('click', closeDetailsModal);
+    modalOkBtn?.addEventListener('click', closeDetailsModal);
+    detailsModal?.addEventListener('click', (e) => {
+      if (e.target === detailsModal) closeDetailsModal();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && detailsModal?.classList.contains('active')) {
+        closeDetailsModal();
+      }
+    });
+
+    el('tbodyInconsistencies')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.btn-view-details');
+      if (!btn) return;
+      const idx = Number(btn.dataset.idx);
+      const filter = getFilterState();
+      let inconsistencies = (state.consistency?.tabelaInconsistentes || []).filter((row) => matches(row, filter));
+      inconsistencies = sortRows(inconsistencies, tableSort.tbodyInconsistencies, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
+      const selectedItem = inconsistencies[idx];
+      if (selectedItem) openDetailsModal(selectedItem);
+    });
+  }
+
   setupTableSorting();
   setupCustomSelectDropdowns();
+  setupDetailsModal();
   loadAllData();
   setInterval(loadAllData, 300000);
 
