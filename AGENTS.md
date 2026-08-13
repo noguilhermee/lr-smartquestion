@@ -95,9 +95,14 @@ CAMINHO_ARQUIVO = PASTA_SAIDA / f"{DATA_EXPORTACAO}_nome_do_arquivo.ext"
 
 ---
 
-## 🔄 6. Regra Oficial de Versionamento Git (Sugestão de Comandos)
+## 🔄 6. Regra Oficial de Versionamento Git (Sincronização Dupla de Perfil)
 - **Regra Absoluta**: O assistente de IA **NUNCA deve executar comandos de `git commit` ou `git push` diretamente**.
-- **Obrigação**: Ao concluir etapas significativas, refatorações de estrutura, novas funcionalidades ou correção de bugs, o assistente deve **obrigatoriamente sugerir e exibir os comandos Git exatos** (`git add .`, `git commit -m "..."`, `git push origin main`) formatados em bloco de código para que o próprio usuário revise e execute manualmente no terminal.
+- **Sincronização Dupla**: Os projetos devem estar obrigatoriamente configurados para salvar e sincronizar o código simultaneamente nos dois perfis no GitHub:
+  - Perfil Pessoal: `noguilhermee`
+  - Perfil Organizacional: `LaborRural`
+- **Configuração de Push**: O remote `origin` deve conter múltiplos `pushurl` cadastrados para que o comando `git push origin main` envie as alterações para os dois perfis simultaneamente.
+- **Obrigação**: Ao concluir etapas significativas, refatorações ou correção de bugs, o assistente deve **obrigatoriamente sugerir e exibir os comandos Git exatos** (`git add .`, `git commit -m "..."`, `git push origin main`) formatados em bloco de código para que o próprio usuário revise e execute no terminal.
+
 
 ---
 

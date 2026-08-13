@@ -18,11 +18,12 @@ class DashboardCarousel {
     this.progressBar = document.getElementById('progressBarFill');
     this.prevButton = document.getElementById('prevSlide');
     this.nextButton = document.getElementById('nextSlide');
+    this.pauseButton = document.getElementById('carouselPauseToggle');
     this.navigation = document.querySelector('.carousel-navigation');
     this.startedAt = Date.now();
     this.progressTimer = null;
-    this.mouseTimer = null;
-    this.paused = false;
+    this.hoverPaused = false;
+    this.userPaused = false;
     this.init();
   }
 
@@ -34,7 +35,37 @@ class DashboardCarousel {
     this.startProgress();
   }
 
+  toggleUserPause() {
+    this.userPaused = !this.userPaused;
+    this.updatePauseUI();
+    if (!this.userPaused) {
+      this.resetProgress();
+    }
+  }
+
+  updatePauseUI() {
+    if (!this.pauseButton) return;
+    const label = this.pauseButton.querySelector('.pause-toggle-label');
+    const icon = this.pauseButton.querySelector('.pause-icon');
+    
+    if (this.userPaused) {
+      this.pauseButton.classList.add('paused');
+      this.pauseButton.setAttribute('aria-pressed', 'true');
+      this.pauseButton.setAttribute('aria-label', 'Continuar rotação dos slides');
+      if (label) label.textContent = 'Slide fixo';
+      if (icon) icon.textContent = '▶';
+    } else {
+      this.pauseButton.classList.remove('paused');
+      this.pauseButton.setAttribute('aria-pressed', 'false');
+      this.pauseButton.setAttribute('aria-label', 'Pausar troca automática de slides');
+      if (label) label.textContent = 'Pausar slides';
+      if (icon) icon.textContent = '⏸';
+    }
+  }
+
   bindEvents() {
+    this.pauseButton?.addEventListener('click', () => this.toggleUserPause());
+
     this.navigation?.addEventListener('click', (event) => {
       const pageButton = event.target.closest('[data-slide]');
       if (!pageButton) return;
@@ -49,6 +80,10 @@ class DashboardCarousel {
     window.addEventListener('keydown', (event) => {
       if (event.key === 'ArrowRight') this.goTo(this.currentSlide + 1);
       if (event.key === 'ArrowLeft') this.goTo(this.currentSlide - 1);
+      if (event.key === ' ' && event.target === document.body) {
+        event.preventDefault();
+        this.toggleUserPause();
+      }
     });
 
     window.addEventListener('hashchange', () => {
@@ -57,14 +92,14 @@ class DashboardCarousel {
     });
 
     const interactiveArea = document.querySelector('.carousel-viewport');
-    interactiveArea?.addEventListener('mouseenter', () => { this.paused = true; });
+    interactiveArea?.addEventListener('mouseenter', () => { this.hoverPaused = true; });
     interactiveArea?.addEventListener('mouseleave', () => {
-      this.paused = false;
+      this.hoverPaused = false;
       this.resetProgress();
     });
-    interactiveArea?.addEventListener('focusin', () => { this.paused = true; });
+    interactiveArea?.addEventListener('focusin', () => { this.hoverPaused = true; });
     interactiveArea?.addEventListener('focusout', () => {
-      this.paused = false;
+      this.hoverPaused = false;
       this.resetProgress();
     });
   }
@@ -91,13 +126,13 @@ class DashboardCarousel {
 
   resetProgress() {
     this.startedAt = Date.now();
-    if (this.progressBar) this.progressBar.style.width = '0%';
+    if (this.progressBar && !this.userPaused) this.progressBar.style.width = '0%';
   }
 
   startProgress() {
     clearInterval(this.progressTimer);
     this.progressTimer = setInterval(() => {
-      if (this.paused) return;
+      if (this.userPaused || this.hoverPaused) return;
       const elapsed = Date.now() - this.startedAt;
       const percent = Math.min(100, (elapsed / this.slideDuration) * 100);
       if (this.progressBar) this.progressBar.style.width = `${percent}%`;
