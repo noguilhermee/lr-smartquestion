@@ -43,7 +43,10 @@ function mapAgroindustria(projeto) {
 module.exports = async (req, res) => {
   try {
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
     res.setHeader('Content-Type', 'application/json');
+    if (req.method === 'OPTIONS') return res.status(200).end();
 
     const supabase = getSupabaseClient();
     const { getRegiaoMap } = require('./azurePostgres');

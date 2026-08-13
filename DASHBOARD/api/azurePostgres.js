@@ -11,7 +11,8 @@ async function getRegiaoMap(supabase, fetchAll) {
         database: process.env.PG_DATABASE || 'postgres',
         user: process.env.PG_USER,
         password: process.env.PG_PASSWORD,
-        ssl: { rejectUnauthorized: false }
+        ssl: { rejectUnauthorized: false },
+        connectionTimeoutMillis: 3000
       });
       await client.connect();
       const schema = process.env.PG_SCHEMA || 'analytics_mart';
