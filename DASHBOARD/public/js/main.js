@@ -353,18 +353,44 @@ document.addEventListener('DOMContentLoaded', () => {
     return formatSingleRegionName(str);
   }
 
+  const LAC_CONSULTORIA_RAW = new Set([
+    'CELIO ROBERTO OLIVEIRA (REGENERA)',
+    'SUELY DE JESUS OLIVEIRA (REGENERA)'
+  ]);
+
+  function sanitizeConsultorList(rawName) {
+    if (!rawName) return [''];
+    return String(rawName)
+      .split('/')
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const upper = part.toUpperCase();
+        if (LAC_CONSULTORIA_RAW.has(upper)) return 'LAC CONSULTORIA';
+        return part.replace(/\s*\([^)]+\)\s*$/, '').trim() || part;
+      });
+  }
+
   function matches(row, filter) {
-    const consultant = String(row.consultor || row.nome_consultor || '').toLocaleLowerCase('pt-BR');
+    const rawConsultant = String(row.consultor || row.nome_consultor || '');
+    const consultores = sanitizeConsultorList(rawConsultant).map((c) => c.toLocaleLowerCase('pt-BR'));
+    const filterConsult = (filter.consultant || '').toLocaleLowerCase('pt-BR');
+    const consultantMatch = !filterConsult ||
+      consultores.includes(filterConsult) ||
+      rawConsultant.toLocaleLowerCase('pt-BR').includes(filterConsult);
+
     const producer = String(row.produtor || row.nome_produtor || row.propriedade || '').toLocaleLowerCase('pt-BR');
     const rowRegion = sanitizeRegiao(row.regiao || row.regioes);
     const filterRegion = sanitizeRegiao(filter.region);
-    return (!filter.consultant || consultant === filter.consultant.toLocaleLowerCase('pt-BR')) &&
+    const rowMonth = String(row.mes_referencia || row.data_referencia || '').slice(0, 10);
+
+    return consultantMatch &&
       (!filter.producer || producer === filter.producer.toLocaleLowerCase('pt-BR')) &&
       dimensionMatches(row.agroindustria || row.agroindustrias, filter.industry) &&
       (!filterRegion || rowRegion === filterRegion) &&
       dimensionMatches(row.projeto || row.projetos, filter.project) &&
       (!filter.status || normalizeStatus(row.status) === normalizeStatus(filter.status)) &&
-      dimensionMatches(String(row.mes_referencia || row.data_referencia || '').slice(0, 10), filter.month);
+      dimensionMatches(rowMonth, filter.month);
   }
 
   // Estado de ordenação para cada tabela do dashboard
@@ -707,24 +733,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ─── LÓGICA DE FILTRAGEM MULTIDIRECIONAL ESTILO POWER BI ──────────────
 
-  const LAC_CONSULTORIA_RAW = new Set([
-    'CELIO ROBERTO OLIVEIRA (REGENERA)',
-    'SUELY DE JESUS OLIVEIRA (REGENERA)'
-  ]);
-
-  function sanitizeConsultorList(rawName) {
-    if (!rawName) return [''];
-    return String(rawName)
-      .split('/')
-      .map((p) => p.trim())
-      .filter(Boolean)
-      .map((part) => {
-        const upper = part.toUpperCase();
-        if (LAC_CONSULTORIA_RAW.has(upper)) return 'LAC CONSULTORIA';
-        return part.replace(/\s*\([^)]+\)\s*$/, '').trim() || part;
-      });
-  }
-
   const PROJECT_LABEL_MAP = {
     'ALVOAR ASSIST': 'Alvoar Assist',
     'ALVOAR ECO': 'Alvoar Eco',
@@ -767,14 +775,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (p.includes('LPA')) return 'Laticínios Porto Alegre';
     if (p.includes('REGENERA')) return 'Nestlé';
     if (p.includes('SEMEAR') || p.includes('DANONE')) return 'Danone';
-    if (p.includes('CARGILL')) return 'Cargill';
-    if (p.includes('PIRACANJUBA')) return 'Piracanjuba';
-    if (p.includes('OFI')) return 'OFI';
-    if (p.includes('CAMPILEITE')) return 'Campileite';
-    if (p.includes('SENAR')) return 'Senar';
-    if (p.includes('COPRIL')) return 'Copril';
-    if (p.includes('M&E')) return 'M&E / Cargill';
-    if (p.includes('GRAOS')) return 'Mais Grãos';
     return String(projeto).trim();
   }
 
