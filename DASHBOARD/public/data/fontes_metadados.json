@@ -1,5 +1,7 @@
 {
-  "timestamp_inspecao": "2026-08-18T11:21:01.955095",
+  "timestamp_inspecao": "2026-08-18T15:17:39.000000",
+  "timestamp_etl": "2026-08-18T15:17:39.000000",
+  "ultima_execucao_etl_formatada": "18/08/2026 às 15:17:39",
   "total_arquivos": 13,
   "diretorio_origem": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION",
   "arquivos": [

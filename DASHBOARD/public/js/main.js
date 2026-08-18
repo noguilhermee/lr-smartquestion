@@ -231,13 +231,137 @@ document.addEventListener('DOMContentLoaded', () => {
     return normalized;
   }
 
+  function fixMojibake(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/Ã§/g, 'ç')
+      .replace(/Ã‡/g, 'Ç')
+      .replace(/Ã¡/g, 'á')
+      .replace(/Ã /g, 'Á')
+      .replace(/Ã¢/g, 'â')
+      .replace(/Ã‚/g, 'Â')
+      .replace(/Ã£/g, 'ã')
+      .replace(/Ãƒ/g, 'Ã')
+      .replace(/Ã©/g, 'é')
+      .replace(/Ã‰/g, 'É')
+      .replace(/Ãª/g, 'ê')
+      .replace(/ÃŠ/g, 'Ê')
+      .replace(/Ã­/g, 'í')
+      .replace(/Ã /g, 'Í')
+      .replace(/Ã³/g, 'ó')
+      .replace(/Ã“/g, 'Ó')
+      .replace(/Ã´/g, 'ô')
+      .replace(/Ã”/g, 'Ô')
+      .replace(/Ãµ/g, 'õ')
+      .replace(/Ã•/g, 'Õ')
+      .replace(/Ãº/g, 'ú')
+      .replace(/Ãš/g, 'Ú');
+  }
+
+  const KNOWN_ACRONYMS = new Set(['AL', 'MG', 'SP', 'GO', 'CE', 'BA', 'SE', 'PE', 'RJ', 'PR', 'SC', 'RS', 'ES', 'MT', 'MS', 'RO', 'AC', 'AM', 'PA', 'MA', 'PI', 'RN', 'PB', 'TO', 'DF']);
+  const LOWERCASE_WORDS = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
+
+  function formatSingleRegionName(raw) {
+    const str = fixMojibake(raw).trim();
+    if (!str) return null;
+
+    const explicitMap = {
+      'alagoas': 'Alagoas',
+      'aracatuba': 'Araçatuba',
+      'bahia': 'Bahia',
+      'batalha/al': 'Batalha/AL',
+      'ceara': 'Ceará',
+      'goiania': 'Goiânia',
+      'ibia': 'Ibiá',
+      'independente': 'Independente',
+      'itambacuri': 'Itambacuri',
+      'ituiutaba': 'Ituiutaba',
+      'minas gerais': 'Minas Gerais',
+      'montes claros': 'Montes Claros',
+      'patos de minas': 'Patos de Minas',
+      'pedra do forte': 'Pedra do Forte',
+      'pernambuco': 'Pernambuco',
+      'ponte nova': 'Ponte Nova',
+      'quixeramobim': 'Quixeramobim',
+      'sergipe': 'Sergipe',
+      'sertao norte': 'Sertão Norte',
+      'sul de minas': 'Sul de Minas',
+      'triangulo mineiro': 'Triângulo Mineiro'
+    };
+
+    const suffixMatch = str.match(/\s*-\s*(\d+)\s*$/);
+    let base = str;
+    let suffix = '';
+    if (suffixMatch) {
+      base = str.substring(0, suffixMatch.index).trim();
+      suffix = ` - ${suffixMatch[1]}`;
+    }
+
+    const baseKey = base.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    if (explicitMap[baseKey]) {
+      return explicitMap[baseKey] + suffix;
+    }
+
+    const words = base.split(/\s+/);
+    const formattedWords = words.map((w, idx) => {
+      const wUpper = w.toUpperCase();
+      if (KNOWN_ACRONYMS.has(wUpper)) return wUpper;
+      const wLower = w.toLowerCase();
+      if (idx > 0 && LOWERCASE_WORDS.has(wLower)) return wLower;
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    });
+
+    return formattedWords.join(' ') + suffix;
+  }
+
+  function sanitizeRegiao(rawRegion) {
+    if (!rawRegion) return null;
+    const str = fixMojibake(String(rawRegion).trim());
+    if (!str) return null;
+
+    const upper = str.toUpperCase().trim();
+    if (
+      upper === '1' ||
+      upper === '0' ||
+      upper === 'TESTE' ||
+      upper === 'TEST' ||
+      upper === 'LABOR RURAL' ||
+      upper === 'UNIDADE GENERICA' ||
+      upper === 'NÃO INFORMADA' ||
+      upper === 'NAO INFORMADA' ||
+      /^\d+$/.test(upper)
+    ) {
+      return null;
+    }
+
+    if (str.includes('/')) {
+      const parts = str.split('/').map(p => p.trim()).filter(Boolean);
+      const cleanParts = parts.map(part => formatSingleRegionName(part)).filter(Boolean);
+      if (cleanParts.length === 0) return null;
+
+      // Preservar formato Cidade/UF (ex: BATALHA/AL)
+      const lastPart = cleanParts[cleanParts.length - 1];
+      if (cleanParts.length === 2 && KNOWN_ACRONYMS.has(lastPart.toUpperCase())) {
+        return `${cleanParts[0]}/${lastPart.toUpperCase()}`;
+      }
+
+      // Ordenar alfabeticamente para estados compostos (ex: Sergipe/Bahia -> Bahia/Sergipe)
+      cleanParts.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      return cleanParts.join('/');
+    }
+
+    return formatSingleRegionName(str);
+  }
+
   function matches(row, filter) {
     const consultant = String(row.consultor || row.nome_consultor || '').toLocaleLowerCase('pt-BR');
     const producer = String(row.produtor || row.nome_produtor || row.propriedade || '').toLocaleLowerCase('pt-BR');
+    const rowRegion = sanitizeRegiao(row.regiao || row.regioes);
+    const filterRegion = sanitizeRegiao(filter.region);
     return (!filter.consultant || consultant === filter.consultant.toLocaleLowerCase('pt-BR')) &&
       (!filter.producer || producer === filter.producer.toLocaleLowerCase('pt-BR')) &&
       dimensionMatches(row.agroindustria || row.agroindustrias, filter.industry) &&
-      dimensionMatches(row.regiao || row.regioes, filter.region) &&
+      (!filterRegion || rowRegion === filterRegion) &&
       dimensionMatches(row.projeto || row.projetos, filter.project) &&
       (!filter.status || normalizeStatus(row.status) === normalizeStatus(filter.status)) &&
       dimensionMatches(String(row.mes_referencia || row.data_referencia || '').slice(0, 10), filter.month);
@@ -678,7 +802,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const regions = [
       ...(overview.filterOptions?.regioes || []),
       ...allRows.flatMap((row) => row.regioes || row.regiao || [])
-    ].filter(r => r && r !== 'LABOR RURAL' && r !== 'UNIDADE GENERICA');
+    ].map((r) => sanitizeRegiao(r)).filter((r) => r && r !== 'NÃO INFORMADA' && r !== 'NAO INFORMADA');
     const statuses = [
       ...(overview.filterOptions?.status || []),
       ...allRows.map((row) => row.status)
@@ -1279,6 +1403,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (totalBadge) totalBadge.textContent = String(data.total_arquivos || data.arquivos.length);
       if (summaryDir) summaryDir.textContent = data.diretorio_origem ? '.../' + data.diretorio_origem.split(/[\\/]/).pop() : 'BD_SMARTQUESTION';
+      
+      const summaryEtl = el('provSummaryEtl');
+      if (summaryEtl) {
+        if (data.ultima_execucao_etl_formatada) {
+          summaryEtl.textContent = data.ultima_execucao_etl_formatada;
+        } else {
+          const etlTime = data.timestamp_etl || data.timestamp_inspecao;
+          if (etlTime) {
+            const d = new Date(etlTime);
+            summaryEtl.textContent = `${d.toLocaleDateString('pt-BR')} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+          }
+        }
+      }
+
       if (summaryInspection && data.timestamp_inspecao) {
         const d = new Date(data.timestamp_inspecao);
         summaryInspection.textContent = `${d.toLocaleDateString('pt-BR')} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;

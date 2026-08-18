@@ -111,15 +111,16 @@ module.exports = async (req, res) => {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const supabase = getSupabaseClient();
-    const { getRegiaoMap } = require('./azurePostgres');
+    const { getRegiaoMap, sanitizeRegiao } = require('./azurePostgres');
     const regiaoMap = await getRegiaoMap(supabase, fetchAll);
 
     function getRegiao(codigoLr, fallback) {
       if (codigoLr && regiaoMap.has(String(codigoLr).trim())) {
         return regiaoMap.get(String(codigoLr).trim());
       }
-      if (fallback && fallback !== 'LABOR RURAL' && fallback !== 'UNIDADE GENERICA') {
-        return fallback;
+      if (fallback) {
+        const cleanFallback = sanitizeRegiao(fallback);
+        if (cleanFallback) return cleanFallback;
       }
       return 'NÃO INFORMADA';
     }

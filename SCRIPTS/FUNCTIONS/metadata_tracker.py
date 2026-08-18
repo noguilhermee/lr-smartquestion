@@ -101,8 +101,11 @@ def obter_metadados_planilhas(raiz_projeto: Path | str | None = None) -> Dict[st
                 "caminho": str(arquivo),
             })
             
+    agora = datetime.now()
     payload = {
-        "timestamp_inspecao": datetime.now().isoformat(),
+        "timestamp_inspecao": agora.isoformat(),
+        "timestamp_etl": agora.isoformat(),
+        "ultima_execucao_etl_formatada": agora.strftime("%d/%m/%Y às %H:%M:%S"),
         "total_arquivos": len(arquivos_info),
         "diretorio_origem": str(bd_path),
         "arquivos": arquivos_info,

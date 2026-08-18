@@ -131,7 +131,7 @@ module.exports = async (req, res) => {
 
     const supabase = getSupabaseClient();
 
-    const { getRegiaoMap } = require('./azurePostgres');
+    const { getRegiaoMap, sanitizeRegiao } = require('./azurePostgres');
     const [{ data: agrosDB }, consultoresDB, regiaoMap] = await Promise.all([
       supabase.from('tab_agroindustria').select('nomeAgroindustria').order('nomeAgroindustria', { ascending: true }),
       fetchAll(() => supabase.from('tab_consultor').select('nomeConsultor, formacaoConsultor')),
@@ -158,8 +158,9 @@ module.exports = async (req, res) => {
       if (codigoLr && regiaoMap.has(String(codigoLr).trim())) {
         return regiaoMap.get(String(codigoLr).trim());
       }
-      if (fallback && fallback !== 'LABOR RURAL' && fallback !== 'UNIDADE GENERICA') {
-        return fallback;
+      if (fallback) {
+        const cleanFallback = sanitizeRegiao(fallback);
+        if (cleanFallback) return cleanFallback;
       }
       return 'NÃO INFORMADA';
     }
