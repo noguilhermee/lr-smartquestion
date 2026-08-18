@@ -133,7 +133,7 @@ module.exports = async (req, res) => {
 
     const consistenciaHistoricaBruta = await fetchAll(() => supabase
       .from('f_consistente_bi_lr')
-      .select('codigo_lr, nome_consultor, projeto, mes_referencia, data_carencia_fim, mes_elabore, consistencia_mensal, consistencia_anual, excecao, meses_sequenciais')
+      .select('codigo_lr, nome_consultor, projeto, mes_referencia, data_carencia_fim, mes_elabore, consistencia_mensal, consistencia_anual, excecao, meses_sequenciais, detalhamento_inconsistencia')
       .order('mes_referencia', { ascending: false })
       .order('codigo_lr', { ascending: true }));
 
@@ -200,7 +200,8 @@ module.exports = async (req, res) => {
             status: produtorAtivo ? 'ATIVO' : 'INATIVO',
             mes_referencia: c.mes_referencia || refMonth,
             meses_sequenciais: seq,
-            consistencia: 'Inconsistente'
+            consistencia: 'Inconsistente',
+            detalhamento: c.detalhamento_inconsistencia || null
           });
         } else {
           semDados++;
@@ -215,7 +216,8 @@ module.exports = async (req, res) => {
             status: produtorAtivo ? 'ATIVO' : 'INATIVO',
             mes_referencia: c.mes_referencia || refMonth,
             meses_sequenciais: seq,
-            consistencia: 'Sem dados'
+            consistencia: 'Sem dados',
+            detalhamento: c.detalhamento_inconsistencia || null
           });
         }
       });

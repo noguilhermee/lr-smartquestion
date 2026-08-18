@@ -427,7 +427,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const isGrave = st.includes('INCONSISTENT') || st.includes('DIVERGENT');
       const rowClass = isGrave ? 'table-row-grave' : 'table-row-pending';
       const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
-      return `<tr class="${rowClass}"><td><strong>${escapeHtml(row.produtor || row.codigo_lr)}</strong></td><td>${escapeHtml(row.consultor)}</td><td>${escapeHtml(row.projeto)}</td><td>${number(row.meses_sequenciais)}</td><td><span class="badge ${badgeClass}">${escapeHtml(row.consistencia || 'PENDENTE')}</span></td><td><button class="link-button btn-view-details" type="button" data-idx="${idx}">Ver detalhes ›</button></td></tr>`;
+      return `<tr class="${rowClass}"><td><strong>${escapeHtml(row.produtor || row.codigo_lr)}</strong></td><td>${escapeHtml(row.consultor)}</td><td>${escapeHtml(row.projeto)}</td><td>${number(row.meses_sequenciais)}</td><td><span class="badge ${badgeClass}">${escapeHtml(row.consistencia || 'PENDENTE')}</span></td><td><button class="link-button btn-view-details" type="button" onclick="window.openInconsistencyDetail('${escapeHtml(row.codigo_lr || row.produtor)}')">Ver detalhes ›</button></td></tr>`;
     });
   }
 
@@ -799,6 +799,10 @@ document.addEventListener('DOMContentLoaded', () => {
             <span class="detail-label">Classificação</span>
             <span class="detail-value"><span class="badge ${badgeClass}">${escapeHtml(item.consistencia || 'PENDENTE')}</span></span>
           </div>
+          <div class="detail-item" style="grid-column: span 2;">
+            <span class="detail-label">Detalhamento da Inconsistência</span>
+            <span class="detail-value" style="font-weight: 500; color: var(--ink);">${escapeHtml(item.detalhamento || 'Nenhum detalhamento registrado na base')}</span>
+          </div>
         </div>
       `;
 
@@ -823,6 +827,17 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
+    window.openInconsistencyDetail = function(codigoLr) {
+      if (!codigoLr) return;
+      const targetCode = String(codigoLr).trim().toLowerCase();
+      const list = (state.consistency?.tabelaInconsistentes || []);
+      const selectedItem = list.find(r => String(r.codigo_lr || '').trim().toLowerCase() === targetCode)
+                        || list.find(r => String(r.produtor || '').trim().toLowerCase() === targetCode);
+      if (selectedItem) {
+        openDetailsModal(selectedItem);
+      }
+    };
+
     el('tbodyInconsistencies')?.addEventListener('click', (e) => {
       const btn = e.target.closest('.btn-view-details');
       if (!btn) return;
@@ -835,9 +850,78 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function setupKpiInfoPopovers() {
+    const popover = el('kpiInfoPopover');
+    const popoverTitle = el('kpiPopoverTitle');
+    const popoverBody = el('kpiPopoverBody');
+    if (!popover || !popoverTitle || !popoverBody) return;
+
+    let activeBtn = null;
+
+    function showPopover(btn) {
+      const title = btn.dataset.infoTitle || 'Informação do Indicador';
+      const body = btn.dataset.infoBody || '';
+      popoverTitle.textContent = title;
+      popoverBody.textContent = body;
+
+      const rect = btn.getBoundingClientRect();
+      const scrollX = window.scrollX || window.pageXOffset;
+      const scrollY = window.scrollY || window.pageYOffset;
+
+      popover.style.display = 'block';
+      const popoverHeight = popover.offsetHeight || 100;
+      const popoverWidth = popover.offsetWidth || 270;
+
+      let top = rect.top + scrollY - popoverHeight - 8;
+      let left = rect.left + scrollX + (rect.width / 2) - (popoverWidth / 2);
+
+      if (rect.top - popoverHeight < 10) {
+        top = rect.bottom + scrollY + 8;
+      }
+      if (left < 10) left = 10;
+      if (left + popoverWidth > window.innerWidth - 10) {
+        left = window.innerWidth - popoverWidth - 10;
+      }
+
+      popover.style.top = `${top}px`;
+      popover.style.left = `${left}px`;
+      popover.classList.add('active');
+      popover.setAttribute('aria-hidden', 'false');
+      activeBtn = btn;
+    }
+
+    function hidePopover() {
+      popover.classList.remove('active');
+      popover.setAttribute('aria-hidden', 'true');
+      activeBtn = null;
+    }
+
+    document.querySelectorAll('.kpi-info-btn').forEach((btn) => {
+      btn.addEventListener('mouseenter', () => showPopover(btn));
+      btn.addEventListener('mouseleave', () => hidePopover());
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (activeBtn === btn) {
+          hidePopover();
+        } else {
+          showPopover(btn);
+        }
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (activeBtn && !popover.contains(e.target) && !e.target.closest('.kpi-info-btn')) {
+        hidePopover();
+      }
+    });
+
+    window.addEventListener('scroll', hidePopover, { passive: true });
+  }
+
   setupTableSorting();
   setupCustomSelectDropdowns();
   setupDetailsModal();
+  setupKpiInfoPopovers();
   loadAllData();
   setInterval(loadAllData, 300000);
 
