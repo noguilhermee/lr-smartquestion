@@ -30,17 +30,20 @@ from FUNCTIONS.metadata_tracker import obter_metadados_planilhas
 
 def extrair_consultor_individual(consultor_str: str, grupo_str: str) -> str:
     """Extrai o consultor individual responsável a partir do grupo ou do campo de consultor."""
-    if isinstance(grupo_str, str) and grupo_str.strip():
-        # Ex: "MATEUS CARNIELLI (ALVOAR ECO)" -> "MATEUS CARNIELLI"
-        limpo = re.sub(r"\(.*?\)", "", grupo_str).strip()
-        if limpo:
-            return limpo.upper()
-    if isinstance(consultor_str, str) and consultor_str.strip():
-        # Se contiver barra "/", pegar o primeiro ou manter limpo
-        partes = [p.strip().upper() for p in consultor_str.split("/") if p.strip()]
+    texto = grupo_str if (isinstance(grupo_str, str) and grupo_str.strip()) else consultor_str
+    if not isinstance(texto, str) or not texto.strip():
+        return "NÃO ATRIBUÍDO"
+        
+    texto_upper = texto.upper().strip()
+    if "CELIO ROBERTO OLIVEIRA" in texto_upper or "SUELY DE JESUS OLIVEIRA" in texto_upper:
+        return "LAC CONSULTORIA"
+        
+    limpo = re.sub(r"\(.*?\)", "", texto).strip()
+    if limpo:
+        partes = [p.strip().upper() for p in limpo.split("/") if p.strip()]
         if partes:
             return partes[0]
-        return consultor_str.strip().upper()
+        return limpo.upper()
     return "NÃO ATRIBUÍDO"
 
 
@@ -117,6 +120,11 @@ def executar_reconciliacao():
             if not cod or cod.lower() == "nan":
                 continue
             cons = extrair_consultor_individual(row.get("consultor_grupo_atendimento"), row.get("grupo_atendimento"))
+            proj = str(row.get("projeto") or "").strip().upper()
+            if proj in ("A", "NAN", "NONE", ""):
+                proj = None
+            if "MATEUS CARNIELLI" in cons and proj and "ALVOAR ECO" in proj:
+                continue
             dt_assoc = row.get("data_associacao")
             if dt_assoc:
                 try:
