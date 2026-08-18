@@ -366,9 +366,23 @@ module.exports = async (req, res) => {
       motivo: m.motivo_inativacao || m.outro_motivo || 'NOVO VÍNCULO'
     }));
 
+    // Carregar metadados de proveniência das fontes de dados
+    let dataProvenance = null;
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const metaPath = path.join(__dirname, '..', 'public', 'data', 'fontes_metadados.json');
+      if (fs.existsSync(metaPath)) {
+        dataProvenance = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+      }
+    } catch (e) {
+      console.warn('Metadados de proveniência não carregados:', e.message);
+    }
+
     return res.status(200).json({
       timestamp: new Date().toISOString(),
       refMonth,
+      dataProvenance,
       kpis: {
         total_visitas: totalVisitas,
         consultores_ativos: consultoresAtivos,

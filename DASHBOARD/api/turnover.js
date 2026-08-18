@@ -106,17 +106,41 @@ module.exports = async (req, res) => {
       return true;
     }
 
-    const movimentacoesBrutas = await fetchAll(() => supabase
-      .from('tab_movimentacao_produtor')
-      .select('codigo_lr, nome_consultor, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
-      .order('data_movimentacao', { ascending: false }));
-
     const maxAllowedMonth = new Date().toISOString().slice(0, 7) + '-01';
-    const produtoresBrutos = await fetchAll(() => supabase
-      .from('tab_produtores_ativos_mensal')
-      .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
-      .lte('data_referencia', maxAllowedMonth)
-      .order('data_referencia', { ascending: false }));
+    const [movimentacoesBrutas, produtoresBrutos, inativacoesFallback, vinculosFallback] = await Promise.all([
+      fetchAll(() => supabase
+        .from('tab_movimentacao_produtor')
+        .select('codigo_lr, nome_consultor, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
+        .order('data_movimentacao', { ascending: false })),
+      fetchAll(() => supabase
+        .from('tab_produtores_ativos_mensal')
+        .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
+        .lte('data_referencia', maxAllowedMonth)
+        .order('data_referencia', { ascending: false })),
+      fetchAll(() => supabase
+        .from('tab_inativacoes_sq')
+        .select('codigo_lr, nome_produtor, nome_propriedade, projeto, grupo_ponto_atendimento')),
+      fetchAll(() => supabase
+        .from('tab_vinculos_sq')
+        .select('codigo_lr, nome_produtor, nome_propriedade, projeto, unidade_atendimento'))
+    ]);
+
+    const fallbackMetaMap = new Map();
+    (vinculosFallback || []).forEach(v => {
+      if (v.codigo_lr && !fallbackMetaMap.has(v.codigo_lr)) {
+        fallbackMetaMap.set(v.codigo_lr, { nome_produtor: v.nome_produtor, projeto: v.projeto, unidade_atendimento: v.unidade_atendimento });
+      }
+    });
+    (inativacoesFallback || []).forEach(i => {
+      if (i.codigo_lr) {
+        const prev = fallbackMetaMap.get(i.codigo_lr) || {};
+        fallbackMetaMap.set(i.codigo_lr, {
+          nome_produtor: i.nome_produtor || prev.nome_produtor,
+          projeto: i.projeto || prev.projeto,
+          unidade_atendimento: i.unidade_atendimento || prev.unidade_atendimento
+        });
+      }
+    });
 
     const produtores = (produtoresBrutos || []).filter(rowMatches);
 
@@ -126,7 +150,7 @@ module.exports = async (req, res) => {
     });
 
     const movimentacoes = (movimentacoesBrutas || []).filter(m => {
-      const p = produtoresMap.get(m.codigo_lr);
+      const p = produtoresMap.get(m.codigo_lr) || fallbackMetaMap.get(m.codigo_lr);
       return rowMatches({ ...m, projeto: p?.projeto, unidade_atendimento: p?.unidade_atendimento, nome_produtor: p?.nome_produtor });
     });
 

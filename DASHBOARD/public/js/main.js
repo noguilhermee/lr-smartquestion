@@ -754,6 +754,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const st = String(item.consistencia || 'PENDENTE').toUpperCase();
       const isGrave = st.includes('INCONSISTENT') || st.includes('DIVERGENT');
       const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
+      const highlightBoxClass = isGrave ? 'field-box--danger' : 'field-box--warning';
       const statusBadge = String(item.status || 'ATIVO').toUpperCase() === 'INATIVO' ? 'badge-danger' : 'badge-positive';
 
       const refMonthText = item.mes_referencia ? String(item.mes_referencia).slice(0, 7).split('-').reverse().join('/') : '--/----';
@@ -812,7 +813,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div class="detail-field field-full">
               <label class="field-label">Detalhamento da Inconsistência</label>
-              <div class="field-box field-box--highlight">${escapeHtml(item.detalhamento || 'Nenhum detalhamento registrado na base de auditoria.')}</div>
+              <div class="field-box ${highlightBoxClass}">${escapeHtml(item.detalhamento || 'Nenhum detalhamento registrado na base de auditoria.')}</div>
             </div>
           </div>
         </fieldset>
@@ -931,10 +932,126 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('scroll', hidePopover, { passive: true });
   }
 
+  function setupProvenanceModal() {
+    const modalOverlay = el('modalProvenanceOverlay');
+    const btnProvenance = el('btnProvenance');
+    const closeBtn = el('provCloseBtn');
+    const okBtn = el('provOkBtn');
+    const groupsContainer = el('provGroupsContainer');
+    const totalBadge = el('provTotalFilesBadge');
+    const summaryDir = el('provSummaryDir');
+    const summaryInspection = el('provSummaryInspection');
+
+    function openModal() {
+      modalOverlay.classList.add('active');
+      modalOverlay.setAttribute('aria-hidden', 'false');
+      renderProvenanceData();
+    }
+
+    function closeModal() {
+      modalOverlay.classList.remove('active');
+      modalOverlay.setAttribute('aria-hidden', 'true');
+    }
+
+    btnProvenance?.addEventListener('click', openModal);
+    closeBtn?.addEventListener('click', closeModal);
+    okBtn?.addEventListener('click', closeModal);
+    modalOverlay?.addEventListener('click', (e) => {
+      if (e.target === modalOverlay) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modalOverlay?.classList.contains('active')) {
+        closeModal();
+      }
+    });
+
+    async function renderProvenanceData() {
+      let data = state.overview?.dataProvenance;
+      if (!data) {
+        data = await getJson('/data/fontes_metadados.json');
+      }
+      if (!data || !data.arquivos || data.arquivos.length === 0) {
+        if (groupsContainer) {
+          groupsContainer.innerHTML = '<div class="provenance-loading-state">Nenhum metadado de planilha disponível no momento.</div>';
+        }
+        return;
+      }
+
+      if (totalBadge) totalBadge.textContent = String(data.total_arquivos || data.arquivos.length);
+      if (summaryDir) summaryDir.textContent = data.diretorio_origem ? '.../' + data.diretorio_origem.split(/[\\/]/).pop() : 'BD_SMARTQUESTION';
+      if (summaryInspection && data.timestamp_inspecao) {
+        const d = new Date(data.timestamp_inspecao);
+        summaryInspection.textContent = `${d.toLocaleDateString('pt-BR')} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+      }
+
+      // Agrupar arquivos por categoria
+      const groups = {};
+      data.arquivos.forEach(file => {
+        const cat = file.categoria || 'Outros Relatórios';
+        if (!groups[cat]) {
+          groups[cat] = {
+            categoria: cat,
+            icone: file.icone || 'description',
+            descricao: file.descricao || '',
+            files: []
+          };
+        }
+        groups[cat].files.push(file);
+      });
+
+      let html = '';
+      Object.values(groups).forEach(grp => {
+        html += `
+          <div class="prov-category-card">
+            <div class="prov-category-header">
+              <div class="prov-category-title-box">
+                <span class="material-symbols-rounded prov-cat-icon" aria-hidden="true">${escapeHtml(grp.icone)}</span>
+                <span class="prov-category-title">${escapeHtml(grp.categoria)}</span>
+              </div>
+              <span class="prov-category-count">${grp.files.length} ${grp.files.length === 1 ? 'arquivo' : 'arquivos'}</span>
+            </div>
+            <div class="prov-file-list">
+        `;
+
+        grp.files.forEach(f => {
+          const recText = f.total_registros !== null && f.total_registros !== undefined
+            ? `${Number(f.total_registros).toLocaleString('pt-BR')} registros`
+            : 'Planilha bruta';
+          html += `
+            <div class="prov-file-item">
+              <div class="prov-file-name-col">
+                <span class="prov-file-name">${escapeHtml(f.nome)}</span>
+                <span class="prov-file-desc">${escapeHtml(f.descricao)}</span>
+              </div>
+              <div class="prov-file-date">
+                <span class="prov-date-label">Exportação SmartQuestion</span>
+                <span class="prov-date-val">${escapeHtml(f.data_modificacao_formatada || f.data_modificacao)}</span>
+              </div>
+              <div>
+                <span class="prov-badge-size">${escapeHtml(f.tamanho_formatado)}</span>
+              </div>
+              <div>
+                <span class="prov-badge-records">${escapeHtml(recText)}</span>
+              </div>
+            </div>
+          `;
+        });
+
+        html += `
+            </div>
+          </div>
+        `;
+      });
+
+      if (groupsContainer) groupsContainer.innerHTML = html;
+    }
+  }
+
   setupTableSorting();
   setupCustomSelectDropdowns();
   setupDetailsModal();
   setupKpiInfoPopovers();
+  setupProvenanceModal();
   loadAllData();
   setInterval(loadAllData, 300000);
 

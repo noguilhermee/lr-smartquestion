@@ -22,7 +22,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,500,0,0" rel="stylesheet">
-  <link rel="stylesheet" href="./css/dashboard.css?v=20260813-1">
+  <link rel="stylesheet" href="./css/dashboard.css?v=20260818-1">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -48,10 +48,10 @@
         <span class="theme-icon" aria-hidden="true">◔</span>
         <span class="theme-toggle-label">Modo escuro</span>
       </button>
-      <div class="update-block">
-        <span>Última atualização</span>
+      <button class="update-block update-block--interactive" id="btnProvenance" type="button" aria-haspopup="dialog" aria-label="Ver detalhes e versões das planilhas de origem" title="Clique para ver detalhes das planilhas de origem">
+        <span class="update-block-header"><span class="material-symbols-rounded icon-provenance" aria-hidden="true">history</span> Última atualização</span>
         <strong id="lastUpdateDate">--/--/----</strong>
-      </div>
+      </button>
       <time class="clock-box" id="headerClock">00:00:00</time>
     </div>
   </header>
@@ -224,17 +224,58 @@
     </div>
   </div>
 
-  <!-- Popover de Informações do Indicador (KPI Info) -->
-  <div class="kpi-info-popover" id="kpiInfoPopover" aria-hidden="true" role="tooltip">
-    <div class="kpi-info-header">
-      <span class="material-symbols-rounded kpi-info-icon" aria-hidden="true">info</span>
-      <strong id="kpiPopoverTitle">Título do Indicador</strong>
+  <!-- Modal de Rastreabilidade e Versões das Fontes de Dados (Data Lineage) -->
+  <div class="modal-overlay modal-overlay--provenance" id="modalProvenanceOverlay" aria-hidden="true">
+    <div class="modal-card modal-card--provenance" role="dialog" aria-modal="true" aria-labelledby="provModalTitle">
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <span class="modal-icon material-symbols-rounded" aria-hidden="true">folder_supervised</span>
+          <div>
+            <h3 id="provModalTitle">Origem e Versões das Planilhas</h3>
+            <span class="provenance-header-sub">Rastreabilidade das bases brutas em BD_SMARTQUESTION</span>
+          </div>
+        </div>
+        <div class="modal-header-right">
+          <div class="modal-ref-badge" id="provHeaderBadge">
+            <span>TOTAL PLANILHAS</span>
+            <strong id="provTotalFilesBadge">18</strong>
+          </div>
+          <button class="modal-close-btn" id="provCloseBtn" type="button" aria-label="Fechar">&times;</button>
+        </div>
+      </div>
+      
+      <div class="modal-body provenance-modal-body" id="provModalBody">
+        <div class="provenance-summary-card">
+          <div class="prov-summary-item">
+            <span class="prov-summary-label">Diretório de Leitura</span>
+            <strong class="prov-summary-value" id="provSummaryDir">BD_SMARTQUESTION</strong>
+          </div>
+          <div class="prov-summary-item">
+            <span class="prov-summary-label">Última Inspeção Geral</span>
+            <strong class="prov-summary-value" id="provSummaryInspection">--/--/----</strong>
+          </div>
+          <div class="prov-summary-item">
+            <span class="prov-summary-label">Sincronização no Banco</span>
+            <strong class="prov-summary-value prov-summary-value--ok">✅ Atualizado</strong>
+          </div>
+        </div>
+
+        <div class="provenance-groups-container" id="provGroupsContainer">
+          <div class="provenance-loading-state">
+            <div class="loading-spinner"></div>
+            <span>Carregando metadados das planilhas...</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="modal-footer">
+        <button class="modal-btn-primary" id="provOkBtn" type="button">Fechar</button>
+      </div>
     </div>
-    <p id="kpiPopoverBody">Descrição do indicador e forma de cálculo.</p>
   </div>
 
-  <script src="./js/carousel.js?v=20260813-1"></script>
-  <script src="./js/charts.js?v=20260813-1"></script>
-  <script src="./js/main.js?v=20260813-1"></script>
+  <script src="./js/carousel.js?v=20260818-1"></script>
+  <script src="./js/charts.js?v=20260818-1"></script>
+  <script src="./js/main.js?v=20260818-1"></script>
 </body>
 </html>
