@@ -12,7 +12,14 @@ import yaml
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-raiz_projeto = Path(__file__).resolve().parents[1]
+caminho_atual = Path(__file__).resolve()
+for candidato in [caminho_atual, *caminho_atual.parents]:
+    if (candidato / "SCRIPTS").is_dir() and ((candidato / "DB").is_dir() or (candidato / "DASHBOARD").is_dir()):
+        raiz_projeto = candidato
+        break
+else:
+    raiz_projeto = caminho_atual.parents[2]
+
 if str(raiz_projeto) not in sys.path:
     sys.path.insert(0, str(raiz_projeto))
 if str(raiz_projeto / "SCRIPTS") not in sys.path:

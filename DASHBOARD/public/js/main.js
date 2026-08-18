@@ -955,13 +955,69 @@ document.addEventListener('DOMContentLoaded', () => {
     URL.revokeObjectURL(url);
   }
 
+  function exportInconsistenciesToCsv() {
+    const filter = currentFilter();
+    let inconsistencies = (state.consistency?.tabelaInconsistentes || []).filter((row) => matches(row, filter));
+    if (!inconsistencies.length) {
+      alert('Nenhum dado disponível para exportação com os filtros atuais.');
+      return;
+    }
+    inconsistencies = sortRows(inconsistencies, tableSort.tbodyInconsistencies, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
+
+    const headers = [
+      'ID (Código LR)',
+      'Produtor(a)',
+      'Consultor(a)',
+      'Projeto',
+      'Agroindústria',
+      'Região',
+      'Mês Referência',
+      'Meses Consecutivos',
+      'Situação',
+      'Detalhamento da Inconsistência'
+    ];
+
+    const csvLines = [headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(';')];
+
+    inconsistencies.forEach((row) => {
+      const prodName = row.produtor || row.codigo_lr || '—';
+      const det = row.detalhamento || 'Nenhum detalhamento registrado na base de auditoria.';
+      const values = [
+        row.codigo_lr || '—',
+        prodName,
+        row.consultor || '—',
+        row.projeto || '—',
+        row.agroindustria || '—',
+        row.regiao || '—',
+        row.mes_referencia || '—',
+        row.meses_sequenciais ?? '0',
+        row.consistencia || 'PENDENTE',
+        det
+      ];
+      csvLines.push(values.map((v) => `"${String(v).trim().replace(/\r?\n/g, ' | ').replace(/"/g, '""')}"`).join(';'));
+    });
+
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + csvLines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const d = new Date();
+    const dateStr = `${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, '0')}_${String(d.getDate()).padStart(2, '0')}_${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
+    link.href = url;
+    link.download = `${dateStr}_inconsistencias_identificadas.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   function setupExportButtons() {
     el('btnExportSemVisita')?.addEventListener('click', () => exportTableToCsv('tableSemVisita', 'produtores_sem_visita'));
     el('btnExportVisitados')?.addEventListener('click', () => exportTableToCsv('tableVisitados', 'produtores_visitados'));
     el('btnExportTurnover')?.addEventListener('click', () => exportTableToCsv('tableTurnover', 'movimentacao_produtores'));
     el('btnExportConsultants')?.addEventListener('click', () => exportTableToCsv('tableConsultants', 'consultores_ativos'));
     el('btnExportDataProducers')?.addEventListener('click', () => exportTableToCsv('tableDataProducers', 'produtores_com_dados'));
-    el('btnExportInconsistencies')?.addEventListener('click', () => exportTableToCsv('tableInconsistencies', 'inconsistencias_identificadas'));
+    el('btnExportInconsistencies')?.addEventListener('click', exportInconsistenciesToCsv);
   }
 
   function updateTimestamp() {
