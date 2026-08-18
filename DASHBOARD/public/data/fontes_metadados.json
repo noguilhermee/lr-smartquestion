@@ -1,20 +1,8 @@
 {
-  "timestamp_inspecao": "2026-08-18T11:08:56.077847",
-  "total_arquivos": 18,
+  "timestamp_inspecao": "2026-08-18T11:21:01.955095",
+  "total_arquivos": 13,
   "diretorio_origem": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION",
   "arquivos": [
-    {
-      "nome": "2024_2025_LISTA_REGENERA_VISITA.xlsx",
-      "categoria": "Visitas Técnicas",
-      "icone": "calendar_month",
-      "descricao": "Relatórios de atendimentos em campo e apontamentos",
-      "data_modificacao": "2026-01-30 08:23:51",
-      "data_modificacao_formatada": "30/01/2026 às 08:23",
-      "tamanho_bytes": 17228714,
-      "tamanho_formatado": "16.4 MB",
-      "total_registros": 13815,
-      "caminho": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION\\2024_2025_LISTA_REGENERA_VISITA.xlsx"
-    },
     {
       "nome": "260814_LISTA_INATIVACAO.xlsx",
       "categoria": "Inativações",
@@ -136,42 +124,6 @@
       "caminho": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION\\LISTA_GERAL_VISITAS.xlsx"
     },
     {
-      "nome": "LISTA_GERAL_VISITAS_01_2025.xlsx",
-      "categoria": "Visitas Técnicas",
-      "icone": "calendar_month",
-      "descricao": "Relatórios de atendimentos em campo e apontamentos",
-      "data_modificacao": "2026-01-27 17:50:06",
-      "data_modificacao_formatada": "27/01/2026 às 17:50",
-      "tamanho_bytes": 189093,
-      "tamanho_formatado": "184.7 KB",
-      "total_registros": 1193,
-      "caminho": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION\\LISTA_GERAL_VISITAS_01_2025.xlsx"
-    },
-    {
-      "nome": "LISTA_GERAL_VISITAS_2023.xlsx",
-      "categoria": "Visitas Técnicas",
-      "icone": "calendar_month",
-      "descricao": "Relatórios de atendimentos em campo e apontamentos",
-      "data_modificacao": "2026-01-27 17:40:53",
-      "data_modificacao_formatada": "27/01/2026 às 17:40",
-      "tamanho_bytes": 642812,
-      "tamanho_formatado": "627.7 KB",
-      "total_registros": 4828,
-      "caminho": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION\\LISTA_GERAL_VISITAS_2023.xlsx"
-    },
-    {
-      "nome": "LISTA_GERAL_VISITAS_2024.xlsx",
-      "categoria": "Visitas Técnicas",
-      "icone": "calendar_month",
-      "descricao": "Relatórios de atendimentos em campo e apontamentos",
-      "data_modificacao": "2026-01-28 08:36:17",
-      "data_modificacao_formatada": "28/01/2026 às 08:36",
-      "tamanho_bytes": 2333111,
-      "tamanho_formatado": "2.2 MB",
-      "total_registros": 17570,
-      "caminho": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION\\LISTA_GERAL_VISITAS_2024.xlsx"
-    },
-    {
       "nome": "LISTA_LPA_VISITA.xlsx",
       "categoria": "Visitas Técnicas",
       "icone": "calendar_month",
@@ -206,18 +158,6 @@
       "tamanho_formatado": "2.0 MB",
       "total_registros": 1327,
       "caminho": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION\\LISTA_SEMEAR_VISITA.xlsx"
-    },
-    {
-      "nome": "RESGATE_VINCULOS_VF.xlsx",
-      "categoria": "Vínculos e Grupos",
-      "icone": "link",
-      "descricao": "Relação de fazendas, grupos de atendimento e vínculos técnicos",
-      "data_modificacao": "2026-05-06 17:56:19",
-      "data_modificacao_formatada": "06/05/2026 às 17:56",
-      "tamanho_bytes": 24166,
-      "tamanho_formatado": "23.6 KB",
-      "total_registros": 99,
-      "caminho": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION\\RESGATE_VINCULOS_VF.xlsx"
     }
   ]
 }
