@@ -113,10 +113,12 @@ def executar_reconciliacao():
     # 4. Construir Movimentações Consolidadas (tab_movimentacao_produtor)
     print("\n🔄 4. Consolidando tabela fato de movimentação (tab_movimentacao_produtor)...")
     
-    # 4.1 Entradas (a partir de tab_vinculos_sq)
+    PROJETOS_OFICIAIS = ['ALVOAR ASSIST', 'ALVOAR ECO', 'ATEG_CCPR', 'LPA', 'REGENERA', 'SEMEAR']
+
+    # 4.1 Entradas (a partir de tab_vinculos_sq filtrado para projetos oficiais)
     res_vinc = supabase.table("tab_vinculos_sq").select(
-        "codigo_lr, consultor_grupo_atendimento, grupo_atendimento, data_associacao, projeto, nome_produtor, nome_propriedade"
-    ).execute()
+        "codigo_lr, consultor_grupo_atendimento, grupo_atendimento, data_associacao, projeto, nome_produtor, nome_propriedade, vinculo_ativo, unidade_atendimento, cidade_produtor, estado_produtor, codigo_agroindustria, codigo_fazenda"
+    ).in_("projeto", PROJETOS_OFICIAIS).execute()
     df_vinc_db = pd.DataFrame(res_vinc.data) if res_vinc.data else pd.DataFrame()
     
     movimentacoes_lista = []
@@ -128,8 +130,8 @@ def executar_reconciliacao():
                 continue
             cons = extrair_consultor_individual(row.get("consultor_grupo_atendimento"), row.get("grupo_atendimento"))
             proj = str(row.get("projeto") or "").strip().upper()
-            if proj in ("A", "NAN", "NONE", ""):
-                proj = None
+            if proj not in PROJETOS_OFICIAIS:
+                continue
             if "MATEUS CARNIELLI" in cons and proj and "ALVOAR ECO" in proj:
                 continue
             dt_assoc = row.get("data_associacao")
@@ -153,11 +155,12 @@ def executar_reconciliacao():
                 "data_processamento": datetime.now().isoformat(),
             })
 
-    # 4.2 Saídas (a partir de tab_inativacoes_sq)
+    # 4.2 Saídas (a partir de tab_inativacoes_sq vinculadas aos projetos oficiais)
+    codigos_oficiais_set = set(df_vinc_db["codigo_lr"].dropna().unique()) if not df_vinc_db.empty else set()
     if not df_inats_existentes.empty:
         for _, row in df_inats_existentes.iterrows():
             cod = str(row.get("codigo_lr") or "").strip()
-            if not cod or cod.lower() == "nan":
+            if not cod or cod.lower() == "nan" or (codigos_oficiais_set and cod not in codigos_oficiais_set):
                 continue
             cons = extrair_consultor_individual(row.get("nome_consultor"), row.get("grupo_ponto_atendimento"))
             dt_inat = row.get("data_inativacao") or row.get("data_solicitacao")
@@ -185,7 +188,7 @@ def executar_reconciliacao():
             })
             
     df_mov_final = pd.DataFrame(movimentacoes_lista).drop_duplicates(subset=["id_composto"], keep="last")
-    print(f"   -> Total de movimentações consolidadas: {len(df_mov_final)} (Entradas: {len(df_mov_final[df_mov_final['movimentacao'] == 'Entrada'])}, Saídas: {len(df_mov_final[df_mov_final['movimentacao'] == 'Saída'])})")
+    print(f"   -> Total de movimentações consolidadas (Leite): {len(df_mov_final)} (Entradas: {len(df_mov_final[df_mov_final['movimentacao'] == 'Entrada'])}, Saídas: {len(df_mov_final[df_mov_final['movimentacao'] == 'Saída'])})")
     
     # Checar se Thales Noronha LR02481 está na lista
     thales_mov = df_mov_final[df_mov_final["codigo_lr"] == "LR02481"]
@@ -208,8 +211,8 @@ def executar_reconciliacao():
         time.sleep(0.2)
     print(f"   ✅ {sucesso_mov} registros de movimentação atualizados no Supabase.")
 
-    # 6. Reconciliar tab_produtores_ativos_mensal (Expurgando Inativações)
-    print("\n🌱 6. Reconciliando base ativa mensal em tab_produtores_ativos_mensal...")
+    # 6. Reconciliar tab_produtores_ativos_mensal (Restrito aos Projetos Oficiais de Leite)
+    print("\n🌱 6. Reconciliando base ativa mensal em tab_produtores_ativos_mensal (Leite)...")
     
     # Identificar todas as inativações com data e código
     inativacoes_por_codigo: Dict[str, str] = {}
@@ -220,7 +223,6 @@ def executar_reconciliacao():
             if c and dt:
                 try:
                     dt_str = pd.to_datetime(dt).strftime("%Y-%m-01")
-                    # Se tiver múltiplas inativações, pegar a mais antiga ou válida
                     if c not in inativacoes_por_codigo or dt_str < inativacoes_por_codigo[c]:
                         inativacoes_por_codigo[c] = dt_str
                 except Exception:
@@ -228,35 +230,79 @@ def executar_reconciliacao():
 
     print(f"   -> Mapeados {len(inativacoes_por_codigo)} produtores com inativação confirmada.")
 
-    # Buscar dados de tab_produtores_ativos_mensal para os meses 2026-08-01 e 2026-09-01
+    # Base ativa consolidada a partir de tab_vinculos_sq (Apenas Projetos Oficiais)
+    df_vinculos_ativos = df_vinc_db[df_vinc_db["vinculo_ativo"] == True].copy() if "vinculo_ativo" in df_vinc_db.columns else df_vinc_db.copy()
+    df_vinculos_ativos = df_vinculos_ativos[df_vinculos_ativos["projeto"].isin(PROJETOS_OFICIAIS)]
+    if "unidade_atendimento" in df_vinculos_ativos.columns:
+        df_vinculos_ativos = df_vinculos_ativos[df_vinculos_ativos["unidade_atendimento"] != "UNIDADE GENERICA"]
+
+    UF_MAP = {
+        'MINAS GERAIS': 'MG', 'BAHIA': 'BA', 'GOIAS': 'GO', 'GOIÁS': 'GO',
+        'SAO PAULO': 'SP', 'SÃO PAULO': 'SP', 'ESPIRITO SANTO': 'ES', 'ESPÍRITO SANTO': 'ES',
+        'MATO GROSSO': 'MT', 'MATO GROSSO DO SUL': 'MS', 'PARANA': 'PR', 'PARANÁ': 'PR',
+        'RIO DE JANEIRO': 'RJ', 'RONDÔNIA': 'RO', 'RONDONIA': 'RO', 'TOCANTINS': 'TO'
+    }
+
+    def limpar_uf(val):
+        if not val or pd.isna(val):
+            return None
+        s = str(val).strip().upper()
+        if len(s) == 2:
+            return s
+        return UF_MAP.get(s, s[:2] if s else None)
+
     for ref_m in ["2026-08-01", "2026-09-01"]:
-        res_ativos = supabase.table("tab_produtores_ativos_mensal").select("*").eq("data_referencia", ref_m).execute()
-        if res_ativos.data:
-            df_ativos_m = pd.DataFrame(res_ativos.data)
-            total_antes = len(df_ativos_m)
+        novos_ativos_m = []
+        for _, r in df_vinculos_ativos.iterrows():
+            c = str(r.get("codigo_lr") or "").strip()
+            if not c or (c in inativacoes_por_codigo and inativacoes_por_codigo[c] <= ref_m):
+                continue
             
-            # Identificar quais estão inativados em ou antes de ref_m
-            inativos_a_remover = []
-            for _, r in df_ativos_m.iterrows():
-                c = str(r.get("codigo_lr") or "").strip()
-                if c in inativacoes_por_codigo:
-                    dt_inat = inativacoes_por_codigo[c]
-                    if dt_inat <= ref_m:
-                        inativos_a_remover.append(c)
-                        
-            print(f"\n   Mês {ref_m}:")
-            print(f"   - Total antes do expurgo: {total_antes} registros ({df_ativos_m['codigo_lr'].nunique()} únicos)")
-            print(f"   - Inativados identificados para remoção: {len(inativos_a_remover)} ({len(set(inativos_a_remover))} únicos)")
-            
-            if inativos_a_remover:
-                # Remover do banco para ref_m
-                for c in set(inativos_a_remover):
-                    try:
-                        supabase.table("tab_produtores_ativos_mensal").delete().eq("data_referencia", ref_m).eq("codigo_lr", c).execute()
-                    except Exception as e:
-                        print(f"     ❌ Erro ao remover {c}: {e}")
-                print(f"   ✅ Expurgo concluído para {ref_m}. Total líquido ajustado: {total_antes - len(inativos_a_remover)}")
-                
+            nome_p = str(r.get("nome_produtor") or "PRODUTOR").strip()[:250]
+            nome_prop = str(r.get("nome_propriedade") or "FAZENDA").strip()[:250]
+            nome_c = str(r.get("consultor_grupo_atendimento") or r.get("grupo_atendimento") or "CONSULTOR").strip()[:250]
+            proj = str(r.get("projeto") or "NÃO INFORMADO").strip()[:100]
+            unid = str(r.get("unidade_atendimento") or "LABOR RURAL").strip()[:100]
+            cid = str(r.get("cidade_produtor") or "").strip()[:100] if r.get("cidade_produtor") else None
+            uf = limpar_uf(r.get("estado_produtor"))
+            cod_agro = str(r.get("codigo_agroindustria") or "").strip()[:50] if r.get("codigo_agroindustria") else None
+            cod_faz = str(r.get("codigo_fazenda") or "").strip()[:50] if r.get("codigo_fazenda") else None
+
+            novos_ativos_m.append({
+                "codigo_lr": c[:50],
+                "nome_produtor": nome_p,
+                "nome_propriedade": nome_prop,
+                "nome_consultor": nome_c,
+                "projeto": proj,
+                "unidade_atendimento": unid,
+                "cidade_produtor": cid,
+                "estado_produtor": uf,
+                "data_referencia": ref_m,
+                "codigo_agroindustria": cod_agro,
+                "codigo_fazenda": cod_faz
+            })
+
+        df_novos_ativos = pd.DataFrame(novos_ativos_m).drop_duplicates(subset=["codigo_lr", "data_referencia"])
+        print(f"\n   Mês {ref_m}:")
+        print(f"   - Total de produtores ativos consolidados para envio: {len(df_novos_ativos)} ({df_novos_ativos['projeto'].nunique()} projetos)")
+
+        registros_ativos = df_novos_ativos.to_dict(orient="records")
+        sucesso_ativos = 0
+        for i in range(0, len(registros_ativos), LOTE):
+            lote_at = registros_ativos[i : i + LOTE]
+            try:
+                supabase.table("tab_produtores_ativos_mensal").upsert(lote_at, on_conflict="codigo_lr,data_referencia").execute()
+                sucesso_ativos += len(lote_at)
+            except Exception as e:
+                try:
+                    supabase.table("tab_produtores_ativos_mensal").upsert(lote_at).execute()
+                    sucesso_ativos += len(lote_at)
+                except Exception as e2:
+                    print(f"     ❌ Erro ao enviar lote de ativos {i // LOTE + 1}: {e2}")
+            time.sleep(0.1)
+
+        print(f"   ✅ {sucesso_ativos} produtores ativos atualizados para {ref_m}.")
+
     print("\n=================================================================")
     print("   RECONCILIAÇÃO CONCLUÍDA COM SUCESSO!                          ")
     print("=================================================================")

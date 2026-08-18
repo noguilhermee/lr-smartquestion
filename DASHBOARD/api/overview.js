@@ -60,7 +60,15 @@ function mapAgroindustria(projeto) {
   if (p.includes('CCPR')) return 'CCPR';
   if (p.includes('LPA')) return 'Laticínios Porto Alegre';
   if (p.includes('REGENERA')) return 'Nestlé';
-  if (p.includes('SEMEAR')) return 'Danone';
+  if (p.includes('SEMEAR') || p.includes('DANONE')) return 'Danone';
+  if (p.includes('CARGILL')) return 'Cargill';
+  if (p.includes('PIRACANJUBA')) return 'Piracanjuba';
+  if (p.includes('OFI')) return 'OFI';
+  if (p.includes('CAMPILEITE')) return 'Campileite';
+  if (p.includes('SENAR')) return 'Senar';
+  if (p.includes('COPRIL')) return 'Copril';
+  if (p.includes('M&E')) return 'M&E / Cargill';
+  if (p.includes('GRAOS')) return 'Mais Grãos';
   return projeto;
 }
 
@@ -477,7 +485,7 @@ module.exports = async (req, res) => {
       filterOptions: {
         agroindustrias: [...new Set([...agroindustriasOficiais, ...produtoresList.map(p => mapAgroindustria(p.projeto))])].filter(Boolean).sort(),
         regioes: [...new Set([...Array.from(regiaoMap.values()), ...produtoresList.map(p => getRegiao(p.codigo_lr, p.unidade_atendimento))])].filter(Boolean).sort(),
-        projetos: ['ALVOAR ASSIST', 'ALVOAR ECO', 'ATEG_CCPR', 'LPA', 'REGENERA', 'SEMEAR'],
+        projetos: [...new Set([...produtoresList.map(p => p.projeto), ...visitasList.map(v => v.projeto)])].filter(Boolean).sort(),
         status: ['ATIVO', 'INATIVO'],
         meses: todosMesesDisponiveis
       },

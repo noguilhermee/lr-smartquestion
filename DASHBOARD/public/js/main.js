@@ -725,6 +725,40 @@ document.addEventListener('DOMContentLoaded', () => {
       });
   }
 
+  const PROJECT_LABEL_MAP = {
+    'ALVOAR ASSIST': 'Alvoar Assist',
+    'ALVOAR ECO': 'Alvoar Eco',
+    'ATEG_CCPR': 'Ateg_Ccpr',
+    'LPA': 'Lpa',
+    'REGENERA': 'Regenera',
+    'SEMEAR': 'Semear',
+    'M&E CAFE': 'M&E Café',
+    'M&E CACAU': 'M&E Cacau',
+    'PV CARGILL': 'PV Cargill',
+    'MAIS GRAOS': 'Mais Grãos',
+    'CFT PIRACANJUBA': 'CFT Piracanjuba',
+    'OFI': 'OFI',
+    'CAMPILEITE': 'Campileite',
+    'CAFE & GESTAO': 'Café & Gestão',
+    'SENAR MS': 'Senar MS',
+    'COPRIL': 'Copril',
+    'CFT DANONE 2026': 'CFT Danone 2026',
+    'CFT_DANONE': 'CFT Danone',
+    'CFT LPA 2026': 'CFT LPA 2026',
+    'QUILLAYES - CFT': 'Quillayes - CFT'
+  };
+
+  function formatProjectLabel(projectCode) {
+    if (!projectCode) return '';
+    const code = String(projectCode).trim().toUpperCase();
+    if (PROJECT_LABEL_MAP[code]) return PROJECT_LABEL_MAP[code];
+    return String(projectCode)
+      .toLowerCase()
+      .split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+
   function mapAgroindustria(projeto) {
     if (!projeto) return '';
     const p = String(projeto).toUpperCase();
@@ -732,7 +766,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (p.includes('CCPR')) return 'CCPR';
     if (p.includes('LPA')) return 'Laticínios Porto Alegre';
     if (p.includes('REGENERA')) return 'Nestlé';
-    if (p.includes('SEMEAR')) return 'Danone';
+    if (p.includes('SEMEAR') || p.includes('DANONE')) return 'Danone';
+    if (p.includes('CARGILL')) return 'Cargill';
+    if (p.includes('PIRACANJUBA')) return 'Piracanjuba';
+    if (p.includes('OFI')) return 'OFI';
+    if (p.includes('CAMPILEITE')) return 'Campileite';
+    if (p.includes('SENAR')) return 'Senar';
+    if (p.includes('COPRIL')) return 'Copril';
+    if (p.includes('M&E')) return 'M&E / Cargill';
+    if (p.includes('GRAOS')) return 'Mais Grãos';
     return String(projeto).trim();
   }
 
@@ -875,10 +917,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (projSelect) {
       const prevVal = projSelect.value;
       const validRows = rows.filter((r) => matchesActiveExcept(r, 'project'));
-      const availableProjects = new Set(validRows.map((r) => r.projeto).filter(Boolean));
-      const filteredProjectOptions = projectOptions.filter((p) => availableProjects.has(p.value));
-      projSelect.innerHTML = `<option value="">Todos</option>${filteredProjectOptions.map((p) => `<option value="${escapeHtml(p.value)}">${escapeHtml(p.label)}</option>`).join('')}`;
-      if (filteredProjectOptions.some((p) => p.value === prevVal)) projSelect.value = prevVal;
+      const availableProjects = [...new Set(validRows.map((r) => r.projeto).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      projSelect.innerHTML = `<option value="">Todos</option>${availableProjects.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(formatProjectLabel(p))}</option>`).join('')}`;
+      if (availableProjects.includes(prevVal)) projSelect.value = prevVal;
       else projSelect.value = '';
       syncCustomSelectDisplay('filterProject');
     }
