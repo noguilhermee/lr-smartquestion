@@ -371,7 +371,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
   }
 
-  function matches(row, filter) {
+  function matches(row, filter, ignoreMonth = false) {
     const rawConsultant = String(row.consultor || row.nome_consultor || '');
     const consultores = sanitizeConsultorList(rawConsultant).map((c) => c.toLocaleLowerCase('pt-BR'));
     const filterConsult = (filter.consultant || '').toLocaleLowerCase('pt-BR');
@@ -383,6 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rowRegion = sanitizeRegiao(row.regiao || row.regioes);
     const filterRegion = sanitizeRegiao(filter.region);
     const rowMonth = String(row.mes_referencia || row.data_referencia || '').slice(0, 10);
+    const monthMatch = ignoreMonth || !filter.month || !rowMonth || dimensionMatches(rowMonth, filter.month);
 
     return consultantMatch &&
       (!filter.producer || producer === filter.producer.toLocaleLowerCase('pt-BR')) &&
@@ -390,7 +391,7 @@ document.addEventListener('DOMContentLoaded', () => {
       (!filterRegion || rowRegion === filterRegion) &&
       dimensionMatches(row.projeto || row.projetos, filter.project) &&
       (!filter.status || normalizeStatus(row.status) === normalizeStatus(filter.status)) &&
-      dimensionMatches(rowMonth, filter.month);
+      monthMatch;
   }
 
   // Estado de ordenação para cada tabela do dashboard
@@ -707,7 +708,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (el('tbodyConsultants')) el('tbodyConsultants').innerHTML = rowsOrEmpty(consultants, 6, (row) => `<tr><td class="col-left" title="${escapeHtml(row.consultor || '—')}"><strong>${escapeHtml(row.consultor || '—')}</strong></td><td class="col-center font-tabular">${number(row.total_fazendas)}</td><td class="col-center font-tabular">${number(row.fazendas_visitadas)}</td><td class="col-center font-tabular">${number(row.total_visitas)}</td><td class="col-center font-tabular">${percent(row.perc_cobertura)}</td><td class="col-center"><span class="badge badge-positive">ATIVO</span></td></tr>`);
 
     // Tabela 5: Produtores com Dados
-    let withData = (consistency.tabelaProdutoresComDados || []).filter((row) => matches(row, filter));
+    let withData = (consistency.tabelaProdutoresComDados || []).filter((row) => matches(row, filter, true));
     updateCount('countDataProducers', withData);
     withData = sortRows(withData, tableSort.tbodyDataProducers, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
     updateTableHeadIcons('tbodyDataProducers', tableSort.tbodyDataProducers.colKey, tableSort.tbodyDataProducers.dir);
@@ -718,7 +719,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Tabela 6: Inconsistências
-    let inconsistencies = (consistency.tabelaInconsistentes || []).filter((row) => matches(row, filter));
+    let inconsistencies = (consistency.tabelaInconsistentes || []).filter((row) => matches(row, filter, true));
     updateCount('countInconsistencies', inconsistencies);
     inconsistencies = sortRows(inconsistencies, tableSort.tbodyInconsistencies, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
     updateTableHeadIcons('tbodyInconsistencies', tableSort.tbodyInconsistencies.colKey, tableSort.tbodyInconsistencies.dir);
