@@ -135,16 +135,18 @@ module.exports = async (req, res) => {
       .eq('mes_referencia', refMonth)
       .order('data_visita', { ascending: false }));
 
-    // Histórico necessário para os gráficos. Consultas exclusivamente de leitura.
+    // Histórico necessário para os gráficos. Consultas exclusivamente de leitura com ordenação determinística.
     const [visitasHistoricas, produtoresHistoricos] = await Promise.all([
       fetchAll(() => supabase
         .from('f_visitas_bi_lr')
         .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia, data_visita')
-        .order('mes_referencia', { ascending: false })),
+        .order('mes_referencia', { ascending: false })
+        .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
         .from('tab_produtores_ativos_mensal')
         .select('codigo_lr, nome_consultor, nome_produtor, projeto, unidade_atendimento, data_referencia')
-        .order('data_referencia', { ascending: false }))
+        .order('data_referencia', { ascending: false })
+        .order('codigo_lr', { ascending: true }))
     ]);
 
     // Filtros selecionados no frontend

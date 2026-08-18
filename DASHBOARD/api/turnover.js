@@ -111,12 +111,14 @@ module.exports = async (req, res) => {
       fetchAll(() => supabase
         .from('tab_movimentacao_produtor')
         .select('codigo_lr, nome_consultor, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
-        .order('data_movimentacao', { ascending: false })),
+        .order('data_movimentacao', { ascending: false })
+        .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
         .from('tab_produtores_ativos_mensal')
         .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
         .lte('data_referencia', maxAllowedMonth)
-        .order('data_referencia', { ascending: false })),
+        .order('data_referencia', { ascending: false })
+        .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
         .from('tab_inativacoes_sq')
         .select('codigo_lr, nome_produtor, nome_propriedade, projeto, grupo_ponto_atendimento')),

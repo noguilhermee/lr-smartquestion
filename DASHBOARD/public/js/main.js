@@ -57,6 +57,18 @@ document.addEventListener('DOMContentLoaded', () => {
     return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('pt-BR');
   };
 
+  function isStatusInconsistente(statusStr) {
+    if (!statusStr) return false;
+    const normalized = String(statusStr)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase();
+    if (normalized.includes('SEM DADOS') || normalized.includes('NAO CALCULADO') || normalized.includes('PENDENTE')) {
+      return false;
+    }
+    return normalized.includes('INCONSIST') || normalized.includes('DIVERG');
+  }
+
   function updateValue(id, value) {
     const node = el(id);
     if (!node) return;
@@ -320,6 +332,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  let isTableResizing = false;
+  let tableResizeEndTime = 0;
+
   function setupTableSorting() {
     const MAPPINGS = {
       tbodySemVisita: ['consultor', 'codigo_lr', 'produtor', 'data_vinculacao', 'dias_sem_visita', 'status'],
@@ -342,7 +357,14 @@ document.addEventListener('DOMContentLoaded', () => {
         th.dataset.sortKey = key;
         th.classList.add('sortable');
         th.title = `Clique para ordenar por ${th.textContent.trim()}`;
-        th.addEventListener('click', () => {
+        th.addEventListener('click', (e) => {
+          // Bloqueia ordenação se o usuário estiver redimensionando colunas ou acabou de soltar a divisória
+          if (e.target.closest('.col-resizer') || isTableResizing || (Date.now() - tableResizeEndTime < 350)) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+
           const current = tableSort[tbodyId] || { colKey: null, dir: 'asc' };
           if (current.colKey === key) {
             current.dir = current.dir === 'asc' ? 'desc' : 'asc';
@@ -356,6 +378,131 @@ document.addEventListener('DOMContentLoaded', () => {
             renderTables();
             hideLoading(150);
           }, 60);
+        });
+      });
+    });
+  }
+
+  function setupColumnResizers() {
+    document.querySelectorAll('.data-table').forEach((table) => {
+      const ths = table.querySelectorAll('thead th');
+      const tableScroll = table.closest('.table-scroll');
+
+      ths.forEach((th, idx) => {
+        if (th.querySelector('.col-resizer')) return;
+
+        const resizer = document.createElement('span');
+        resizer.className = 'col-resizer';
+        resizer.title = 'Arraste para redimensionar a coluna ou dê um duplo clique para auto-ajustar';
+        th.appendChild(resizer);
+
+        // Previne que cliques isolados na alça disparem ordenação
+        resizer.addEventListener('click', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+        });
+
+        let startX = 0;
+        let startWidth = 0;
+        let rafId = null;
+
+        const initExplicitWidths = () => {
+          if (!table.dataset.hasExplicitWidths) {
+            ths.forEach((colTh) => {
+              const currentW = Math.round(colTh.getBoundingClientRect().width);
+              colTh.style.width = `${currentW}px`;
+              colTh.style.minWidth = `${currentW}px`;
+            });
+            table.dataset.hasExplicitWidths = 'true';
+            table.style.width = 'max-content';
+            table.style.minWidth = '100%';
+            if (tableScroll) tableScroll.style.overflowX = 'auto';
+          }
+        };
+
+        const onMouseMove = (e) => {
+          const clientX = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX;
+          const diff = clientX - startX;
+          const newWidth = Math.max(50, startWidth + diff);
+
+          if (rafId) cancelAnimationFrame(rafId);
+          rafId = requestAnimationFrame(() => {
+            th.style.width = `${newWidth}px`;
+            th.style.minWidth = `${newWidth}px`;
+          });
+        };
+
+        const onMouseUp = () => {
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+          document.removeEventListener('touchmove', onMouseMove);
+          document.removeEventListener('touchend', onMouseUp);
+          document.body.classList.remove('table-resizing');
+          resizer.classList.remove('is-active');
+
+          isTableResizing = false;
+          tableResizeEndTime = Date.now();
+        };
+
+        const startResize = (clientX) => {
+          isTableResizing = true;
+          initExplicitWidths();
+
+          startX = clientX;
+          startWidth = th.offsetWidth;
+          resizer.classList.add('is-active');
+          document.body.classList.add('table-resizing');
+
+          document.addEventListener('mousemove', onMouseMove);
+          document.addEventListener('mouseup', onMouseUp, { once: false });
+        };
+
+        resizer.addEventListener('mousedown', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          startResize(e.clientX);
+        });
+
+        resizer.addEventListener('touchstart', (e) => {
+          e.stopPropagation();
+          startResize(e.touches[0].clientX);
+          document.addEventListener('touchmove', onMouseMove, { passive: false });
+          document.addEventListener('touchend', onMouseUp, { once: false });
+        }, { passive: false });
+
+        resizer.addEventListener('dblclick', (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          isTableResizing = true;
+          initExplicitWidths();
+
+          const tableRows = table.querySelectorAll('tbody tr');
+          let maxWidth = th.textContent.trim().length * 8.5 + 24;
+
+          const ruler = document.createElement('span');
+          ruler.style.visibility = 'hidden';
+          ruler.style.position = 'absolute';
+          ruler.style.whiteSpace = 'nowrap';
+          ruler.style.font = '600 11px "Open Sans", sans-serif';
+          document.body.appendChild(ruler);
+
+          tableRows.forEach((tr) => {
+            const cell = tr.children[idx];
+            if (cell) {
+              ruler.textContent = cell.textContent.trim();
+              const w = ruler.offsetWidth + 22;
+              if (w > maxWidth) maxWidth = w;
+            }
+          });
+
+          document.body.removeChild(ruler);
+          const optimalWidth = Math.min(520, Math.max(65, Math.ceil(maxWidth)));
+
+          th.style.width = `${optimalWidth}px`;
+          th.style.minWidth = `${optimalWidth}px`;
+
+          isTableResizing = false;
+          tableResizeEndTime = Date.now();
         });
       });
     });
@@ -380,7 +527,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const status = !hasDays ? 'Sem visita no período' : isGrave ? 'Sem visita > 60 dias' : days >= 45 ? 'Sem visita > 45 dias' : 'Sem visita > 30 dias';
       const rowClass = isGrave ? 'table-row-grave' : 'table-row-pending';
       const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
-      return `<tr class="${rowClass}"><td>${escapeHtml(row.consultor)}</td><td><strong>${escapeHtml(row.codigo_lr)}</strong></td><td>${escapeHtml(row.produtor)}</td><td>${escapeHtml(row.data_vinculacao || row.data_referencia || '—')}</td><td>${hasDays ? days : '—'}</td><td><span class="badge ${badgeClass}">${escapeHtml(status)}</span></td></tr>`;
+      const dtVinc = row.data_vinculacao || row.data_referencia || '—';
+      return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-center" title="${escapeHtml(dtVinc)}">${escapeHtml(dtVinc)}</td><td class="col-center font-tabular">${hasDays ? days : '—'}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(status)}">${escapeHtml(status)}</span></td></tr>`;
     });
 
     // Tabela 2: Visitados
@@ -388,7 +536,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCount('countVisited', visited);
     visited = sortRows(visited, tableSort.tbodyVisitados, (row, key) => row[key]);
     updateTableHeadIcons('tbodyVisitados', tableSort.tbodyVisitados.colKey, tableSort.tbodyVisitados.dir);
-    if (el('tbodyVisitados')) el('tbodyVisitados').innerHTML = rowsOrEmpty(visited, 7, (row) => `<tr><td>${escapeHtml(row.consultor)}</td><td><strong>${escapeHtml(row.codigo_lr)}</strong></td><td>${escapeHtml(row.produtor)}</td><td>${escapeHtml(row.profissao || '—')}</td><td>${escapeHtml(row.atendimento)}</td><td>${escapeHtml(row.data_visita)}</td><td><span class="badge ${row.elabore_ok === false ? 'badge-danger' : 'badge-positive'}">${row.elabore_ok === false ? 'NÃO' : 'SIM'}</span></td></tr>`);
+    if (el('tbodyVisitados')) el('tbodyVisitados').innerHTML = rowsOrEmpty(visited, 7, (row) => `<tr><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-left" title="${escapeHtml(row.profissao || '—')}">${escapeHtml(row.profissao || '—')}</td><td class="col-center" title="${escapeHtml(row.atendimento || '—')}">${escapeHtml(row.atendimento || '—')}</td><td class="col-center">${escapeHtml(row.data_visita || '—')}</td><td class="col-center"><span class="badge ${row.elabore_ok === false ? 'badge-danger' : 'badge-positive'}">${row.elabore_ok === false ? 'NÃO' : 'SIM'}</span></td></tr>`);
 
     // Tabela 3: Turnover / Movimentação
     let movements = (turnover.tabelaMovimentacao || []).filter((row) => matches(row, filter));
@@ -397,7 +545,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updateTableHeadIcons('tbodyTurnover', tableSort.tbodyTurnover.colKey, tableSort.tbodyTurnover.dir);
     if (el('tbodyTurnover')) el('tbodyTurnover').innerHTML = rowsOrEmpty(movements, 5, (row) => {
       const isSaida = row.tipo === 'SAÍDA';
-      return `<tr class="${isSaida ? 'table-row-grave' : ''}"><td><strong>${escapeHtml(row.produtor)}</strong></td><td><span class="badge ${isSaida ? 'badge-danger' : 'badge-positive'}">${escapeHtml(row.tipo)}</span></td><td>${escapeHtml(row.data)}</td><td>${escapeHtml(row.grupo || row.consultor)}</td><td>${escapeHtml(row.motivo)}</td></tr>`;
+      const grp = row.grupo || row.consultor || '—';
+      return `<tr class="${isSaida ? 'table-row-grave' : ''}"><td class="col-left" title="${escapeHtml(row.produtor || '—')}"><strong>${escapeHtml(row.produtor || '—')}</strong></td><td class="col-center"><span class="badge ${isSaida ? 'badge-danger' : 'badge-positive'}">${escapeHtml(row.tipo)}</span></td><td class="col-center">${escapeHtml(row.data || '—')}</td><td class="col-left" title="${escapeHtml(grp)}">${escapeHtml(grp)}</td><td class="col-left" title="${escapeHtml(row.motivo || '—')}">${escapeHtml(row.motivo || '—')}</td></tr>`;
     });
 
     // Tabela 4: Consultores
@@ -405,7 +554,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCount('countConsultants', consultants);
     consultants = sortRows(consultants, tableSort.tbodyConsultants, (row, key) => row[key]);
     updateTableHeadIcons('tbodyConsultants', tableSort.tbodyConsultants.colKey, tableSort.tbodyConsultants.dir);
-    if (el('tbodyConsultants')) el('tbodyConsultants').innerHTML = rowsOrEmpty(consultants, 6, (row) => `<tr><td><strong>${escapeHtml(row.consultor)}</strong></td><td>${number(row.total_fazendas)}</td><td>${number(row.fazendas_visitadas)}</td><td>${number(row.total_visitas)}</td><td>${percent(row.perc_cobertura)}</td><td><span class="badge badge-positive">ATIVO</span></td></tr>`);
+    if (el('tbodyConsultants')) el('tbodyConsultants').innerHTML = rowsOrEmpty(consultants, 6, (row) => `<tr><td class="col-left" title="${escapeHtml(row.consultor || '—')}"><strong>${escapeHtml(row.consultor || '—')}</strong></td><td class="col-center font-tabular">${number(row.total_fazendas)}</td><td class="col-center font-tabular">${number(row.fazendas_visitadas)}</td><td class="col-center font-tabular">${number(row.total_visitas)}</td><td class="col-center font-tabular">${percent(row.perc_cobertura)}</td><td class="col-center"><span class="badge badge-positive">ATIVO</span></td></tr>`);
 
     // Tabela 5: Produtores com Dados
     let withData = (consistency.tabelaProdutoresComDados || []).filter((row) => matches(row, filter));
@@ -414,7 +563,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updateTableHeadIcons('tbodyDataProducers', tableSort.tbodyDataProducers.colKey, tableSort.tbodyDataProducers.dir);
     if (el('tbodyDataProducers')) el('tbodyDataProducers').innerHTML = rowsOrEmpty(withData, 6, (row) => {
       const noData = row.possui_dados === false;
-      return `<tr class="${noData ? 'table-row-grave' : ''}"><td><strong>${escapeHtml(row.codigo_lr)}</strong></td><td>${escapeHtml(row.produtor || row.codigo_lr)}</td><td>${escapeHtml(row.consultor)}</td><td><span class="badge ${noData ? 'badge-danger' : 'badge-positive'}">${noData ? 'NÃO' : 'SIM'}</span></td><td>${escapeHtml(row.referencia || '—')}</td><td><span class="badge ${String(row.status).toUpperCase() === 'INATIVO' ? 'badge-danger' : 'badge-positive'}">${escapeHtml(row.status || 'ATIVO')}</span></td></tr>`;
+      const prodName = row.produtor || row.codigo_lr || '—';
+      return `<tr class="${noData ? 'table-row-grave' : ''}"><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(prodName)}">${escapeHtml(prodName)}</td><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><span class="badge ${noData ? 'badge-danger' : 'badge-positive'}">${noData ? 'NÃO' : 'SIM'}</span></td><td class="col-center">${escapeHtml(row.referencia || '—')}</td><td class="col-center"><span class="badge ${String(row.status).toUpperCase() === 'INATIVO' ? 'badge-danger' : 'badge-positive'}">${escapeHtml(row.status || 'ATIVO')}</span></td></tr>`;
     });
 
     // Tabela 6: Inconsistências
@@ -423,11 +573,11 @@ document.addEventListener('DOMContentLoaded', () => {
     inconsistencies = sortRows(inconsistencies, tableSort.tbodyInconsistencies, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
     updateTableHeadIcons('tbodyInconsistencies', tableSort.tbodyInconsistencies.colKey, tableSort.tbodyInconsistencies.dir);
     if (el('tbodyInconsistencies')) el('tbodyInconsistencies').innerHTML = rowsOrEmpty(inconsistencies, 6, (row, idx) => {
-      const st = String(row.consistencia || 'PENDENTE').toUpperCase();
-      const isGrave = st.includes('INCONSISTENT') || st.includes('DIVERGENT');
+      const isGrave = isStatusInconsistente(row.consistencia);
       const rowClass = isGrave ? 'table-row-grave' : 'table-row-pending';
       const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
-      return `<tr class="${rowClass}"><td><strong>${escapeHtml(row.produtor || row.codigo_lr)}</strong></td><td>${escapeHtml(row.consultor)}</td><td>${escapeHtml(row.projeto)}</td><td>${number(row.meses_sequenciais)}</td><td><span class="badge ${badgeClass}">${escapeHtml(row.consistencia || 'PENDENTE')}</span></td><td><button class="link-button btn-view-details" type="button" onclick="window.openInconsistencyDetail('${escapeHtml(row.codigo_lr || row.produtor)}')">Ver detalhes ›</button></td></tr>`;
+      const prodName = row.produtor || row.codigo_lr || '—';
+      return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(prodName)}"><strong>${escapeHtml(prodName)}</strong></td><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-left" title="${escapeHtml(row.projeto || '—')}">${escapeHtml(row.projeto || '—')}</td><td class="col-center font-tabular">${number(row.meses_sequenciais)}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(row.consistencia || 'PENDENTE')}">${escapeHtml(row.consistencia || 'PENDENTE')}</span></td><td class="col-center"><button class="link-button btn-view-details" type="button" onclick="window.openInconsistencyDetail('${escapeHtml(row.codigo_lr || row.produtor)}')">Ver detalhes ›</button></td></tr>`;
     });
   }
 
@@ -751,8 +901,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function openDetailsModal(item) {
       if (!item || !detailsModal || !modalBody) return;
-      const st = String(item.consistencia || 'PENDENTE').toUpperCase();
-      const isGrave = st.includes('INCONSISTENT') || st.includes('DIVERGENT');
+      const isGrave = isStatusInconsistente(item.consistencia);
       const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
       const highlightBoxClass = isGrave ? 'field-box--danger' : 'field-box--warning';
       const statusBadge = String(item.status || 'ATIVO').toUpperCase() === 'INATIVO' ? 'badge-danger' : 'badge-positive';
@@ -1048,6 +1197,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   setupTableSorting();
+  setupColumnResizers();
   setupCustomSelectDropdowns();
   setupDetailsModal();
   setupKpiInfoPopovers();

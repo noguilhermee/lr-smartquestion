@@ -22,7 +22,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,500,0,0" rel="stylesheet">
-  <link rel="stylesheet" href="./css/dashboard.css?v=20260818-1">
+  <link rel="stylesheet" href="./css/dashboard.css?v=20260818-6">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -112,11 +112,11 @@
         <div class="grid-two grid-two--tables">
           <article class="panel-card table-card">
             <div class="panel-heading"><h2>Produtores sem visita</h2><span class="record-count" id="countWithoutVisit">0 registros</span></div>
-            <div class="table-scroll"><table class="data-table"><thead><tr><th>Consultor(a)</th><th>ID</th><th>Produtor(a)</th><th>Data de vinculação</th><th>Dias sem visita</th><th>Status</th></tr></thead><tbody id="tbodySemVisita"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+            <div class="table-scroll"><table class="data-table" id="tableSemVisita"><thead><tr><th class="col-left">Consultor(a)</th><th class="col-center">ID</th><th class="col-left">Produtor(a)</th><th class="col-center">Data Vínculo</th><th class="col-center">Dias s/ Visita</th><th class="col-center">Status</th></tr></thead><tbody id="tbodySemVisita"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
           </article>
           <article class="panel-card table-card">
             <div class="panel-heading"><h2>Produtores visitados</h2><span class="record-count" id="countVisited">0 registros</span></div>
-            <div class="table-scroll"><table class="data-table"><thead><tr><th>Consultor(a)</th><th>ID</th><th>Produtor(a)</th><th>Profissão</th><th>Nº atendimento</th><th>Data da visita</th><th>Elabore</th></tr></thead><tbody id="tbodyVisitados"><tr><td colspan="7" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+            <div class="table-scroll"><table class="data-table" id="tableVisitados"><thead><tr><th class="col-left">Consultor(a)</th><th class="col-center">ID</th><th class="col-left">Produtor(a)</th><th class="col-left">Profissão</th><th class="col-center">Nº Atend.</th><th class="col-center">Data Visita</th><th class="col-center">Elabore</th></tr></thead><tbody id="tbodyVisitados"><tr><td colspan="7" class="empty-cell">Carregando...</td></tr></tbody></table></div>
           </article>
         </div>
       </section>
@@ -139,11 +139,11 @@
         <div class="grid-two grid-two--tables">
           <article class="panel-card table-card">
             <div class="panel-heading"><h2>Movimentação dos produtores</h2><span class="record-count" id="countTurnover">0 registros</span></div>
-            <div class="table-scroll"><table class="data-table"><thead><tr><th>Produtor(a)</th><th>Movimentação</th><th>Data da solicitação</th><th>Grupo / Consultor</th><th>Motivo</th></tr></thead><tbody id="tbodyTurnover"><tr><td colspan="5" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+            <div class="table-scroll"><table class="data-table" id="tableTurnover"><thead><tr><th class="col-left">Produtor(a)</th><th class="col-center">Movimentação</th><th class="col-center">Data Solicitação</th><th class="col-left">Grupo / Consultor</th><th class="col-left">Motivo</th></tr></thead><tbody id="tbodyTurnover"><tr><td colspan="5" class="empty-cell">Carregando...</td></tr></tbody></table></div>
           </article>
           <article class="panel-card table-card">
             <div class="panel-heading"><h2>Consultores ativos</h2><span class="record-count" id="countConsultants">0 registros</span></div>
-            <div class="table-scroll"><table class="data-table"><thead><tr><th>Consultor(a)</th><th>Fazendas</th><th>Visitadas</th><th>Visitas</th><th>Cobertura</th><th>Status</th></tr></thead><tbody id="tbodyConsultants"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+            <div class="table-scroll"><table class="data-table" id="tableConsultants"><thead><tr><th class="col-left">Consultor(a)</th><th class="col-center">Fazendas</th><th class="col-center">Visitadas</th><th class="col-center">Visitas</th><th class="col-center">Cobertura</th><th class="col-center">Status</th></tr></thead><tbody id="tbodyConsultants"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
           </article>
         </div>
       </section>
@@ -172,11 +172,11 @@
         <div class="grid-two grid-two--tables">
           <article class="panel-card table-card">
             <div class="panel-heading"><h2>Produtores com dados</h2><span class="record-count" id="countDataProducers">0 registros</span></div>
-            <div class="table-scroll"><table class="data-table"><thead><tr><th>ID</th><th>Produtor(a)</th><th>Consultor(a)</th><th>Presença de dados</th><th>Última referência</th><th>Status</th></tr></thead><tbody id="tbodyDataProducers"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+            <div class="table-scroll"><table class="data-table" id="tableDataProducers"><thead><tr><th class="col-center">ID</th><th class="col-left">Produtor(a)</th><th class="col-left">Consultor(a)</th><th class="col-center">Dados</th><th class="col-center">Últ. Ref.</th><th class="col-center">Status</th></tr></thead><tbody id="tbodyDataProducers"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
           </article>
           <article class="panel-card table-card">
             <div class="panel-heading"><h2>Inconsistências identificadas</h2><span class="record-count" id="countInconsistencies">0 registros</span></div>
-            <div class="table-scroll"><table class="data-table"><thead><tr><th>Produtor(a)</th><th>Consultor(a)</th><th>Projeto</th><th>Meses sequenciais</th><th>Situação</th><th>Ação</th></tr></thead><tbody id="tbodyInconsistencies"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+            <div class="table-scroll"><table class="data-table" id="tableInconsistencies"><thead><tr><th class="col-left">Produtor(a)</th><th class="col-left">Consultor(a)</th><th class="col-left">Projeto</th><th class="col-center">Meses Seq.</th><th class="col-center">Situação</th><th class="col-center">Ação</th></tr></thead><tbody id="tbodyInconsistencies"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
           </article>
         </div>
       </section>
@@ -274,8 +274,8 @@
     </div>
   </div>
 
-  <script src="./js/carousel.js?v=20260818-1"></script>
-  <script src="./js/charts.js?v=20260818-1"></script>
-  <script src="./js/main.js?v=20260818-1"></script>
+  <script src="./js/carousel.js?v=20260818-6"></script>
+  <script src="./js/charts.js?v=20260818-6"></script>
+  <script src="./js/main.js?v=20260818-6"></script>
 </body>
 </html>
