@@ -58,6 +58,39 @@ function mapAgroindustria(projeto) {
   return projeto;
 }
 
+// ─── Utilitários de sanitização e regras de negócio ─────────────────────────
+
+const LAC_CONSULTORIA_RAW = new Set([
+  'CELIO ROBERTO OLIVEIRA (REGENERA)',
+  'SUELY DE JESUS OLIVEIRA (REGENERA)'
+]);
+
+function sanitizeConsultorList(rawName) {
+  if (!rawName) return [null];
+  return String(rawName)
+    .split('/')
+    .map(p => p.trim())
+    .filter(Boolean)
+    .map(part => {
+      const upper = part.toUpperCase();
+      if (LAC_CONSULTORIA_RAW.has(upper)) return 'LAC CONSULTORIA';
+      return part.replace(/\s*\([^)]+\)\s*$/, '').trim() || part;
+    });
+}
+
+function isTestData(nome_consultor, projeto) {
+  return String(nome_consultor || '').toUpperCase().includes('MATEUS CARNIELLI') &&
+         String(projeto || '').toUpperCase().includes('ALVOAR ECO');
+}
+
+function shiftMonthMinus1(monthStr) {
+  if (!monthStr) return null;
+  const d = new Date(`${String(monthStr).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
 module.exports = async (req, res) => {
   try {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -93,7 +126,10 @@ module.exports = async (req, res) => {
       if (filters.industry && mapAgroindustria(row.projeto || row.agroindustria) !== filters.industry) return false;
       if (filters.region && getRegiao(row.codigo_lr, row.unidade_atendimento || row.regiao) !== filters.region) return false;
       if (filters.project && String(row.projeto || '') !== filters.project) return false;
-      if (filters.consultant && String(row.nome_consultor || row.consultor || '').toLowerCase() !== filters.consultant.toLowerCase()) return false;
+      if (filters.consultant) {
+        const consultorNames = sanitizeConsultorList(row.nome_consultor || row.consultor);
+        if (!consultorNames.some(c => c && c.toLowerCase() === filters.consultant.toLowerCase())) return false;
+      }
       if (filters.producer) {
         const pName = String(row.nome_produtor || row.produtor || row.codigo_lr || '').toLowerCase();
         if (!pName.includes(filters.producer.toLowerCase())) return false;
@@ -160,18 +196,24 @@ module.exports = async (req, res) => {
     const latestMovementKey = String(movimentacoes?.[0]?.data_movimentacao || '').slice(0, 7);
     const latestMovementMonth = /^\d{4}-\d{2}$/.test(latestMovementKey) ? `${latestMovementKey}-01` : null;
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
-    const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth) ? requestedMonth : (latestMovementMonth || maxDataRef);
+    // Regra M-1: mês selecionado pelo usuário mapeia para M-1 como referência real de dados
+    const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
+      ? (shiftMonthMinus1(requestedMonth) || maxDataRef)
+      : (latestMovementMonth || maxDataRef);
     const produtoresFiltrados = refMonth
       ? produtores.filter(p => p.data_referencia === refMonth)
       : (produtores || []);
+
+    // Filtrar dados de teste de movimentações
+    const movimentacoesFiltradas = (movimentacoes || []).filter(m => !isTestData(m.nome_consultor, null));
 
     const totalAtivos = new Set(produtoresFiltrados.map(p => p.codigo_lr).filter(Boolean)).size || produtoresFiltrados.length;
     const totalConsultores = new Set(produtoresFiltrados.map(p => p.nome_consultor).filter(Boolean)).size;
 
     const currentMonthKey = refMonth ? String(refMonth).slice(0, 7) : null;
     const movimentacoesDoMes = currentMonthKey
-      ? (movimentacoes || []).filter(m => String(m.data_movimentacao || '').slice(0, 7) === currentMonthKey)
-      : (movimentacoes || []);
+      ? (movimentacoesFiltradas || []).filter(m => String(m.data_movimentacao || '').slice(0, 7) === currentMonthKey)
+      : (movimentacoesFiltradas || []);
 
     let entradas = 0;
     let saidas = 0;
@@ -190,18 +232,24 @@ module.exports = async (req, res) => {
       }
     });
 
-    (movimentacoes || []).forEach(m => {
+    (movimentacoesFiltradas || []).forEach(m => {
       const isSaida = String(m.movimentacao || '').toLowerCase().includes('sa');
       const tipo = isSaida ? 'SAÍDA' : 'ENTRADA';
       const produtorAtivo = produtoresMap.get(m.codigo_lr);
       const movementMonthKey = String(m.data_movimentacao || '').slice(0, 7);
+      const metaFallback = fallbackMetaMap.get(m.codigo_lr);
+      const nomeFinal = produtorAtivo?.nome_produtor || metaFallback?.nome_produtor;
+      // Desconsidera contas puramente de supervisao do SmartQuestion se nao houver nome
+      const produtorNome = nomeFinal || (String(m.codigo_lr).includes('_CONSULTOR') ? 'CONTA DE SUPERVISÃO' : m.codigo_lr || 'PRODUTOR');
+      // Sanitiza o nome do consultor removendo sufixo de projeto
+      const consultorSanitizado = (sanitizeConsultorList(m.nome_consultor)[0]) || 'NÃO ATRIBUÍDO';
       tabelaMov.push({
-        produtor: produtorAtivo?.nome_produtor || m.codigo_lr || 'PRODUTOR',
-        consultor: m.nome_consultor || 'NÃO ATRIBUÍDO',
-        grupo: m.nome_consultor || 'NÃO ATRIBUÍDO',
-        agroindustria: mapAgroindustria(produtorAtivo?.projeto),
-        regiao: getRegiao(m.codigo_lr, produtorAtivo?.unidade_atendimento),
-        projeto: produtorAtivo?.projeto || 'NÃO INFORMADO',
+        produtor: produtorNome,
+        consultor: consultorSanitizado,
+        grupo: consultorSanitizado,
+        agroindustria: mapAgroindustria(produtorAtivo?.projeto || metaFallback?.projeto),
+        regiao: getRegiao(m.codigo_lr, produtorAtivo?.unidade_atendimento || metaFallback?.unidade_atendimento),
+        projeto: produtorAtivo?.projeto || metaFallback?.projeto || 'NÃO INFORMADO',
         status: tipo === 'SAÍDA' ? 'INATIVO' : 'ATIVO',
         mes_referencia: /^\d{4}-\d{2}$/.test(movementMonthKey) ? `${movementMonthKey}-01` : refMonth,
         tipo,

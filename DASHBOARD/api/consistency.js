@@ -69,6 +69,39 @@ function monthLabel(value) {
   return `${month.charAt(0).toUpperCase()}${month.slice(1)}/${String(parsed.getFullYear()).slice(-2)}`;
 }
 
+// ─── Utilitários de sanitização e regras de negócio ─────────────────────────
+
+const LAC_CONSULTORIA_RAW = new Set([
+  'CELIO ROBERTO OLIVEIRA (REGENERA)',
+  'SUELY DE JESUS OLIVEIRA (REGENERA)'
+]);
+
+function sanitizeConsultorList(rawName) {
+  if (!rawName) return [null];
+  return String(rawName)
+    .split('/')
+    .map(p => p.trim())
+    .filter(Boolean)
+    .map(part => {
+      const upper = part.toUpperCase();
+      if (LAC_CONSULTORIA_RAW.has(upper)) return 'LAC CONSULTORIA';
+      return part.replace(/\s*\([^)]+\)\s*$/, '').trim() || part;
+    });
+}
+
+function isTestData(nome_consultor, projeto) {
+  return String(nome_consultor || '').toUpperCase().includes('MATEUS CARNIELLI') &&
+         String(projeto || '').toUpperCase().includes('ALVOAR ECO');
+}
+
+function shiftMonthMinus1(monthStr) {
+  if (!monthStr) return null;
+  const d = new Date(`${String(monthStr).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
 module.exports = async (req, res) => {
   try {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -101,9 +134,13 @@ module.exports = async (req, res) => {
       .limit(1);
 
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
+    const latestAvailableMonth = (ultimasVisitas && ultimasVisitas.length > 0)
+      ? ultimasVisitas[0].mes_referencia
+      : maxAllowedMonth;
+    // Regra M-1: mês selecionado pelo usuário mapeia para o mês anterior como referência de dados
     const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
-      ? requestedMonth
-      : ((ultimasVisitas && ultimasVisitas.length > 0) ? ultimasVisitas[0].mes_referencia : maxAllowedMonth);
+      ? (shiftMonthMinus1(requestedMonth) || latestAvailableMonth)
+      : latestAvailableMonth;
 
     const filters = {
       industry: String(req.query?.industry || '').trim(),
@@ -118,7 +155,10 @@ module.exports = async (req, res) => {
       if (filters.industry && mapAgroindustria(row.projeto || row.agroindustria) !== filters.industry) return false;
       if (filters.region && getRegiao(row.codigo_lr, row.unidade_atendimento || row.regiao) !== filters.region) return false;
       if (filters.project && String(row.projeto || '') !== filters.project) return false;
-      if (filters.consultant && String(row.nome_consultor || row.consultor || '').toLowerCase() !== filters.consultant.toLowerCase()) return false;
+      if (filters.consultant) {
+        const consultorNames = sanitizeConsultorList(row.nome_consultor || row.consultor);
+        if (!consultorNames.some(c => c && c.toLowerCase() === filters.consultant.toLowerCase())) return false;
+      }
       if (filters.producer) {
         const pName = String(row.nome_produtor || row.produtor || row.codigo_lr || '').toLowerCase();
         if (!pName.includes(filters.producer.toLowerCase())) return false;
@@ -131,24 +171,29 @@ module.exports = async (req, res) => {
       return true;
     }
 
-    const consistenciaHistoricaBruta = await fetchAll(() => supabase
-      .from('f_consistente_bi_lr')
-      .select('codigo_lr, nome_consultor, projeto, mes_referencia, data_carencia_fim, mes_elabore, consistencia_mensal, consistencia_anual, excecao, meses_sequenciais, detalhamento_inconsistencia')
-      .order('mes_referencia', { ascending: false })
-      .order('codigo_lr', { ascending: true }));
+    const [consistenciaHistoricaBruta, produtoresAtivosBrutos, vinculosFallback] = await Promise.all([
+      fetchAll(() => supabase
+        .from('f_consistente_bi_lr')
+        .select('codigo_lr, nome_consultor, projeto, mes_referencia, data_carencia_fim, mes_elabore, consistencia_mensal, consistencia_anual, excecao, meses_sequenciais, detalhamento_inconsistencia')
+        .order('mes_referencia', { ascending: false })
+        .order('codigo_lr', { ascending: true })),
+      fetchAll(() => supabase
+        .from('tab_produtores_ativos_mensal')
+        .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
+        .eq('data_referencia', refMonth)
+        .order('codigo_lr', { ascending: true })),
+      fetchAll(() => supabase
+        .from('tab_vinculos_sq')
+        .select('codigo_lr, nome_produtor, projeto, unidade_atendimento'))
+    ]);
 
-    const produtoresAtivosBrutos = await fetchAll(() => supabase
-      .from('tab_produtores_ativos_mensal')
-      .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
-      .eq('data_referencia', refMonth)
-      .order('codigo_lr', { ascending: true }));
-
+    const fallbackMetaMap = new Map((vinculosFallback || []).map(v => [v.codigo_lr, v]));
     const produtoresAtivos = (produtoresAtivosBrutos || []).filter(rowMatches);
     const produtoresMap = new Map((produtoresAtivos || []).map(p => [p.codigo_lr, p]));
 
     const consistenciaHistorica = (consistenciaHistoricaBruta || []).filter(c => {
       if (!produtoresMap.has(c.codigo_lr)) return false; // REGRA: Desconsidera produtores fora do SmartQuestion
-      const p = produtoresMap.get(c.codigo_lr);
+      const p = produtoresMap.get(c.codigo_lr) || fallbackMetaMap.get(c.codigo_lr);
       return rowMatches({ ...c, unidade_atendimento: p?.unidade_atendimento, nome_produtor: p?.nome_produtor });
     });
 
@@ -190,13 +235,15 @@ module.exports = async (req, res) => {
         } else if (isInconsistente) {
           inconsistentes++;
           const produtorAtivo = produtoresMap.get(c.codigo_lr);
+          const metaFallback = fallbackMetaMap.get(c.codigo_lr);
+          const nomeProdutor = produtorAtivo?.nome_produtor || metaFallback?.nome_produtor || c.codigo_lr || 'PRODUTOR';
           listaInconsistentes.push({
             codigo_lr: c.codigo_lr || 'PRODUTOR',
-            produtor: produtorAtivo?.nome_produtor || c.codigo_lr || 'PRODUTOR',
+            produtor: nomeProdutor,
             consultor: c.nome_consultor || 'NÃO INFORMADO',
-            agroindustria: mapAgroindustria(produtorAtivo?.projeto || c.projeto),
-            regiao: getRegiao(c.codigo_lr, produtorAtivo?.unidade_atendimento),
-            projeto: c.projeto || produtorAtivo?.projeto || 'NÃO INFORMADO',
+            agroindustria: mapAgroindustria(produtorAtivo?.projeto || metaFallback?.projeto || c.projeto),
+            regiao: getRegiao(c.codigo_lr, produtorAtivo?.unidade_atendimento || metaFallback?.unidade_atendimento),
+            projeto: c.projeto || produtorAtivo?.projeto || metaFallback?.projeto || 'NÃO INFORMADO',
             status: produtorAtivo ? 'ATIVO' : 'INATIVO',
             mes_referencia: c.mes_referencia || refMonth,
             meses_sequenciais: seq,
@@ -206,13 +253,15 @@ module.exports = async (req, res) => {
         } else {
           semDados++;
           const produtorAtivo = produtoresMap.get(c.codigo_lr);
+          const metaFallback = fallbackMetaMap.get(c.codigo_lr);
+          const nomeProdutor = produtorAtivo?.nome_produtor || metaFallback?.nome_produtor || c.codigo_lr || 'PRODUTOR';
           listaInconsistentes.push({
             codigo_lr: c.codigo_lr || 'PRODUTOR',
-            produtor: produtorAtivo?.nome_produtor || c.codigo_lr || 'PRODUTOR',
+            produtor: nomeProdutor,
             consultor: c.nome_consultor || 'NÃO INFORMADO',
-            agroindustria: mapAgroindustria(produtorAtivo?.projeto || c.projeto),
-            regiao: getRegiao(c.codigo_lr, produtorAtivo?.unidade_atendimento),
-            projeto: c.projeto || produtorAtivo?.projeto || 'NÃO INFORMADO',
+            agroindustria: mapAgroindustria(produtorAtivo?.projeto || metaFallback?.projeto || c.projeto),
+            regiao: getRegiao(c.codigo_lr, produtorAtivo?.unidade_atendimento || metaFallback?.unidade_atendimento),
+            projeto: c.projeto || produtorAtivo?.projeto || metaFallback?.projeto || 'NÃO INFORMADO',
             status: produtorAtivo ? 'ATIVO' : 'INATIVO',
             mes_referencia: c.mes_referencia || refMonth,
             meses_sequenciais: seq,
@@ -251,19 +300,21 @@ module.exports = async (req, res) => {
 
     const tabelaProdutoresComDados = consistenciaFiltrada.map(c => {
       const produtor = produtoresMap.get(c.codigo_lr);
+      const metaFallback = fallbackMetaMap.get(c.codigo_lr);
       const statusConsist = String(c.consistencia_mensal || '').toLowerCase();
       const refMonthStr = String(c.mes_referencia || '').slice(0, 7);
       const isCinthiaMissingMay = (c.codigo_lr === 'LR10245' || String(produtor?.nome_produtor || '').toLowerCase().includes('cinthia')) && refMonthStr === '2026-05';
       const isSemDados = !c.mes_elabore || isCinthiaMissingMay || statusConsist.includes('sem dados') || statusConsist.includes('não calculado');
       const possuiDados = Boolean(!isSemDados && c.mes_elabore && isConsistent(c.consistencia_mensal));
+      const prodName = produtor?.nome_produtor || metaFallback?.nome_produtor || c.codigo_lr || 'PRODUTOR';
 
       return {
         codigo_lr: c.codigo_lr || '-',
-        produtor: produtor?.nome_produtor || c.codigo_lr || 'PRODUTOR',
-        consultor: c.nome_consultor || produtor?.nome_consultor || 'NÃO INFORMADO',
-        agroindustria: mapAgroindustria(produtor?.projeto || c.projeto),
-        regiao: getRegiao(c.codigo_lr, produtor?.unidade_atendimento),
-        projeto: c.projeto || produtor?.projeto || 'NÃO INFORMADO',
+        produtor: prodName,
+        consultor: c.nome_consultor || produtor?.nome_consultor || metaFallback?.nome_consultor || 'NÃO INFORMADO',
+        agroindustria: mapAgroindustria(produtor?.projeto || metaFallback?.projeto || c.projeto),
+        regiao: getRegiao(c.codigo_lr, produtor?.unidade_atendimento || metaFallback?.unidade_atendimento),
+        projeto: c.projeto || produtor?.projeto || metaFallback?.projeto || 'NÃO INFORMADO',
         mes_referencia: c.mes_referencia || refMonth,
         possui_dados: possuiDados,
         referencia: c.mes_referencia ? new Date(`${String(c.mes_referencia).slice(0, 10)}T12:00:00`).toLocaleDateString('pt-BR') : '-',

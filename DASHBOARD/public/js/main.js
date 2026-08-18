@@ -670,7 +670,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ...(overview.tabelas?.visitados || []).map((row) => row.produtor),
       ...(turnover.tabelaMovimentacao || []).map((row) => row.produtor),
       ...(consistency.tabelaProdutoresComDados || []).map((row) => row.produtor)
-    ];
+    ].filter((p) => p && !String(p).includes('_CONSULTOR') && p !== 'CONTA DE SUPERVISÃO');
     const industries = [
       ...(overview.filterOptions?.agroindustrias || []),
       ...allRows.flatMap((row) => row.agroindustrias || row.agroindustria || [])
@@ -695,7 +695,149 @@ document.addEventListener('DOMContentLoaded', () => {
     populateSelect('filterConsultant', consultants, 'Todos', 'consultants');
     populateSelect('filterProducer', producers, 'Todos', 'producers');
     populateMonthSelect(months);
+
+    // Se houver projeto ou consultor pré-selecionado, aplica cascata imediatamente
+    if (el('filterProject')?.value || el('filterConsultant')?.value) {
+      updateCascadingFilters();
+    }
+
     setupCustomSelectDropdowns();
+  }
+
+  function getAllDataRows() {
+    const overview = state.overview || emptyState.overview;
+    const visits = state.visits || emptyState.visits;
+    const turnover = state.turnover || emptyState.turnover;
+    const consistency = state.consistency || emptyState.consistency;
+    return [
+      ...(overview.tabelas?.sem_visita || []),
+      ...(overview.tabelas?.visitados || []),
+      ...(visits.tabelaConsultores || []),
+      ...(turnover.tabelaMovimentacao || []),
+      ...(consistency.tabelaProdutoresComDados || []),
+      ...(consistency.tabelaInconsistentes || [])
+    ];
+  }
+
+  function syncCustomSelectDisplay(selectId) {
+    const select = el(selectId);
+    if (!select) return;
+    const control = select.closest('.filter-control');
+    if (!control) return;
+    const displayValue = control.querySelector('.select-display-value');
+    if (!displayValue) return;
+    const selectedOpt = select.options[select.selectedIndex];
+    displayValue.textContent = selectedOpt ? selectedOpt.text : (select.value || '');
+  }
+
+  function updateCascadingFilters() {
+    const selectedProject = el('filterProject')?.value || '';
+    const consultSelect = el('filterConsultant');
+    const prodSelect = el('filterProducer');
+    const allRows = getAllDataRows();
+
+    // 1. Filtrar consultores vinculados ao projeto selecionado
+    const consultantRows = selectedProject
+      ? allRows.filter((r) => dimensionMatches(r.projeto || r.projetos, selectedProject))
+      : allRows;
+    const filteredConsultants = [...new Set(
+      consultantRows.map((r) => r.consultor || r.nome_consultor).filter(Boolean)
+    )].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+    if (consultSelect) {
+      const prevVal = consultSelect.value;
+      consultSelect.innerHTML = `<option value="">Todos</option>${filteredConsultants.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}`;
+      if (filteredConsultants.includes(prevVal)) {
+        consultSelect.value = prevVal;
+      } else {
+        consultSelect.value = '';
+      }
+      syncCustomSelectDisplay('filterConsultant');
+    }
+
+    // 2. Filtrar produtores vinculados ao consultor e projeto selecionados
+    const activeConsultant = consultSelect?.value || '';
+    const producerRows = allRows.filter((r) => {
+      if (selectedProject && !dimensionMatches(r.projeto || r.projetos, selectedProject)) return false;
+      if (activeConsultant) {
+        const c = String(r.consultor || r.nome_consultor || '').toLowerCase();
+        if (c !== activeConsultant.toLowerCase()) return false;
+      }
+      return true;
+    });
+
+    const filteredProducers = [...new Set(
+      producerRows.map((r) => r.produtor || r.nome_produtor)
+        .filter((p) => p && !String(p).includes('_CONSULTOR') && p !== 'CONTA DE SUPERVISÃO')
+    )].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+    if (prodSelect) {
+      const prevVal = prodSelect.value;
+      prodSelect.innerHTML = `<option value="">Todos</option>${filteredProducers.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('')}`;
+      if (filteredProducers.includes(prevVal)) {
+        prodSelect.value = prevVal;
+      } else {
+        prodSelect.value = '';
+      }
+      syncCustomSelectDisplay('filterProducer');
+    }
+  }
+
+  function exportTableToCsv(tableId, defaultFilename) {
+    const table = el(tableId);
+    if (!table) return;
+    const thead = table.querySelector('thead');
+    const tbody = table.querySelector('tbody');
+    if (!thead || !tbody) return;
+
+    const headers = Array.from(thead.querySelectorAll('th')).map((th) => {
+      return th.textContent.replace(/[↑↓▲▼]/g, '').trim();
+    }).filter((h) => h && h !== 'Ação');
+
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    if (rows.length === 1 && rows[0].querySelector('.empty-cell')) {
+      alert('Nenhum dado disponível para exportação com os filtros atuais.');
+      return;
+    }
+
+    const csvLines = [headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(';')];
+
+    rows.forEach((tr) => {
+      if (tr.querySelector('.empty-cell')) return;
+      const cells = Array.from(tr.querySelectorAll('td'));
+      const rowValues = [];
+      cells.forEach((td, idx) => {
+        if (idx < headers.length) {
+          let txt = td.textContent.trim().replace(/\s+/g, ' ');
+          rowValues.push(`"${txt.replace(/"/g, '""')}"`);
+        }
+      });
+      if (rowValues.length > 0) {
+        csvLines.push(rowValues.join(';'));
+      }
+    });
+
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + csvLines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const d = new Date();
+    const dateStr = `${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, '0')}_${String(d.getDate()).padStart(2, '0')}_${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
+    link.href = url;
+    link.download = `${dateStr}_${defaultFilename || 'export'}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function setupExportButtons() {
+    el('btnExportSemVisita')?.addEventListener('click', () => exportTableToCsv('tableSemVisita', 'produtores_sem_visita'));
+    el('btnExportVisitados')?.addEventListener('click', () => exportTableToCsv('tableVisitados', 'produtores_visitados'));
+    el('btnExportTurnover')?.addEventListener('click', () => exportTableToCsv('tableTurnover', 'movimentacao_produtores'));
+    el('btnExportConsultants')?.addEventListener('click', () => exportTableToCsv('tableConsultants', 'consultores_ativos'));
+    el('btnExportDataProducers')?.addEventListener('click', () => exportTableToCsv('tableDataProducers', 'produtores_com_dados'));
+    el('btnExportInconsistencies')?.addEventListener('click', () => exportTableToCsv('tableInconsistencies', 'inconsistencias_identificadas'));
   }
 
   function updateTimestamp() {
@@ -886,7 +1028,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  ['filterIndustry', 'filterRegion', 'filterProject', 'filterStatus', 'filterConsultant', 'filterProducer']
+  // Eventos de filtros com suporte a cascata dinâmica
+  el('filterProject')?.addEventListener('change', () => {
+    updateCascadingFilters();
+    handleFilterChange();
+  });
+  el('filterConsultant')?.addEventListener('change', () => {
+    updateCascadingFilters();
+    handleFilterChange();
+  });
+  ['filterIndustry', 'filterRegion', 'filterStatus', 'filterProducer']
     .forEach((id) => el(id)?.addEventListener('change', handleFilterChange));
   el('filterMonth')?.addEventListener('change', loadAllData);
   document.querySelectorAll('[data-ranking]').forEach((button) => button.addEventListener('click', () => {
@@ -1202,6 +1353,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupDetailsModal();
   setupKpiInfoPopovers();
   setupProvenanceModal();
+  setupExportButtons();
   loadAllData();
   setInterval(loadAllData, 300000);
 

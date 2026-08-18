@@ -64,6 +64,63 @@ function mapAgroindustria(projeto) {
   return projeto;
 }
 
+// ─── Utilitários de sanitização e regras de negócio ─────────────────────────
+
+/** Nomes RAW que devem ser substituídos por "LAC CONSULTORIA" */
+const LAC_CONSULTORIA_RAW = new Set([
+  'CELIO ROBERTO OLIVEIRA (REGENERA)',
+  'SUELY DE JESUS OLIVEIRA (REGENERA)'
+]);
+
+/**
+ * Recebe o conteúdo bruto do campo "Grupo de atendimento" e retorna um array
+ * com os nomes de consultores já saneados (sem sufixo de projeto, LAC aplicado).
+ */
+function sanitizeConsultorList(rawName) {
+  if (!rawName) return [null];
+  return String(rawName)
+    .split('/')
+    .map(p => p.trim())
+    .filter(Boolean)
+    .map(part => {
+      const upper = part.toUpperCase();
+      if (LAC_CONSULTORIA_RAW.has(upper)) return 'LAC CONSULTORIA';
+      return part.replace(/\s*\([^)]+\)\s*$/, '').trim() || part;
+    });
+}
+
+/** Retorna true para registros de teste (MATEUS CARNIELLI / ALVOAR ECO). */
+function isTestData(nome_consultor, projeto) {
+  return String(nome_consultor || '').toUpperCase().includes('MATEUS CARNIELLI') &&
+         String(projeto || '').toUpperCase().includes('ALVOAR ECO');
+}
+
+/** Subtrai 1 mês de uma string YYYY-MM-DD e retorna YYYY-MM-DD. */
+function shiftMonthMinus1(monthStr) {
+  if (!monthStr) return null;
+  const d = new Date(`${String(monthStr).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+/**
+ * Expande rows com múltiplos consultores (separados por "/") em linhas individuais,
+ * aplica sanitização e exclui dados de teste.
+ */
+function expandRows(rows) {
+  const result = [];
+  for (const row of (rows || [])) {
+    const consultores = sanitizeConsultorList(row.nome_consultor);
+    for (const c of consultores) {
+      if (!isTestData(c, row.projeto)) {
+        result.push({ ...row, nome_consultor: c });
+      }
+    }
+  }
+  return result;
+}
+
 module.exports = async (req, res) => {
   try {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -117,23 +174,29 @@ module.exports = async (req, res) => {
       .limit(1);
 
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
+    const latestAvailableMonth = (ultimasVisitas && ultimasVisitas.length > 0)
+      ? ultimasVisitas[0].mes_referencia
+      : maxAllowedMonth;
+    // Regra M-1: o mês selecionado pelo usuário mapeia para o mês anterior como referência de dados
     const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
-      ? requestedMonth
-      : ((ultimasVisitas && ultimasVisitas.length > 0) ? ultimasVisitas[0].mes_referencia : maxAllowedMonth);
+      ? (shiftMonthMinus1(requestedMonth) || latestAvailableMonth)
+      : latestAvailableMonth;
 
     // 2. Consultar produtores ativos no mês de referência
-    const produtoresList = await fetchAll(() => supabase
+    const produtoresListRaw = await fetchAll(() => supabase
       .from('tab_produtores_ativos_mensal')
       .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia')
       .eq('data_referencia', refMonth)
       .order('codigo_lr', { ascending: true }));
+    const produtoresList = (produtoresListRaw || []).filter(p => !isTestData(p.nome_consultor, p.projeto));
 
     // 3. Consultar visitas do mês de referência
-    const visitasList = await fetchAll(() => supabase
+    const visitasListRaw = await fetchAll(() => supabase
       .from('f_visitas_bi_lr')
       .select('id, codigo_lr, nome_consultor, nome_produtor, nome_propriedade, data_visita, id_atendimento, projeto, mes_referencia')
       .eq('mes_referencia', refMonth)
       .order('data_visita', { ascending: false }));
+    const visitasList = (visitasListRaw || []).filter(v => !isTestData(v.nome_consultor, v.projeto));
 
     // Histórico necessário para os gráficos. Consultas exclusivamente de leitura com ordenação determinística.
     const [visitasHistoricas, produtoresHistoricos] = await Promise.all([
@@ -163,7 +226,11 @@ module.exports = async (req, res) => {
       if (filters.industry && mapAgroindustria(row.projeto || row.agroindustria) !== filters.industry) return false;
       if (filters.region && getRegiao(row.codigo_lr, row.unidade_atendimento || row.regiao) !== filters.region) return false;
       if (filters.project && String(row.projeto || '') !== filters.project) return false;
-      if (filters.consultant && String(row.nome_consultor || row.consultor || '').toLowerCase() !== filters.consultant.toLowerCase()) return false;
+      if (filters.consultant) {
+        // Suporte a múltiplos consultores concatenados (ex: "NOME A (PROJ) / NOME B (PROJ)")
+        const consultorNames = sanitizeConsultorList(row.nome_consultor || row.consultor);
+        if (!consultorNames.some(c => c && c.toLowerCase() === filters.consultant.toLowerCase())) return false;
+      }
       if (filters.producer) {
         const pName = String(row.nome_produtor || row.produtor || row.codigo_lr || '').toLowerCase();
         if (!pName.includes(filters.producer.toLowerCase())) return false;
@@ -204,7 +271,9 @@ module.exports = async (req, res) => {
     // Cálculos de KPIs
     const totalAtivos = new Set(produtoresFiltrados.map(p => p.codigo_lr).filter(Boolean)).size || produtoresFiltrados.length;
     const totalVisitas = visitasFiltradas.length;
-    const consultoresAtivos = new Set(produtoresFiltrados.map(p => p.nome_consultor).filter(Boolean)).size;
+    const consultoresAtivos = new Set(
+      produtoresFiltrados.flatMap(p => sanitizeConsultorList(p.nome_consultor)).filter(Boolean)
+    ).size;
 
     // Produtores visitados (únicos)
     const codigosVisitados = new Set(visitasFiltradas.map(v => v.codigo_lr).filter(Boolean));
@@ -224,7 +293,8 @@ module.exports = async (req, res) => {
     // Evolução mensal calculada com as referências disponíveis nas fontes analíticas.
     const todosMesesDisponiveis = [...new Set([
       ...(produtoresHistoricos || []).map(p => p.data_referencia),
-      ...(visitasHistoricas || []).map(v => v.mes_referencia)
+      ...(visitasHistoricas || []).map(v => v.mes_referencia),
+      maxAllowedMonth // Garante que o mês corrente aparece para que o usuário possa selecionar (M-1)
     ].filter(Boolean))]
       .filter(m => m <= maxAllowedMonth)
       .sort();
@@ -299,9 +369,10 @@ module.exports = async (req, res) => {
       }
     }
 
-    const semVisita = produtoresFiltrados
-      .filter(p => !codigosVisitados.has(p.codigo_lr))
-      .map(p => {
+    // Expande produtores com múltiplos consultores em linhas separadas para a tabela
+    const semVisita = expandRows(
+      produtoresFiltrados.filter(p => !codigosVisitados.has(p.codigo_lr))
+    ).map(p => {
         let diasSemVisita = null;
         const dataUltimaVisita = ultimaVisitaMap.get(p.codigo_lr);
         if (dataUltimaVisita) {
@@ -330,8 +401,8 @@ module.exports = async (req, res) => {
         };
       });
 
-    // Tabela: Produtores visitados
-    const visitados = visitasFiltradas
+    // Tabela: Produtores visitados — expande múltiplos consultores em linhas separadas
+    const visitados = expandRows(visitasFiltradas)
       .map(v => {
         const produtorAtivo = produtoresMap.get(v.codigo_lr);
         const normConsultor = normalizeName(v.nome_consultor);

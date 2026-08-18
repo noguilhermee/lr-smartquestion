@@ -2073,3 +2073,53 @@ body.table-resizing * {
   color: #64748b;
 }
 
+/* ─── Ações do Cabeçalho e Botões de Exportação CSV ──────────────────────── */
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-table-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--green-700);
+  background: var(--green-050);
+  border: 1px solid var(--green-200);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 150ms ease;
+  line-height: 1.2;
+}
+
+.btn-table-export:hover {
+  background: var(--green-100);
+  color: var(--green-800);
+  border-color: var(--green-300);
+  transform: translateY(-1px);
+}
+
+.btn-table-export:active {
+  transform: translateY(0);
+}
+
+.btn-table-export .material-symbols-rounded {
+  font-size: 14px;
+}
+
+:root[data-theme="dark"] .btn-table-export {
+  background: var(--green-100);
+  border-color: var(--green-200);
+  color: var(--green-300);
+}
+
+:root[data-theme="dark"] .btn-table-export:hover {
+  background: var(--green-200);
+  color: var(--ink-strong);
+}
+
+

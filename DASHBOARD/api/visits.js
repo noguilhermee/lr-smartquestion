@@ -50,6 +50,39 @@ function mapAgroindustria(projeto) {
   return projeto;
 }
 
+// ─── Utilitários de sanitização e regras de negócio ─────────────────────────
+
+const LAC_CONSULTORIA_RAW = new Set([
+  'CELIO ROBERTO OLIVEIRA (REGENERA)',
+  'SUELY DE JESUS OLIVEIRA (REGENERA)'
+]);
+
+function sanitizeConsultorList(rawName) {
+  if (!rawName) return [null];
+  return String(rawName)
+    .split('/')
+    .map(p => p.trim())
+    .filter(Boolean)
+    .map(part => {
+      const upper = part.toUpperCase();
+      if (LAC_CONSULTORIA_RAW.has(upper)) return 'LAC CONSULTORIA';
+      return part.replace(/\s*\([^)]+\)\s*$/, '').trim() || part;
+    });
+}
+
+function isTestData(nome_consultor, projeto) {
+  return String(nome_consultor || '').toUpperCase().includes('MATEUS CARNIELLI') &&
+         String(projeto || '').toUpperCase().includes('ALVOAR ECO');
+}
+
+function shiftMonthMinus1(monthStr) {
+  if (!monthStr) return null;
+  const d = new Date(`${String(monthStr).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
 module.exports = async (req, res) => {
   try {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -70,9 +103,12 @@ module.exports = async (req, res) => {
       .limit(1);
 
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
+    const latestAvailableMonth = (ultimasVisitas && ultimasVisitas.length > 0)
+      ? ultimasVisitas[0].mes_referencia
+      : maxAllowedMonth;
     const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
-      ? requestedMonth
-      : ((ultimasVisitas && ultimasVisitas.length > 0) ? ultimasVisitas[0].mes_referencia : maxAllowedMonth);
+      ? (shiftMonthMinus1(requestedMonth) || latestAvailableMonth)
+      : latestAvailableMonth;
 
     const { getRegiaoMap } = require('./azurePostgres');
     const regiaoMap = await getRegiaoMap(supabase, fetchAll);
@@ -100,7 +136,10 @@ module.exports = async (req, res) => {
       if (filters.industry && mapAgroindustria(row.projeto || row.agroindustria) !== filters.industry) return false;
       if (filters.region && getRegiao(row.codigo_lr, row.unidade_atendimento || row.regiao) !== filters.region) return false;
       if (filters.project && String(row.projeto || '') !== filters.project) return false;
-      if (filters.consultant && String(row.nome_consultor || row.consultor || '').toLowerCase() !== filters.consultant.toLowerCase()) return false;
+      if (filters.consultant) {
+        const consultorNames = sanitizeConsultorList(row.nome_consultor || row.consultor);
+        if (!consultorNames.some(c => c && c.toLowerCase() === filters.consultant.toLowerCase())) return false;
+      }
       if (filters.producer) {
         const pName = String(row.nome_produtor || row.produtor || row.codigo_lr || '').toLowerCase();
         if (!pName.includes(filters.producer.toLowerCase())) return false;
@@ -125,35 +164,42 @@ module.exports = async (req, res) => {
       .eq('mes_referencia', refMonth)
       .order('codigo_lr', { ascending: true }));
 
-    const produtoresFiltrados = (produtoresBrutos || []).filter(rowMatches);
-    const visitasFiltradas = (visitasBrutas || []).filter(rowMatches);
+    const produtoresFiltrados = (produtoresBrutos || []).filter(p => !isTestData(p.nome_consultor, p.projeto)).filter(rowMatches);
+    const visitasFiltradas = (visitasBrutas || []).filter(v => !isTestData(v.nome_consultor, v.projeto)).filter(rowMatches);
 
     const totalAtivos = produtoresFiltrados.length;
     const totalVisitas = visitasFiltradas.length;
 
-    // Agrupamento por consultor
+    // Agrupamento por consultor com sanitização de nomes
     const consultoresMap = {};
     produtoresFiltrados.forEach(p => {
-      const c = p.nome_consultor || 'NÃO ATRIBUÍDO';
-      if (!consultoresMap[c]) {
-        consultoresMap[c] = { consultor: c, totalFarms: 0, visitedFarms: new Set(), visitasCount: 0, industries: new Set(), projects: new Set(), regions: new Set() };
-      }
-      consultoresMap[c].totalFarms++;
-      if (p.projeto) {
-        consultoresMap[c].projects.add(p.projeto);
-        consultoresMap[c].industries.add(mapAgroindustria(p.projeto));
-      }
-      const reg = getRegiao(p.codigo_lr, p.unidade_atendimento);
-      if (reg) consultoresMap[c].regions.add(reg);
+      const consultores = sanitizeConsultorList(p.nome_consultor);
+      consultores.forEach(sanitizedC => {
+        const c = sanitizedC || 'NÃO ATRIBUÍDO';
+        if (isTestData(c, p.projeto)) return;
+        if (!consultoresMap[c]) {
+          consultoresMap[c] = { consultor: c, totalFarms: 0, visitedFarms: new Set(), visitasCount: 0, industries: new Set(), projects: new Set(), regions: new Set() };
+        }
+        consultoresMap[c].totalFarms++;
+        if (p.projeto) {
+          consultoresMap[c].projects.add(p.projeto);
+          consultoresMap[c].industries.add(mapAgroindustria(p.projeto));
+        }
+        const reg = getRegiao(p.codigo_lr, p.unidade_atendimento);
+        if (reg) consultoresMap[c].regions.add(reg);
+      });
     });
 
     visitasFiltradas.forEach(v => {
-      const c = v.nome_consultor || 'NÃO ATRIBUÍDO';
-      if (!consultoresMap[c]) {
-        consultoresMap[c] = { consultor: c, totalFarms: 0, visitedFarms: new Set(), visitasCount: 0, industries: new Set(), regions: new Set() };
-      }
-      consultoresMap[c].visitasCount++;
-      if (v.codigo_lr) consultoresMap[c].visitedFarms.add(v.codigo_lr);
+      const consultores = sanitizeConsultorList(v.nome_consultor);
+      consultores.forEach(sanitizedC => {
+        const c = sanitizedC || 'NÃO ATRIBUÍDO';
+        if (!consultoresMap[c]) {
+          consultoresMap[c] = { consultor: c, totalFarms: 0, visitedFarms: new Set(), visitasCount: 0, industries: new Set(), regions: new Set() };
+        }
+        consultoresMap[c].visitasCount++;
+        if (v.codigo_lr) consultoresMap[c].visitedFarms.add(v.codigo_lr);
+      });
     });
 
     const consultoresList = Object.values(consultoresMap).map(c => {
