@@ -705,142 +705,85 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  const masterFilterOptions = {
-    months: new Set(),
-    industries: new Set(),
-    regions: new Set(),
-    consultants: new Set(),
-    producers: new Set()
-  };
+  // ─── LÓGICA DE FILTRAGEM MULTIDIRECIONAL ESTILO POWER BI ──────────────
 
-  function populateSelect(selectId, values, placeholder, masterKey) {
-    const select = el(selectId);
-    if (!select) return;
-    const current = select.value;
-    if (masterKey && masterFilterOptions[masterKey]) {
-      values.filter(Boolean).map(String).forEach((v) => masterFilterOptions[masterKey].add(v));
-    }
-    const sourceArray = masterKey && masterFilterOptions[masterKey]?.size > 0
-      ? Array.from(masterFilterOptions[masterKey])
-      : values.filter(Boolean).map(String);
-    const unique = [...new Set(sourceArray)].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-    select.innerHTML = `<option value="">${placeholder}</option>${unique.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('')}`;
-    if (unique.includes(current)) select.value = current;
+  const LAC_CONSULTORIA_RAW = new Set([
+    'CELIO ROBERTO OLIVEIRA (REGENERA)',
+    'SUELY DE JESUS OLIVEIRA (REGENERA)'
+  ]);
+
+  function sanitizeConsultorList(rawName) {
+    if (!rawName) return [''];
+    return String(rawName)
+      .split('/')
+      .map((p) => p.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const upper = part.toUpperCase();
+        if (LAC_CONSULTORIA_RAW.has(upper)) return 'LAC CONSULTORIA';
+        return part.replace(/\s*\([^)]+\)\s*$/, '').trim() || part;
+      });
   }
 
-  function populateMonthSelect(values) {
-    const select = el('filterMonth');
-    if (!select) return;
-    const current = select.value;
-    const maxAllowedMonth = new Date().toISOString().slice(0, 7) + '-01';
-    values.filter(Boolean)
-      .map((v) => String(v).slice(0, 10))
-      .filter((v) => v <= maxAllowedMonth)
-      .forEach((v) => masterFilterOptions.months.add(v));
-    const sourceArray = Array.from(masterFilterOptions.months).filter((v) => v <= maxAllowedMonth);
-    const unique = [...new Set(sourceArray)].sort().reverse();
-    const options = unique.map((value) => {
-      const parsed = new Date(`${value}T12:00:00`);
-      const label = Number.isNaN(parsed.getTime())
-        ? value
-        : parsed.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^./, (letter) => letter.toUpperCase());
-      return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
-    }).join('');
-    select.innerHTML = `<option value="">Atual</option>${options}`;
-    if (unique.includes(current)) select.value = current;
+  function mapAgroindustria(projeto) {
+    if (!projeto) return '';
+    const p = String(projeto).toUpperCase();
+    if (p.includes('ALVOAR')) return 'Alvoar';
+    if (p.includes('CCPR')) return 'CCPR';
+    if (p.includes('LPA')) return 'Laticínios Porto Alegre';
+    if (p.includes('REGENERA')) return 'Nestlé';
+    if (p.includes('SEMEAR')) return 'Danone';
+    return String(projeto).trim();
   }
 
-  function populateStatusSelect(values) {
-    const select = el('filterStatus');
-    if (!select) return;
-    const current = normalizeStatus(select.value);
-    const available = new Set(values.map(normalizeStatus));
-    const ordered = ['ATIVO', 'INATIVO'].filter((value) => available.has(value));
-    const labels = { ATIVO: 'Ativa', INATIVO: 'Inativo' };
-    select.innerHTML = `<option value="">Todos</option>${ordered.map((value) => `<option value="${value}">${labels[value]}</option>`).join('')}`;
-    if (ordered.includes(current)) select.value = current;
-  }
+  function extractMasterRows(overview, visits, turnover, consistency) {
+    const o = overview || emptyState.overview;
+    const v = visits || emptyState.visits;
+    const t = turnover || emptyState.turnover;
+    const c = consistency || emptyState.consistency;
 
-  function populateProjectSelect() {
-    const select = el('filterProject');
-    if (!select) return;
-    const current = select.value;
-    select.innerHTML = `<option value="">Todos</option>${projectOptions.map((project) => `<option value="${project.value}">${project.label}</option>`).join('')}`;
-    if (projectOptions.some((project) => project.value === current)) select.value = current;
-  }
+    const rows = [];
+    const seen = new Set();
 
-  function populateFilters() {
-    const overview = state.overview || emptyState.overview;
-    const visits = state.visits || emptyState.visits;
-    const turnover = state.turnover || emptyState.turnover;
-    const consistency = state.consistency || emptyState.consistency;
-    const allRows = [
-      ...(overview.tabelas?.sem_visita || []),
-      ...(overview.tabelas?.visitados || []),
-      ...(visits.tabelaConsultores || []),
-      ...(turnover.tabelaMovimentacao || []),
-      ...(consistency.tabelaProdutoresComDados || []),
-      ...(consistency.tabelaInconsistentes || [])
-    ];
-    const consultants = [
-      ...(overview.tabelas?.sem_visita || []).map((row) => row.consultor),
-      ...(overview.tabelas?.visitados || []).map((row) => row.consultor),
-      ...(visits.tabelaConsultores || []).map((row) => row.consultor),
-      ...(turnover.tabelaMovimentacao || []).map((row) => row.consultor),
-      ...(consistency.tabelaProdutoresComDados || []).map((row) => row.consultor)
-    ];
-    const producers = [
-      ...(overview.tabelas?.sem_visita || []).map((row) => row.produtor),
-      ...(overview.tabelas?.visitados || []).map((row) => row.produtor),
-      ...(turnover.tabelaMovimentacao || []).map((row) => row.produtor),
-      ...(consistency.tabelaProdutoresComDados || []).map((row) => row.produtor)
-    ].filter((p) => p && !String(p).includes('_CONSULTOR') && p !== 'CONTA DE SUPERVISÃO');
-    const industries = [
-      ...(overview.filterOptions?.agroindustrias || []),
-      ...allRows.flatMap((row) => row.agroindustrias || row.agroindustria || [])
-    ];
-    const regions = [
-      ...(overview.filterOptions?.regioes || []),
-      ...allRows.flatMap((row) => row.regioes || row.regiao || [])
-    ].map((r) => sanitizeRegiao(r)).filter((r) => r && r !== 'NÃO INFORMADA' && r !== 'NAO INFORMADA');
-    const statuses = [
-      ...(overview.filterOptions?.status || []),
-      ...allRows.map((row) => row.status)
-    ];
-    const months = [
-      ...(overview.filterOptions?.meses || []),
-      overview.refMonth,
-      ...allRows.map((row) => row.mes_referencia || row.data_referencia)
-    ];
-    populateSelect('filterIndustry', industries, 'Todas', 'industries');
-    populateSelect('filterRegion', regions, 'Todas', 'regions');
-    populateProjectSelect();
-    populateStatusSelect(statuses);
-    populateSelect('filterConsultant', consultants, 'Todos', 'consultants');
-    populateSelect('filterProducer', producers, 'Todos', 'producers');
-    populateMonthSelect(months);
+    function addRow(r) {
+      if (!r) return;
+      const consultores = sanitizeConsultorList(r.consultor || r.nome_consultor);
+      const produtor = String(r.produtor || r.nome_produtor || '').trim();
+      const codigoLr = String(r.codigo_lr || '').trim();
+      const agro = mapAgroindustria(r.agroindustria || r.projeto);
+      const reg = sanitizeRegiao(r.regiao || r.unidade_atendimento);
+      const proj = String(r.projeto || '').trim();
+      const stat = normalizeStatus(r.status || 'ATIVO');
+      const mes = String(r.mes_referencia || r.data_referencia || '').slice(0, 10);
 
-    // Se houver projeto ou consultor pré-selecionado, aplica cascata imediatamente
-    if (el('filterProject')?.value || el('filterConsultant')?.value) {
-      updateCascadingFilters();
+      if (produtor.includes('_CONSULTOR') || produtor === 'CONTA DE SUPERVISÃO') return;
+
+      consultores.forEach((consult) => {
+        const cleanConsult = String(consult || '').trim();
+        const key = `${agro}|${reg}|${proj}|${stat}|${cleanConsult}|${produtor}|${codigoLr}|${mes}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          rows.push({
+            agroindustria: agro || '',
+            regiao: reg || '',
+            projeto: proj || '',
+            status: stat || 'ATIVO',
+            consultor: cleanConsult || '',
+            produtor: produtor || '',
+            codigo_lr: codigoLr || '',
+            mes_referencia: mes || ''
+          });
+        }
+      });
     }
 
-    setupCustomSelectDropdowns();
-  }
+    (o.tabelas?.sem_visita || []).forEach(addRow);
+    (o.tabelas?.visitados || []).forEach(addRow);
+    (c.tabelaProdutoresComDados || []).forEach(addRow);
+    (c.tabelaInconsistentes || []).forEach(addRow);
+    (t.tabelaMovimentacao || []).forEach(addRow);
 
-  function getAllDataRows() {
-    const overview = state.overview || emptyState.overview;
-    const visits = state.visits || emptyState.visits;
-    const turnover = state.turnover || emptyState.turnover;
-    const consistency = state.consistency || emptyState.consistency;
-    return [
-      ...(overview.tabelas?.sem_visita || []),
-      ...(overview.tabelas?.visitados || []),
-      ...(visits.tabelaConsultores || []),
-      ...(turnover.tabelaMovimentacao || []),
-      ...(consistency.tabelaProdutoresComDados || []),
-      ...(consistency.tabelaInconsistentes || [])
-    ];
+    return rows;
   }
 
   function syncCustomSelectDisplay(selectId) {
@@ -854,55 +797,130 @@ document.addEventListener('DOMContentLoaded', () => {
     displayValue.textContent = selectedOpt ? selectedOpt.text : (select.value || '');
   }
 
-  function updateCascadingFilters() {
-    const selectedProject = el('filterProject')?.value || '';
+  function populateMonthSelect(values) {
+    const select = el('filterMonth');
+    if (!select) return;
+    const current = select.value;
+    const maxAllowedMonth = new Date().toISOString().slice(0, 7) + '-01';
+    const unique = [...new Set((values || []).filter(Boolean).map((v) => String(v).slice(0, 10)).filter((v) => v <= maxAllowedMonth))].sort().reverse();
+    const options = unique.map((value) => {
+      const parsed = new Date(`${value}T12:00:00`);
+      const label = Number.isNaN(parsed.getTime())
+        ? value
+        : parsed.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^./, (letter) => letter.toUpperCase());
+      return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+    }).join('');
+    select.innerHTML = `<option value="">Atual</option>${options}`;
+    if (unique.includes(current)) select.value = current;
+    syncCustomSelectDisplay('filterMonth');
+  }
+
+  function updateAllCrossFilters() {
+    const current = currentFilter();
+    const rows = state.masterRows || [];
+    if (!rows.length) return;
+
+    function matchesActiveExcept(row, fieldKey) {
+      if (fieldKey !== 'industry' && current.industry) {
+        if (mapAgroindustria(row.agroindustria || row.projeto) !== current.industry) return false;
+      }
+      if (fieldKey !== 'region' && current.region) {
+        const rowReg = sanitizeRegiao(row.regiao);
+        const curReg = sanitizeRegiao(current.region);
+        if (rowReg !== curReg) return false;
+      }
+      if (fieldKey !== 'project' && current.project) {
+        if (String(row.projeto || '') !== current.project) return false;
+      }
+      if (fieldKey !== 'status' && current.status) {
+        if (normalizeStatus(row.status) !== normalizeStatus(current.status)) return false;
+      }
+      if (fieldKey !== 'consultant' && current.consultant) {
+        const consultores = sanitizeConsultorList(row.consultor);
+        if (!consultores.some((c) => c && c.toLowerCase() === current.consultant.toLowerCase())) return false;
+      }
+      if (fieldKey !== 'producer' && current.producer) {
+        const pName = String(row.produtor || row.codigo_lr || '').toLowerCase();
+        if (pName !== current.producer.toLowerCase()) return false;
+      }
+      return true;
+    }
+
+    // 1. Agroindústria
+    const indSelect = el('filterIndustry');
+    if (indSelect) {
+      const prevVal = indSelect.value;
+      const validRows = rows.filter((r) => matchesActiveExcept(r, 'industry'));
+      const available = [...new Set(validRows.map((r) => mapAgroindustria(r.agroindustria || r.projeto)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      indSelect.innerHTML = `<option value="">Todas</option>${available.map((ind) => `<option value="${escapeHtml(ind)}">${escapeHtml(ind)}</option>`).join('')}`;
+      if (available.includes(prevVal)) indSelect.value = prevVal;
+      else indSelect.value = '';
+      syncCustomSelectDisplay('filterIndustry');
+    }
+
+    // 2. Região
+    const regSelect = el('filterRegion');
+    if (regSelect) {
+      const prevVal = regSelect.value;
+      const validRows = rows.filter((r) => matchesActiveExcept(r, 'region'));
+      const available = [...new Set(validRows.map((r) => sanitizeRegiao(r.regiao)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      regSelect.innerHTML = `<option value="">Todas</option>${available.map((reg) => `<option value="${escapeHtml(reg)}">${escapeHtml(reg)}</option>`).join('')}`;
+      if (available.includes(prevVal)) regSelect.value = prevVal;
+      else regSelect.value = '';
+      syncCustomSelectDisplay('filterRegion');
+    }
+
+    // 3. Projeto
+    const projSelect = el('filterProject');
+    if (projSelect) {
+      const prevVal = projSelect.value;
+      const validRows = rows.filter((r) => matchesActiveExcept(r, 'project'));
+      const availableProjects = new Set(validRows.map((r) => r.projeto).filter(Boolean));
+      const filteredProjectOptions = projectOptions.filter((p) => availableProjects.has(p.value));
+      projSelect.innerHTML = `<option value="">Todos</option>${filteredProjectOptions.map((p) => `<option value="${escapeHtml(p.value)}">${escapeHtml(p.label)}</option>`).join('')}`;
+      if (filteredProjectOptions.some((p) => p.value === prevVal)) projSelect.value = prevVal;
+      else projSelect.value = '';
+      syncCustomSelectDisplay('filterProject');
+    }
+
+    // 4. Status
+    const statSelect = el('filterStatus');
+    if (statSelect) {
+      const prevVal = normalizeStatus(statSelect.value);
+      const validRows = rows.filter((r) => matchesActiveExcept(r, 'status'));
+      const availableStatuses = new Set(validRows.map((r) => normalizeStatus(r.status)));
+      const ordered = ['ATIVO', 'INATIVO'].filter((val) => availableStatuses.has(val));
+      const labels = { ATIVO: 'Ativa', INATIVO: 'Inativo' };
+      statSelect.innerHTML = `<option value="">Todos</option>${ordered.map((val) => `<option value="${val}">${labels[val]}</option>`).join('')}`;
+      if (ordered.includes(prevVal)) statSelect.value = prevVal;
+      else statSelect.value = '';
+      syncCustomSelectDisplay('filterStatus');
+    }
+
+    // 5. Consultor
     const consultSelect = el('filterConsultant');
-    const prodSelect = el('filterProducer');
-    const allRows = getAllDataRows();
-
-    // 1. Filtrar consultores vinculados ao projeto selecionado
-    const consultantRows = selectedProject
-      ? allRows.filter((r) => dimensionMatches(r.projeto || r.projetos, selectedProject))
-      : allRows;
-    const filteredConsultants = [...new Set(
-      consultantRows.map((r) => r.consultor || r.nome_consultor).filter(Boolean)
-    )].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-
     if (consultSelect) {
       const prevVal = consultSelect.value;
-      consultSelect.innerHTML = `<option value="">Todos</option>${filteredConsultants.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}`;
-      if (filteredConsultants.includes(prevVal)) {
-        consultSelect.value = prevVal;
-      } else {
-        consultSelect.value = '';
-      }
+      const validRows = rows.filter((r) => matchesActiveExcept(r, 'consultant'));
+      const available = [...new Set(validRows.flatMap((r) => sanitizeConsultorList(r.consultor)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      consultSelect.innerHTML = `<option value="">Todos</option>${available.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}`;
+      if (available.includes(prevVal)) consultSelect.value = prevVal;
+      else consultSelect.value = '';
       syncCustomSelectDisplay('filterConsultant');
     }
 
-    // 2. Filtrar produtores vinculados ao consultor e projeto selecionados
-    const activeConsultant = consultSelect?.value || '';
-    const producerRows = allRows.filter((r) => {
-      if (selectedProject && !dimensionMatches(r.projeto || r.projetos, selectedProject)) return false;
-      if (activeConsultant) {
-        const c = String(r.consultor || r.nome_consultor || '').toLowerCase();
-        if (c !== activeConsultant.toLowerCase()) return false;
-      }
-      return true;
-    });
-
-    const filteredProducers = [...new Set(
-      producerRows.map((r) => r.produtor || r.nome_produtor)
-        .filter((p) => p && !String(p).includes('_CONSULTOR') && p !== 'CONTA DE SUPERVISÃO')
-    )].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-
+    // 6. Produtor
+    const prodSelect = el('filterProducer');
     if (prodSelect) {
       const prevVal = prodSelect.value;
-      prodSelect.innerHTML = `<option value="">Todos</option>${filteredProducers.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('')}`;
-      if (filteredProducers.includes(prevVal)) {
-        prodSelect.value = prevVal;
-      } else {
-        prodSelect.value = '';
-      }
+      const validRows = rows.filter((r) => matchesActiveExcept(r, 'producer'));
+      const available = [...new Set(
+        validRows.map((r) => r.produtor)
+          .filter((p) => p && !String(p).includes('_CONSULTOR') && p !== 'CONTA DE SUPERVISÃO')
+      )].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      prodSelect.innerHTML = `<option value="">Todos</option>${available.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('')}`;
+      if (available.includes(prevVal)) prodSelect.value = prevVal;
+      else prodSelect.value = '';
       syncCustomSelectDisplay('filterProducer');
     }
   }
@@ -1026,9 +1044,35 @@ document.addEventListener('DOMContentLoaded', () => {
     if (el('lastUpdateDate')) el('lastUpdateDate').textContent = `${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
   }
 
+  async function fetchMonthMasterData() {
+    const selectedMonth = el('filterMonth')?.value || '';
+    const query = selectedMonth ? `?month=${encodeURIComponent(selectedMonth)}` : '';
+    const [overview, visits, turnover, consistency] = await Promise.all([
+      getJson(`/api/overview${query}`),
+      getJson(`/api/visits${query}`),
+      getJson(`/api/turnover${query}`),
+      getJson(`/api/consistency${query}`)
+    ]);
+
+    state.masterOverview = overview;
+    state.masterVisits = visits;
+    state.masterTurnover = turnover;
+    state.masterConsistency = consistency;
+    state.masterRows = extractMasterRows(overview, visits, turnover, consistency);
+
+    if (overview?.filterOptions?.meses) {
+      populateMonthSelect(overview.filterOptions.meses);
+    }
+  }
+
   async function loadAllData() {
     showLoading('Atualizando dashboard com filtros...');
     try {
+      if (!state.masterRows || state.masterRows.length === 0) {
+        await fetchMonthMasterData();
+        updateAllCrossFilters();
+      }
+
       const filter = currentFilter();
       const params = new URLSearchParams();
       if (filter.month) params.set('month', filter.month);
@@ -1054,7 +1098,6 @@ document.addEventListener('DOMContentLoaded', () => {
       renderConsistency(consistency);
       renderOverview(overview);
       renderTurnover(turnover);
-      populateFilters();
       renderTables();
       updateTimestamp();
     } finally {
@@ -1062,7 +1105,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function handleFilterChange() {
+  function handleFilterSelectionChange() {
+    updateAllCrossFilters();
     loadAllData();
   }
 
@@ -1208,18 +1252,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Eventos de filtros com suporte a cascata dinâmica
-  el('filterProject')?.addEventListener('change', () => {
-    updateCascadingFilters();
-    handleFilterChange();
+  // Eventos de filtros com suporte a filtragem cruzada multidirecional estilo Power BI
+  ['filterIndustry', 'filterRegion', 'filterProject', 'filterStatus', 'filterConsultant', 'filterProducer']
+    .forEach((id) => el(id)?.addEventListener('change', handleFilterSelectionChange));
+  el('filterMonth')?.addEventListener('change', async () => {
+    state.masterRows = null;
+    await fetchMonthMasterData();
+    updateAllCrossFilters();
+    loadAllData();
   });
-  el('filterConsultant')?.addEventListener('change', () => {
-    updateCascadingFilters();
-    handleFilterChange();
-  });
-  ['filterIndustry', 'filterRegion', 'filterStatus', 'filterProducer']
-    .forEach((id) => el(id)?.addEventListener('change', handleFilterChange));
-  el('filterMonth')?.addEventListener('change', loadAllData);
   document.querySelectorAll('[data-ranking]').forEach((button) => button.addEventListener('click', () => {
     state.rankingDimension = button.dataset.ranking;
     renderSelectedRanking();
