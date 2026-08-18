@@ -198,17 +198,27 @@
     <div class="footer-brand">© Labor Rural | 2026</div>
   </footer>
 
-  <!-- Modal de Detalhes da Inconsistência -->
+  <!-- Modal de Detalhes da Inconsistência (Estilo Elabore) -->
   <div class="modal-overlay" id="detailsModal" aria-hidden="true">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <div class="modal-header">
-        <h3 id="modalTitle">Detalhes da Inconsistência</h3>
-        <button class="modal-close-btn" id="modalCloseBtn" type="button" aria-label="Fechar">&times;</button>
+        <div class="modal-header-left">
+          <span class="modal-icon material-symbols-rounded" aria-hidden="true">fact_check</span>
+          <h3 id="modalTitle">Detalhes da Inconsistência</h3>
+        </div>
+        <div class="modal-header-right">
+          <div class="modal-ref-badge" id="modalRefBadge">
+            <span>MÊS REFERÊNCIA</span>
+            <strong id="modalRefMonthText">--/----</strong>
+          </div>
+          <button class="modal-close-btn" id="modalCloseBtn" type="button" aria-label="Fechar">&times;</button>
+        </div>
       </div>
       <div class="modal-body" id="modalBody">
         <!-- Preenchido via JavaScript -->
       </div>
       <div class="modal-footer">
+        <button class="modal-btn-secondary" id="modalCancelBtn" type="button">Cancelar</button>
         <button class="modal-btn-primary" id="modalOkBtn" type="button">Fechar</button>
       </div>
     </div>

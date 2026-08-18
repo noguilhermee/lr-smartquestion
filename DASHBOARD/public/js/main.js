@@ -747,8 +747,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function setupDetailsModal() {
     const detailsModal = el('detailsModal');
     const modalBody = el('modalBody');
-    const modalCloseBtn = el('modalCloseBtn');
-    const modalOkBtn = el('modalOkBtn');
+    const modalCancelBtn = el('modalCancelBtn');
 
     function openDetailsModal(item) {
       if (!item || !detailsModal || !modalBody) return;
@@ -757,53 +756,66 @@ document.addEventListener('DOMContentLoaded', () => {
       const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
       const statusBadge = String(item.status || 'ATIVO').toUpperCase() === 'INATIVO' ? 'badge-danger' : 'badge-positive';
 
+      const refMonthText = item.mes_referencia ? String(item.mes_referencia).slice(0, 7).split('-').reverse().join('/') : '--/----';
+      const refMonthEl = el('modalRefMonthText');
+      if (refMonthEl) refMonthEl.textContent = refMonthText;
+
       modalBody.innerHTML = `
-        <div class="detail-grid">
-          <div class="detail-item">
-            <span class="detail-label">Código LR</span>
-            <span class="detail-value">${escapeHtml(item.codigo_lr || '—')}</span>
+        <fieldset class="modal-fieldset">
+          <legend class="modal-legend">Informações do Produtor e Vínculo</legend>
+          <div class="detail-grid">
+            <div class="detail-field">
+              <label class="field-label">Código LR</label>
+              <div class="field-box">${escapeHtml(item.codigo_lr || '—')}</div>
+            </div>
+            <div class="detail-field">
+              <label class="field-label">Produtor(a)</label>
+              <div class="field-box field-box--bold">${escapeHtml(item.produtor || '—')}</div>
+            </div>
+            <div class="detail-field">
+              <label class="field-label">Consultor(a) Técnico(a)</label>
+              <div class="field-box">${escapeHtml(item.consultor || '—')}</div>
+            </div>
+            <div class="detail-field">
+              <label class="field-label">Agroindústria</label>
+              <div class="field-box">${escapeHtml(item.agroindustria || item.projeto || '—')}</div>
+            </div>
+            <div class="detail-field">
+              <label class="field-label">Região Leiteira</label>
+              <div class="field-box">${escapeHtml(item.regiao || '—')}</div>
+            </div>
+            <div class="detail-field">
+              <label class="field-label">Projeto / Programa</label>
+              <div class="field-box">${escapeHtml(item.projeto || '—')}</div>
+            </div>
+            <div class="detail-field">
+              <label class="field-label">Status Cadastral</label>
+              <div class="field-box"><span class="badge ${statusBadge}">${escapeHtml(item.status || 'ATIVO')}</span></div>
+            </div>
           </div>
-          <div class="detail-item">
-            <span class="detail-label">Produtor</span>
-            <span class="detail-value">${escapeHtml(item.produtor || '—')}</span>
+        </fieldset>
+
+        <fieldset class="modal-fieldset">
+          <legend class="modal-legend">Indicadores de Consistência e Qualidade</legend>
+          <div class="detail-grid">
+            <div class="detail-field">
+              <label class="field-label">Mês Referência</label>
+              <div class="field-box">${escapeHtml(item.mes_referencia || '—')}</div>
+            </div>
+            <div class="detail-field">
+              <label class="field-label">Meses Consecutivos</label>
+              <div class="field-box">${number(item.meses_sequenciais)} mês(es)</div>
+            </div>
+            <div class="detail-field">
+              <label class="field-label">Classificação da Inconsistência</label>
+              <div class="field-box"><span class="badge ${badgeClass}">${escapeHtml(item.consistencia || 'PENDENTE')}</span></div>
+            </div>
+            <div class="detail-field field-full">
+              <label class="field-label">Detalhamento da Inconsistência</label>
+              <div class="field-box field-box--highlight">${escapeHtml(item.detalhamento || 'Nenhum detalhamento registrado na base de auditoria.')}</div>
+            </div>
           </div>
-          <div class="detail-item">
-            <span class="detail-label">Consultor</span>
-            <span class="detail-value">${escapeHtml(item.consultor || '—')}</span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Agroindústria</span>
-            <span class="detail-value">${escapeHtml(item.agroindustria || item.projeto || '—')}</span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Região Leiteira</span>
-            <span class="detail-value">${escapeHtml(item.regiao || '—')}</span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Projeto</span>
-            <span class="detail-value">${escapeHtml(item.projeto || '—')}</span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Status Cadastral</span>
-            <span class="detail-value"><span class="badge ${statusBadge}">${escapeHtml(item.status || 'ATIVO')}</span></span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Mês Referência</span>
-            <span class="detail-value">${escapeHtml(item.mes_referencia || '—')}</span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Meses Consecutivos</span>
-            <span class="detail-value">${number(item.meses_sequenciais)} mês(es)</span>
-          </div>
-          <div class="detail-item">
-            <span class="detail-label">Classificação</span>
-            <span class="detail-value"><span class="badge ${badgeClass}">${escapeHtml(item.consistencia || 'PENDENTE')}</span></span>
-          </div>
-          <div class="detail-item" style="grid-column: span 2;">
-            <span class="detail-label">Detalhamento da Inconsistência</span>
-            <span class="detail-value" style="font-weight: 500; color: var(--ink);">${escapeHtml(item.detalhamento || 'Nenhum detalhamento registrado na base')}</span>
-          </div>
-        </div>
+        </fieldset>
       `;
 
       detailsModal.classList.add('active');
@@ -818,6 +830,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     modalCloseBtn?.addEventListener('click', closeDetailsModal);
     modalOkBtn?.addEventListener('click', closeDetailsModal);
+    modalCancelBtn?.addEventListener('click', closeDetailsModal);
     detailsModal?.addEventListener('click', (e) => {
       if (e.target === detailsModal) closeDetailsModal();
     });

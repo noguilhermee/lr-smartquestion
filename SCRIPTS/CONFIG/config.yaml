@@ -27,7 +27,7 @@ supabase:
     inativacao_produtores_staging: "tab_inativacoes_sq"
     inativacao_consultores_staging: "tab_inativacao_consultor_sq"
     consistencia_fato: "f_consistente_bi_lr"
-    movimentacao_fato: "f_movimentacao_produtores_bi_lr"
+    movimentacao_fato: "tab_movimentacao_produtor"
 
 # 📄 NOMES E PADRÕES DOS ARQUIVOS DE RELATÓRIO EXCEL
 smartquestion:
