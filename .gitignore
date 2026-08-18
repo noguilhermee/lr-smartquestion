@@ -1,5 +1,7 @@
 .idea/
 .vscode/
+.claude/
+.claude*
 
 # Python & Jupyter
 __pycache__/
