@@ -415,8 +415,16 @@ document.addEventListener('DOMContentLoaded', () => {
     overlay.setAttribute('aria-hidden', 'false');
   }
 
-  function hideLoading(delay = 200) {
+  function hideLoading(delay = 0) {
     clearTimeout(loadingTimeout);
+    if (delay <= 0) {
+      const overlay = el('loadingOverlay');
+      if (overlay) {
+        overlay.classList.remove('active');
+        overlay.setAttribute('aria-hidden', 'true');
+      }
+      return;
+    }
     loadingTimeout = setTimeout(() => {
       const overlay = el('loadingOverlay');
       if (!overlay) return;
@@ -1107,8 +1115,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  async function loadAllData() {
-    showLoading('Atualizando dashboard com filtros...');
+  let debounceFilterTimer = null;
+
+  async function loadAllData(isFilterChange = false) {
+    if (!isFilterChange) {
+      showLoading('Carregando dados...');
+    } else if (el('lastUpdateTag')) {
+      el('lastUpdateTag').textContent = 'Aplicando filtros...';
+    }
+
     try {
       if (!state.masterRows || state.masterRows.length === 0) {
         await fetchMonthMasterData();
@@ -1143,13 +1158,16 @@ document.addEventListener('DOMContentLoaded', () => {
       renderTables();
       updateTimestamp();
     } finally {
-      hideLoading(250);
+      hideLoading(0);
     }
   }
 
   function handleFilterSelectionChange() {
     updateAllCrossFilters();
-    loadAllData();
+    clearTimeout(debounceFilterTimer);
+    debounceFilterTimer = setTimeout(() => {
+      loadAllData(true);
+    }, 120);
   }
 
   function closeAllPopups() {
