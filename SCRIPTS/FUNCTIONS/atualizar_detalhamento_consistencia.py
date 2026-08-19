@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """
 Módulo Oficial de Carga e Sincronização de Consistência (Mensal e Anual)
-Lê os relatórios mais recentes exportados pelo Elabore e executa UPSERT seguro
+Lê os relatórios mais recentes exportados pelo Elabore e executa a carga completa
 nas tabelas 'tab_consistencia_mensal' e 'tab_consistencia_anual' do Supabase.
 """
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -54,24 +56,45 @@ def obter_cliente_supabase(raiz_projeto: Path):
     return create_client(supabase_url, supabase_key)
 
 
+def ler_excel_seguro(caminho_arquivo: Path) -> pd.DataFrame:
+    """Lê um arquivo Excel com cópia temporária para evitar locks do Windows."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    tmp.close()
+    try:
+        shutil.copy2(caminho_arquivo, tmp.name)
+        df = pd.read_excel(tmp.name)
+        return df
+    finally:
+        try:
+            os.remove(tmp.name)
+        except Exception:
+            pass
+
+
 def obter_mapa_idfazenda(supabase) -> dict[str, int]:
     """
     Busca o mapeamento existente de 'codigo_lr' -> 'idfazenda' para garantir
-    a integridade referencial e constraints NOT NULL.
+    a integridade referencial e consistência dos IDs.
     """
-    print("🔍 Buscando mapeamento de 'idfazenda' no Supabase...")
-    res_map = (
-        supabase.table("tab_consistencia_mensal")
-        .select("codigo_lr, idfazenda")
-        .not_.is_("idfazenda", "null")
-        .execute()
-    )
-    df_map = (
-        pd.DataFrame(res_map.data)
-        .dropna(subset=["codigo_lr", "idfazenda"])
-        .drop_duplicates(subset=["codigo_lr"])
-    )
-    id_map = dict(zip(df_map["codigo_lr"].astype(str).str.strip(), df_map["idfazenda"].astype(int)))
+    print("🔍 Buscando mapeamento histórico de 'idfazenda' no Supabase...")
+    id_map = {}
+    try:
+        res_map = (
+            supabase.table("tab_consistencia_mensal")
+            .select("codigo_lr, idfazenda")
+            .not_.is_("idfazenda", "null")
+            .execute()
+        )
+        if res_map.data:
+            df_map = (
+                pd.DataFrame(res_map.data)
+                .dropna(subset=["codigo_lr", "idfazenda"])
+                .drop_duplicates(subset=["codigo_lr"])
+            )
+            id_map = dict(zip(df_map["codigo_lr"].astype(str).str.strip(), df_map["idfazenda"].astype(int)))
+    except Exception as e:
+        print(f"⚠️ Aviso ao obter mapeamento de idfazenda: {e}")
+
     print(f"✅ Mapeamento carregado para {len(id_map)} produtores.")
     return id_map
 
@@ -107,8 +130,22 @@ def localizar_arquivo_recente(diretorio_principal: Path, fallback_dirs: list[Pat
     raise FileNotFoundError(f"❌ Nenhum arquivo '{padrao_glob}' encontrado nas pastas: {[str(p) for p in pastas_busca]}")
 
 
-def atualizar_consistencia_mensal(supabase, raiz_projeto: Path, config: dict, id_map: dict[str, int]) -> int:
-    """Processa e executa UPSERT em 'tab_consistencia_mensal'."""
+def limpar_tabela_supabase(supabase, nome_tabela: str) -> bool:
+    """Limpa todos os registros de uma tabela para carga do snapshot completo."""
+    print(f"🧹 Limpando registros antigos em '{nome_tabela}'...")
+    try:
+        supabase.table(nome_tabela).delete().neq("idfazenda", 0).execute()
+        print(f"✅ Tabela '{nome_tabela}' limpa com sucesso.")
+        return True
+    except Exception as e:
+        print(f"⚠️ Erro ao limpar tabela '{nome_tabela}': {e}")
+        return False
+
+
+def atualizar_consistencia_mensal(
+    supabase, raiz_projeto: Path, config: dict, id_map: dict[str, int], limpar_antes: bool = True
+) -> int:
+    """Processa e executa carga em 'tab_consistencia_mensal'."""
     print("\n" + "=" * 70)
     print("📊 ETAPA: ATUALIZANDO TABELA DE CONSISTÊNCIA MENSAL (tab_consistencia_mensal)")
     print("=" * 70)
@@ -120,7 +157,7 @@ def atualizar_consistencia_mensal(supabase, raiz_projeto: Path, config: dict, id
     ]
 
     arquivo_excel = localizar_arquivo_recente(dir_elabore, fallbacks, "*indicadores_mensais.xlsx")
-    df_excel = pd.read_excel(arquivo_excel)
+    df_excel = ler_excel_seguro(arquivo_excel)
 
     col_codigo = next((c for c in df_excel.columns if "código" in c.lower() or "codigo" in c.lower()), None)
     col_mes = next((c for c in df_excel.columns if "mês de referência" in c.lower() or "mes de referencia" in c.lower() or "referência" in c.lower()), None)
@@ -165,7 +202,10 @@ def atualizar_consistencia_mensal(supabase, raiz_projeto: Path, config: dict, id
     df_carga.drop_duplicates(subset=["idfazenda", "mes_referencia"], keep="last", inplace=True)
     df_carga.drop_duplicates(subset=["codigo_lr", "mes_referencia"], keep="last", inplace=True)
 
-    print(f"📊 Total de registros válidos para UPSERT mensal: {len(df_carga)}")
+    print(f"📊 Total de registros válidos para carga mensal: {len(df_carga)}")
+
+    if limpar_antes:
+        limpar_tabela_supabase(supabase, "tab_consistencia_mensal")
 
     # Enviar ao Supabase em lotes
     records = df_carga.to_dict(orient="records")
@@ -180,7 +220,7 @@ def atualizar_consistencia_mensal(supabase, raiz_projeto: Path, config: dict, id
                 chunk, on_conflict="idfazenda,mes_referencia"
             ).execute()
             sucessos += len(chunk)
-            print(f"   ✅ Lote {i // chunk_size + 1}: {len(chunk)} registros atualizados.")
+            print(f"   ✅ Lote {i // chunk_size + 1}: {len(chunk)} registros inseridos/atualizados.")
         except Exception as e:
             print(f"   ❌ Erro no lote {i // chunk_size + 1}: {e}")
 
@@ -188,8 +228,10 @@ def atualizar_consistencia_mensal(supabase, raiz_projeto: Path, config: dict, id
     return sucessos
 
 
-def atualizar_consistencia_anual(supabase, raiz_projeto: Path, config: dict, id_map: dict[str, int]) -> int:
-    """Processa e executa UPSERT em 'tab_consistencia_anual'."""
+def atualizar_consistencia_anual(
+    supabase, raiz_projeto: Path, config: dict, id_map: dict[str, int], limpar_antes: bool = True
+) -> int:
+    """Processa e executa carga em 'tab_consistencia_anual'."""
     print("\n" + "=" * 70)
     print("📈 ETAPA: ATUALIZANDO TABELA DE CONSISTÊNCIA ANUAL (tab_consistencia_anual)")
     print("=" * 70)
@@ -201,12 +243,29 @@ def atualizar_consistencia_anual(supabase, raiz_projeto: Path, config: dict, id_
     ]
 
     arquivo_excel = localizar_arquivo_recente(dir_elabore, fallbacks, "*indicadores_anuais.xlsx")
-    df_excel = pd.read_excel(arquivo_excel)
+    df_excel = ler_excel_seguro(arquivo_excel)
 
-    col_codigo = next((c for c in df_excel.columns if "labor_rural_code" in c.lower() or "código" in c.lower() or "codigo" in c.lower()), None)
-    col_end = next((c for c in df_excel.columns if "annual_period_end" in c.lower() or "fim" in c.lower() or "referência" in c.lower() or "referencia" in c.lower()), None)
-    col_start = next((c for c in df_excel.columns if "annual_period_start" in c.lower() or "inicio" in c.lower() or "elabore" in c.lower()), None)
-    col_status = next((c for c in df_excel.columns if "annual_consistency_status" in c.lower() or "consistencia" in c.lower() or "status" in c.lower()), None)
+    col_codigo = next((c for c in df_excel.columns if c.strip().lower() in ["labor_rural_code", "codigo_lr", "código lr", "codigo"]), None)
+    if not col_codigo:
+        col_codigo = next((c for c in df_excel.columns if "labor_rural_code" in c.lower() or "codigo" in c.lower()), None)
+
+    col_end = next((c for c in df_excel.columns if c.strip().lower() in ["annual_period_end", "mes_referencia", "fim"]), None)
+    if not col_end:
+        col_end = next((c for c in df_excel.columns if "annual_period_end" in c.lower() or "referência" in c.lower() or "referencia" in c.lower()), None)
+
+    col_start = next((c for c in df_excel.columns if c.strip().lower() in ["annual_period_start", "mes_elabore", "inicio"]), None)
+    if not col_start:
+        col_start = next((c for c in df_excel.columns if "annual_period_start" in c.lower() or "elabore" in c.lower()), None)
+
+    # Buscar exatamente annual_consistency_status (evitando colisão com property_status)
+    col_status = next((c for c in df_excel.columns if c.strip().lower() == "annual_consistency_status"), None)
+    if not col_status:
+        col_status = next((c for c in df_excel.columns if "status de consistência" in c.lower() or "consistencia" in c.lower()), None)
+
+    # Detalhamento de inconsistência / outliers anual
+    col_detalhe = next((c for c in df_excel.columns if c.strip().lower() in ["outlier_details_annual", "detalhamento_inconsistencia", "annual_violated_consistency_details"]), None)
+    if not col_detalhe:
+        col_detalhe = next((c for c in df_excel.columns if "outlier_details" in c.lower() or "detalhamento" in c.lower()), None)
 
     if not col_codigo or not col_end:
         raise ValueError("❌ Colunas obrigatórias ('labor_rural_code', 'annual_period_end') não encontradas na planilha anual.")
@@ -225,6 +284,13 @@ def atualizar_consistencia_anual(supabase, raiz_projeto: Path, config: dict, id_
     else:
         df_carga["consistencia_anual"] = "Inconsistente"
 
+    if col_detalhe:
+        df_carga["detalhamento_inconsistencia"] = df_excel[col_detalhe].apply(
+            lambda x: None if pd.isna(x) or str(x).strip().lower() in ["nenhum", "nan", "", "none"] else str(x).strip()
+        )
+    else:
+        df_carga["detalhamento_inconsistencia"] = None
+
     agora_iso = datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat()
     df_carga["data_processamento"] = agora_iso
 
@@ -236,7 +302,10 @@ def atualizar_consistencia_anual(supabase, raiz_projeto: Path, config: dict, id_
     df_carga.drop_duplicates(subset=["idfazenda", "mes_referencia"], keep="last", inplace=True)
     df_carga.drop_duplicates(subset=["codigo_lr", "mes_referencia"], keep="last", inplace=True)
 
-    print(f"📊 Total de registros válidos para UPSERT anual: {len(df_carga)}")
+    print(f"📊 Total de registros válidos para carga anual: {len(df_carga)}")
+
+    if limpar_antes:
+        limpar_tabela_supabase(supabase, "tab_consistencia_anual")
 
     # Enviar ao Supabase em lotes
     records = df_carga.to_dict(orient="records")
@@ -249,7 +318,7 @@ def atualizar_consistencia_anual(supabase, raiz_projeto: Path, config: dict, id_
         try:
             supabase.table("tab_consistencia_anual").upsert(chunk).execute()
             sucessos += len(chunk)
-            print(f"   ✅ Lote {i // chunk_size + 1}: {len(chunk)} registros atualizados.")
+            print(f"   ✅ Lote {i // chunk_size + 1}: {len(chunk)} registros inseridos/atualizados.")
         except Exception as e:
             print(f"   ❌ Erro no lote {i // chunk_size + 1}: {e}")
 
@@ -257,26 +326,26 @@ def atualizar_consistencia_anual(supabase, raiz_projeto: Path, config: dict, id_
     return sucessos
 
 
-def executar_sincronizacao_consistencia(raiz_projeto: Path | None = None) -> bool:
+def executar_sincronizacao_consistencia(raiz_projeto: Path | None = None, limpar_antes: bool = True) -> bool:
     """Função principal para executar a sincronização completa das duas tabelas."""
     raiz = detectar_raiz(raiz_projeto)
     config = carregar_configuracao(raiz)
     supabase = obter_cliente_supabase(raiz)
 
     print("\n" + "=" * 70)
-    print("🔄 INICIANDO SINCRONIZAÇÃO COMPLETA DAS TABELAS DE CONSISTÊNCIA")
+    print("🔄 INICIANDO CARGA COMPLETA DAS TABELAS DE CONSISTÊNCIA")
     print(f"⏰ Início: {datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')}")
     print("=" * 70)
 
     try:
         id_map = obter_mapa_idfazenda(supabase)
-        total_m = atualizar_consistencia_mensal(supabase, raiz, config, id_map)
-        total_a = atualizar_consistencia_anual(supabase, raiz, config, id_map)
+        total_m = atualizar_consistencia_mensal(supabase, raiz, config, id_map, limpar_antes=limpar_antes)
+        total_a = atualizar_consistencia_anual(supabase, raiz, config, id_map, limpar_antes=limpar_antes)
 
         print("\n" + "=" * 70)
         print("🎉 SINCRONIZAÇÃO DE CONSISTÊNCIA FINALIZADA COM SUCESSO!")
-        print(f"   - Mensal: {total_m} registros sincronizados")
-        print(f"   - Anual:  {total_a} registros sincronizados")
+        print(f"   - Mensal: {total_m} registros (Snapshot Atual)")
+        print(f"   - Anual:  {total_a} registros (Snapshot Atual)")
         print("=" * 70 + "\n")
         return True
 
