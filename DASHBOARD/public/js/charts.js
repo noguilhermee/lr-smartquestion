@@ -183,7 +183,8 @@ class DashboardCharts {
     if (!ctx) return;
     this.destroy(id);
     const color = this.colors();
-    const lineColor = '#2563eb'; // Azul linha e badge
+    const lineColor = '#4472c5'; // Azul clássico #4472c5
+    const textColor = '#203864'; // Azul escuro legível
 
     const entradas = data.entradas || [];
     const saidas = data.saidas || [];
@@ -236,40 +237,24 @@ class DashboardCharts {
                 context.fillText(label, x, y);
               }
             } else if (datasetIndex === 2) {
-              // Linha (% Inativações/Pedidos): Badge retangular com fundo azul e texto branco
+              // Linha (Inativações/total de pedidos): Texto em tom âmbar escuro com contorno branco e sem fundo
               const valNum = Number(rawValue);
               const label = `${valNum.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
 
-              context.font = '700 10.5px Open Sans, Arial, sans-serif';
+              context.font = '700 11px Open Sans, Arial, sans-serif';
               context.textAlign = 'center';
               context.textBaseline = 'middle';
 
-              const textMetrics = context.measureText(label);
-              const textWidth = textMetrics.width;
-              const badgeWidth = textWidth + 10;
-              const badgeHeight = 18;
-              const badgeX = x - badgeWidth / 2;
-              const badgeY = element.y - 18;
+              const y = element.y - 12;
 
-              // Desenhar retângulo arredondado (Badge azul)
-              const radius = 3;
-              context.fillStyle = lineColor;
-              context.beginPath();
-              context.moveTo(badgeX + radius, badgeY - badgeHeight / 2);
-              context.lineTo(badgeX + badgeWidth - radius, badgeY - badgeHeight / 2);
-              context.quadraticCurveTo(badgeX + badgeWidth, badgeY - badgeHeight / 2, badgeX + badgeWidth, badgeY - badgeHeight / 2 + radius);
-              context.lineTo(badgeX + badgeWidth, badgeY + badgeHeight / 2 - radius);
-              context.quadraticCurveTo(badgeX + badgeWidth, badgeY + badgeHeight / 2, badgeX + badgeWidth - radius, badgeY + badgeHeight / 2);
-              context.lineTo(badgeX + radius, badgeY + badgeHeight / 2);
-              context.quadraticCurveTo(badgeX, badgeY + badgeHeight / 2, badgeX, badgeY + badgeHeight / 2 - radius);
-              context.lineTo(badgeX, badgeY - badgeHeight / 2 + radius);
-              context.quadraticCurveTo(badgeX, badgeY - badgeHeight / 2, badgeX + radius, badgeY - badgeHeight / 2);
-              context.closePath();
-              context.fill();
+              // Contorno branco para máxima legibilidade sobre barras/linhas
+              context.lineWidth = 3.5;
+              context.strokeStyle = color.surface || '#ffffff';
+              context.strokeText(label, x, y);
 
-              // Texto branco dentro do badge
-              context.fillStyle = '#ffffff';
-              context.fillText(label, x, badgeY);
+              // Texto em âmbar escuro
+              context.fillStyle = textColor;
+              context.fillText(label, x, y);
             }
           });
         });

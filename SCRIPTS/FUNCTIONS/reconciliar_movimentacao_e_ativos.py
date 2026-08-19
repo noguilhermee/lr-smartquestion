@@ -196,11 +196,14 @@ def executar_reconciliacao():
                 
             # Somente incluir se for ANTES de 2026 (2026 em diante vem da lista de cadastro oficial)
             if dt_mov < "2026-01-01":
+                nome_prod_vinc = str(row.get("nome_produtor") or "").strip()
                 id_comp = f"{cod}_{cons}_{dt_mov}_Entrada"
                 movimentacoes_lista.append({
                     "id_composto": id_comp,
                     "codigo_lr": cod,
                     "nome_consultor": cons,
+                    "nome_produtor": nome_prod_vinc if (nome_prod_vinc and nome_prod_vinc.lower() != "nan") else None,
+                    "numero_atendimento": None,
                     "data_movimentacao": dt_mov,
                     "movimentacao": "Entrada",
                     "motivo_inativacao": None,
@@ -209,14 +212,17 @@ def executar_reconciliacao():
                 })
 
     # Mapeamento dimensional para validação da cadeia produtiva (Leite vs Cacau, Café, Grãos)
-    res_all_vinc = supabase.table("tab_vinculos_sq").select("codigo_lr, projeto, tipo_ponto_atendimento").execute()
+    res_all_vinc = supabase.table("tab_vinculos_sq").select("codigo_lr, projeto, tipo_ponto_atendimento, nome_produtor").execute()
     mapa_lr_tipo: Dict[str, str] = {}
     mapa_lr_proj: Dict[str, str] = {}
+    mapa_lr_nome: Dict[str, str] = {}
     for v in (res_all_vinc.data or []):
         c_lr = str(v.get("codigo_lr") or "").strip()
         if c_lr:
             mapa_lr_tipo[c_lr] = str(v.get("tipo_ponto_atendimento") or "").strip().upper()
             mapa_lr_proj[c_lr] = str(v.get("projeto") or "").strip().upper()
+            if v.get("nome_produtor"):
+                mapa_lr_nome[c_lr] = str(v.get("nome_produtor")).strip()
 
     def eh_cadeia_leite(projeto_str: str, codigo_lr: str = "") -> bool:
         proj_upper = (projeto_str or "").strip().upper()
@@ -265,6 +271,8 @@ def executar_reconciliacao():
                 col_tipo_c = [c for c in df_c.columns if "tipo de cadastro" in str(c).lower()]
                 col_cadeia_c = [c for c in df_c.columns if "cadeia" in str(c).lower()]
                 col_proj_c = [c for c in df_c.columns if "projeto" in str(c).lower()]
+                col_prod_c = [c for c in df_c.columns if ("produtor" in str(c).lower() and "novo" not in str(c).lower() and "código" not in str(c).lower() and "consultor" not in str(c).lower())]
+                col_novo_prod_c = [c for c in df_c.columns if "novo(a) produtor(a)" in str(c).lower() and "nome" in str(c).lower()]
                 
                 for _, row in df_c.iterrows():
                     id_atend = str(row[col_id_c]).strip().replace(".0", "")
@@ -291,11 +299,23 @@ def executar_reconciliacao():
                     cons = extrair_consultor_individual(str(row[col_cons_c]))
                     tipo_cad = str(row[col_tipo_c[0]]) if col_tipo_c and pd.notna(row.get(col_tipo_c[0])) else "Inclusão de propriedade"
                     
+                    # Nome do produtor direto do Excel (ou titular novo em caso de troca)
+                    nome_prod_cad = ""
+                    if col_novo_prod_c and pd.notna(row.get(col_novo_prod_c[0])) and str(row.get(col_novo_prod_c[0])).strip():
+                        nome_prod_cad = str(row.get(col_novo_prod_c[0])).strip()
+                    elif col_prod_c and pd.notna(row.get(col_prod_c[0])):
+                        nome_prod_cad = str(row.get(col_prod_c[0])).strip()
+                    if not nome_prod_cad and cod in mapa_lr_nome:
+                        nome_prod_cad = mapa_lr_nome[cod]
+
+                    id_atend_num = int(id_atend) if str(id_atend).isdigit() else id_atend
                     id_comp = f"CAD_{id_atend}_{dt_mov}_Entrada"
                     movimentacoes_lista.append({
                         "id_composto": id_comp,
                         "codigo_lr": cod,
                         "nome_consultor": cons,
+                        "nome_produtor": nome_prod_cad if (nome_prod_cad and nome_prod_cad.lower() != "nan") else None,
+                        "numero_atendimento": id_atend_num,
                         "data_movimentacao": dt_mov,
                         "movimentacao": "Entrada",
                         "motivo_inativacao": None,
@@ -315,6 +335,9 @@ def executar_reconciliacao():
             cod = cod_raw if (cod_raw and cod_raw.lower() != "nan") else f"INAT_{id_atend}"
             cons = extrair_consultor_individual(row.get("nome_consultor"), row.get("grupo_ponto_atendimento"))
             proj_inat = str(row.get("projeto") or "").strip()
+            nome_prod_inat = str(row.get("nome_produtor") or "").strip()
+            if not nome_prod_inat and cod in mapa_lr_nome:
+                nome_prod_inat = mapa_lr_nome[cod]
             
             dt_solic = row.get("data_solicitacao")
             dt_inat = row.get("data_inativacao")
@@ -336,11 +359,14 @@ def executar_reconciliacao():
                 
             motivo = row.get("motivo_inativacao")
             outro = row.get("outro_motivo")
+            id_atend_num = int(id_atend) if str(id_atend).isdigit() else (id_atend if id_atend else None)
             
             movimentacoes_lista.append({
                 "id_composto": id_comp,
                 "codigo_lr": cod,
                 "nome_consultor": cons,
+                "nome_produtor": nome_prod_inat if (nome_prod_inat and nome_prod_inat.lower() != "nan") else None,
+                "numero_atendimento": id_atend_num,
                 "data_movimentacao": dt_mov,
                 "movimentacao": "Saída",
                 "motivo_inativacao": motivo,

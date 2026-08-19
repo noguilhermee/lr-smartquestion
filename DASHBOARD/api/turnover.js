@@ -147,7 +147,7 @@ module.exports = async (req, res) => {
     const [movimentacoesBrutas, produtoresBrutos, inativacoesFallback, vinculosFallback] = await Promise.all([
       fetchAll(() => supabase
         .from('tab_movimentacao_produtor')
-        .select('codigo_lr, nome_consultor, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
+        .select('codigo_lr, nome_produtor, nome_consultor, numero_atendimento, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
         .order('data_movimentacao', { ascending: false })
         .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
@@ -248,12 +248,15 @@ module.exports = async (req, res) => {
       const produtorAtivo = produtoresMap.get(m.codigo_lr);
       const movementMonthKey = String(m.data_movimentacao || '').slice(0, 7);
       const metaFallback = fallbackMetaMap.get(m.codigo_lr);
-      const nomeFinal = produtorAtivo?.nome_produtor || metaFallback?.nome_produtor;
+      const nomeFinal = m.nome_produtor || produtorAtivo?.nome_produtor || metaFallback?.nome_produtor;
       // Desconsidera contas puramente de supervisao do SmartQuestion se nao houver nome
       const produtorNome = nomeFinal || (String(m.codigo_lr).includes('_CONSULTOR') ? 'CONTA DE SUPERVISÃO' : m.codigo_lr || 'PRODUTOR');
       // Sanitiza o nome do consultor removendo sufixo de projeto
       const consultorSanitizado = (sanitizeConsultorList(m.nome_consultor)[0]) || 'NÃO ATRIBUÍDO';
+      const atendFormatado = m.numero_atendimento ? String(m.numero_atendimento).replace(/\.0+$/, '').trim() : '—';
       tabelaMov.push({
+        numero_atendimento: m.numero_atendimento || null,
+        atendimento: atendFormatado,
         produtor: produtorNome,
         consultor: consultorSanitizado,
         grupo: consultorSanitizado,

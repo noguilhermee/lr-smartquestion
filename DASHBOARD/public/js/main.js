@@ -498,7 +498,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const MAPPINGS = {
       tbodySemVisita: ['consultor', 'codigo_lr', 'produtor', 'data_vinculacao', 'dias_sem_visita', 'status'],
       tbodyVisitados: ['consultor', 'codigo_lr', 'produtor', 'profissao', 'atendimento', 'data_visita', 'elabore_ok'],
-      tbodyTurnover: ['produtor', 'tipo', 'data', 'grupo', 'motivo'],
+      tbodyTurnover: ['atendimento', 'produtor', 'tipo', 'data', 'grupo', 'motivo'],
       tbodyConsultants: ['consultor', 'total_fazendas', 'fazendas_visitadas', 'total_visitas', 'perc_cobertura', 'status'],
       tbodyDataProducers: ['codigo_lr', 'produtor', 'consultor', 'possui_dados', 'referencia', 'status'],
       tbodyInconsistencies: ['produtor', 'consultor', 'projeto', 'meses_sequenciais', 'consistencia', 'acao']
@@ -702,10 +702,11 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCount('countTurnover', movements);
     movements = sortRows(movements, tableSort.tbodyTurnover, (row, key) => key === 'grupo' ? (row.grupo || row.consultor) : row[key]);
     updateTableHeadIcons('tbodyTurnover', tableSort.tbodyTurnover.colKey, tableSort.tbodyTurnover.dir);
-    if (el('tbodyTurnover')) el('tbodyTurnover').innerHTML = rowsOrEmpty(movements, 5, (row) => {
+    if (el('tbodyTurnover')) el('tbodyTurnover').innerHTML = rowsOrEmpty(movements, 6, (row) => {
       const isSaida = row.tipo === 'SAÍDA';
       const grp = row.grupo || row.consultor || '—';
-      return `<tr class="${isSaida ? 'table-row-grave' : ''}"><td class="col-left" title="${escapeHtml(row.produtor || '—')}"><strong>${escapeHtml(row.produtor || '—')}</strong></td><td class="col-center"><span class="badge ${isSaida ? 'badge-danger' : 'badge-positive'}">${escapeHtml(row.tipo)}</span></td><td class="col-center">${escapeHtml(row.data || '—')}</td><td class="col-left" title="${escapeHtml(grp)}">${escapeHtml(grp)}</td><td class="col-left" title="${escapeHtml(row.motivo || '—')}">${escapeHtml(row.motivo || '—')}</td></tr>`;
+      const numAtend = row.atendimento || row.numero_atendimento || '—';
+      return `<tr class="${isSaida ? 'table-row-grave' : ''}"><td class="col-center font-tabular"><strong>${escapeHtml(String(numAtend))}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}"><strong>${escapeHtml(row.produtor || '—')}</strong></td><td class="col-center"><span class="badge ${isSaida ? 'badge-danger' : 'badge-positive'}">${escapeHtml(row.tipo)}</span></td><td class="col-center">${escapeHtml(row.data || '—')}</td><td class="col-left" title="${escapeHtml(grp)}">${escapeHtml(grp)}</td><td class="col-left" title="${escapeHtml(row.motivo || '—')}">${escapeHtml(row.motivo || '—')}</td></tr>`;
     });
 
     // Tabela 4: Consultores
