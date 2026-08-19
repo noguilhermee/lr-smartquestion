@@ -211,7 +211,28 @@ module.exports = async (req, res) => {
       .select('id, codigo_lr, nome_consultor, nome_produtor, nome_propriedade, data_visita, id_atendimento, projeto, mes_referencia')
       .eq('mes_referencia', visitasMonth)
       .order('data_visita', { ascending: false }));
-    const visitasList = (visitasListRaw || []).filter(v => !isTestData(v.nome_consultor, v.projeto));
+    let visitasList = (visitasListRaw || []).filter(v => !isTestData(v.nome_consultor, v.projeto));
+
+    if (visitasList.length === 0 && visitasMonth) {
+      const [anoRef, mesRef] = visitasMonth.split('-');
+      const ultimoDiaMes = new Date(Number(anoRef), Number(mesRef), 0).getDate();
+      const dtInicio = `${visitasMonth}`;
+      const dtFim = `${anoRef}-${mesRef}-${String(ultimoDiaMes).padStart(2, '0')}`;
+      const visitasFallback = await fetchAll(() => supabase
+        .from('tab_visitas_sq')
+        .select('id_atendimento, codigo_lr, nome_consultor, nome_produtor, data_visita')
+        .gte('data_visita', dtInicio)
+        .lte('data_visita', dtFim)
+        .order('data_visita', { ascending: false }));
+      if (visitasFallback && visitasFallback.length > 0) {
+        visitasList = visitasFallback.map(v => ({
+          ...v,
+          nome_propriedade: 'PROPRIEDADE',
+          projeto: 'Leite',
+          mes_referencia: visitasMonth
+        }));
+      }
+    }
 
     // Histórico necessário para os gráficos. Consultas exclusivamente de leitura com ordenação determinística.
     const [visitasHistoricas, produtoresHistoricos] = await Promise.all([
@@ -327,7 +348,27 @@ module.exports = async (req, res) => {
     const comDadosCount = consistenciaFiltrada.filter(c => c.mes_elabore !== null || c.consistencia_mensal !== null).length;
 
     // Evolução mensal calculada com as referências disponíveis nas fontes analíticas.
+    function gerarMesesHistoricos(inicioStr, fimStr) {
+      const meses = [];
+      const [anoInicio, mesInicio] = inicioStr.split('-').map(Number);
+      const [anoFim, mesFim] = fimStr.split('-').map(Number);
+      let curAno = anoInicio;
+      let curMes = mesInicio;
+      while (curAno < anoFim || (curAno === anoFim && curMes <= mesFim)) {
+        const strMes = `${curAno}-${String(curMes).padStart(2, '0')}-01`;
+        meses.push(strMes);
+        curMes++;
+        if (curMes > 12) {
+          curMes = 1;
+          curAno++;
+        }
+      }
+      return meses;
+    }
+
+    const mesesHistoricosPadrao = gerarMesesHistoricos('2024-01-01', maxAllowedMonth);
     const todosMesesDisponiveis = [...new Set([
+      ...mesesHistoricosPadrao,
       ...(produtoresHistoricos || []).map(p => p.data_referencia),
       ...(visitasHistoricas || []).map(v => v.mes_referencia),
       maxAllowedMonth // Garante que o mês corrente aparece para que o usuário possa selecionar (M-1)

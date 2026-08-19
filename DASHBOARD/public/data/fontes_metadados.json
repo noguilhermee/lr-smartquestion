@@ -1,8 +1,8 @@
 {
-  "timestamp_inspecao": "2026-08-19T15:08:55.625055",
-  "timestamp_etl": "2026-08-19T15:08:55.625055",
-  "ultima_execucao_etl_formatada": "19/08/2026 às 15:08:55",
-  "ultima_leitura_planilhas_formatada": "19/08/2026 às 15:08:55",
+  "timestamp_inspecao": "2026-08-19T15:17:17.401675",
+  "timestamp_etl": "2026-08-19T15:17:17.401675",
+  "ultima_execucao_etl_formatada": "19/08/2026 às 15:17:17",
+  "ultima_leitura_planilhas_formatada": "19/08/2026 às 15:17:17",
   "arquivo_mais_recente_nome": "BD_BI_VINCULOS_COMPLETO.xlsx",
   "arquivo_mais_recente_data": "19/08/2026 às 11:40",
   "total_arquivos": 11,

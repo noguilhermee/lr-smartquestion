@@ -160,11 +160,31 @@ module.exports = async (req, res) => {
       .eq('data_referencia', refMonth)
       .order('codigo_lr', { ascending: true }));
 
-    const visitasBrutas = await fetchAll(() => supabase
+    let visitasBrutas = await fetchAll(() => supabase
       .from('f_visitas_bi_lr')
       .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia')
       .eq('mes_referencia', refMonth)
       .order('codigo_lr', { ascending: true }));
+
+    if ((!visitasBrutas || visitasBrutas.length === 0) && refMonth) {
+      const [anoRef, mesRef] = refMonth.split('-');
+      const ultimoDiaMes = new Date(Number(anoRef), Number(mesRef), 0).getDate();
+      const dtInicio = `${refMonth}`;
+      const dtFim = `${anoRef}-${mesRef}-${String(ultimoDiaMes).padStart(2, '0')}`;
+      const visitasFallback = await fetchAll(() => supabase
+        .from('tab_visitas_sq')
+        .select('id_atendimento, codigo_lr, nome_consultor, nome_produtor, data_visita')
+        .gte('data_visita', dtInicio)
+        .lte('data_visita', dtFim)
+        .order('data_visita', { ascending: false }));
+      if (visitasFallback && visitasFallback.length > 0) {
+        visitasBrutas = visitasFallback.map(v => ({
+          ...v,
+          projeto: 'Leite',
+          mes_referencia: refMonth
+        }));
+      }
+    }
 
     const produtoresFiltrados = (produtoresBrutos || []).filter(p => !isTestData(p.nome_consultor, p.projeto)).filter(rowMatches);
     const visitasFiltradas = (visitasBrutas || []).filter(v => !isTestData(v.nome_consultor, v.projeto)).filter(rowMatches);

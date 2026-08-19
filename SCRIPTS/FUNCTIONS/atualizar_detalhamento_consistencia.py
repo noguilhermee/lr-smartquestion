@@ -1,120 +1,292 @@
+# -*- coding: utf-8 -*-
+"""
+Módulo Oficial de Carga e Sincronização de Consistência (Mensal e Anual)
+Lê os relatórios mais recentes exportados pelo Elabore e executa UPSERT seguro
+nas tabelas 'tab_consistencia_mensal' e 'tab_consistencia_anual' do Supabase.
+"""
 from __future__ import annotations
+
 import os
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
 import pandas as pd
+import yaml
 from dotenv import load_dotenv
 from supabase import create_client
 
-# Localizar raiz do projeto
-caminho_atual = Path.cwd().resolve()
-for candidato in [caminho_atual, *caminho_atual.parents]:
-    if (candidato / "SCRIPTS").is_dir() and (candidato / "DB").is_dir():
-        raiz_projeto = candidato
-        break
-else:
-    raiz_projeto = caminho_atual
 
-# Carregar variáveis de ambiente
-for env_path in [raiz_projeto / "SCRIPTS" / "CONFIG" / ".env", raiz_projeto / "DASHBOARD" / ".env.local", raiz_projeto / ".env"]:
-    if env_path.is_file():
-        load_dotenv(env_path)
+def detectar_raiz(caminho_base: Path | None = None) -> Path:
+    """Localiza a raiz do projeto de forma robusta."""
+    caminho_atual = (caminho_base or Path.cwd()).resolve()
+    for candidato in [caminho_atual, *caminho_atual.parents]:
+        if (candidato / "SCRIPTS").is_dir() and (candidato / "DB").is_dir():
+            return candidato
+    return caminho_atual
 
-supabase_url = os.getenv("SUPABASE_URL")
-supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
 
-if not supabase_url or not supabase_key:
-    raise ValueError("❌ Credenciais do Supabase não encontradas no arquivo .env!")
+def carregar_configuracao(raiz_projeto: Path) -> dict:
+    """Carrega o config.yaml oficial."""
+    config_file = raiz_projeto / "SCRIPTS" / "CONFIG" / "config.yaml"
+    if not config_file.is_file():
+        raise FileNotFoundError(f"❌ Arquivo de configuração não encontrado: {config_file}")
+    with open(config_file, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
-supabase = create_client(supabase_url, supabase_key)
 
-# 1. Buscar mapeamento existente de idfazenda no Supabase para não violar a NOT NULL constraint
-print("🔍 Buscando mapeamento de 'idfazenda' no Supabase...")
-res_map = supabase.table("tab_consistencia_mensal").select("codigo_lr, idfazenda").not_.is_("idfazenda", "null").execute()
-df_map = pd.DataFrame(res_map.data).dropna(subset=["codigo_lr", "idfazenda"]).drop_duplicates(subset=["codigo_lr"])
-id_map = dict(zip(df_map["codigo_lr"].astype(str).str.strip(), df_map["idfazenda"]))
-print(f"✅ Mapeamento carregado para {len(id_map)} produtores.")
+def obter_cliente_supabase(raiz_projeto: Path):
+    """Inicializa cliente do Supabase."""
+    for env_path in [
+        raiz_projeto / "SCRIPTS" / "CONFIG" / ".env",
+        raiz_projeto / "DASHBOARD" / ".env.local",
+        raiz_projeto / ".env",
+    ]:
+        if env_path.is_file():
+            load_dotenv(env_path)
 
-# 2. Localizar o arquivo de indicadores mensais mais recente
-pasta_input_temp = raiz_projeto / "DB" / "INPUT" / "TEMP"
-arquivos = list(pasta_input_temp.glob("*indicadores_mensais.xlsx"))
-if not arquivos:
-    arquivos = list((raiz_projeto / "DB" / "INPUT").glob("*indicadores_mensais.xlsx"))
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
 
-if not arquivos:
-    raise FileNotFoundError("❌ Nenhum arquivo '*indicadores_mensais.xlsx' encontrado em DB/INPUT ou DB/INPUT/TEMP.")
+    if not supabase_url or not supabase_key:
+        raise ValueError("❌ Credenciais do Supabase não encontradas no arquivo .env!")
 
-arquivo_excel = max(arquivos, key=lambda f: f.stat().st_mtime)
-print(f"\n📖 Lendo arquivo: {arquivo_excel.name}...")
+    return create_client(supabase_url, supabase_key)
 
-df_excel = pd.read_excel(arquivo_excel)
 
-col_codigo = next((c for c in df_excel.columns if "código" in c.lower() or "codigo" in c.lower()), None)
-col_mes = next((c for c in df_excel.columns if "mês de referência" in c.lower() or "mes de referencia" in c.lower() or "referência" in c.lower()), None)
-col_detalhe = next((c for c in df_excel.columns if "detalhamento" in c.lower()), None)
-col_status = next((c for c in df_excel.columns if "status de consistência" in c.lower() or "status de consistencia" in c.lower()), None)
+def obter_mapa_idfazenda(supabase) -> dict[str, int]:
+    """
+    Busca o mapeamento existente de 'codigo_lr' -> 'idfazenda' para garantir
+    a integridade referencial e constraints NOT NULL.
+    """
+    print("🔍 Buscando mapeamento de 'idfazenda' no Supabase...")
+    res_map = (
+        supabase.table("tab_consistencia_mensal")
+        .select("codigo_lr, idfazenda")
+        .not_.is_("idfazenda", "null")
+        .execute()
+    )
+    df_map = (
+        pd.DataFrame(res_map.data)
+        .dropna(subset=["codigo_lr", "idfazenda"])
+        .drop_duplicates(subset=["codigo_lr"])
+    )
+    id_map = dict(zip(df_map["codigo_lr"].astype(str).str.strip(), df_map["idfazenda"].astype(int)))
+    print(f"✅ Mapeamento carregado para {len(id_map)} produtores.")
+    return id_map
 
-print(f"📌 Colunas mapeadas:")
-print(f"   - Código LR: {col_codigo}")
-print(f"   - Mês Referência: {col_mes}")
-print(f"   - Status Consistência: {col_status}")
-print(f"   - Detalhamento: {col_detalhe}")
 
-if not col_codigo or not col_mes or not col_detalhe:
-    raise ValueError("❌ Colunas obrigatórias não encontradas na planilha.")
+def atribuir_idfazenda(df: pd.DataFrame, col_codigo: str, id_map: dict[str, int]) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Atribui idfazenda ao DataFrame, gerando novos IDs sequenciais se necessário."""
+    max_id = max(id_map.values(), default=0)
+    novos_codigos = set(df[col_codigo].dropna().astype(str).str.strip()) - set(id_map.keys())
 
-cols_to_use = [col_codigo, col_mes, col_detalhe]
-if col_status:
-    cols_to_use.append(col_status)
+    if novos_codigos:
+        print(f"ℹ️ {len(novos_codigos)} novos produtores detectados sem 'idfazenda'. Atribuindo IDs sequenciais...")
+        for cod in sorted(novos_codigos):
+            max_id += 1
+            id_map[cod] = max_id
 
-df_carga = df_excel[cols_to_use].copy()
-df_carga.rename(columns={
-    col_codigo: "codigo_lr",
-    col_mes: "mes_referencia",
-    col_detalhe: "detalhamento_inconsistencia"
-}, inplace=True)
+    df["idfazenda"] = df[col_codigo].astype(str).str.strip().map(id_map)
+    df = df[df["idfazenda"].notna()].copy()
+    df["idfazenda"] = df["idfazenda"].astype(int)
+    return df, id_map
 
-if col_status and col_status in df_carga.columns:
-    df_carga.rename(columns={col_status: "consistencia_mensal"}, inplace=True)
 
-# Tratar datas e códigos
-df_carga = df_carga[df_carga["codigo_lr"].notna() & df_carga["mes_referencia"].notna()].copy()
-df_carga["codigo_lr"] = df_carga["codigo_lr"].astype(str).str.strip()
-df_carga["mes_referencia"] = pd.to_datetime(df_carga["mes_referencia"]).dt.strftime("%Y-%m-%d")
+def localizar_arquivo_recente(diretorio_principal: Path, fallback_dirs: list[Path], padrao_glob: str) -> Path:
+    """Busca o arquivo mais recente que casa com o padrão glob."""
+    pastas_busca = [diretorio_principal] + fallback_dirs
+    for pasta in pastas_busca:
+        if pasta.is_dir():
+            arquivos = list(pasta.glob(padrao_glob))
+            if arquivos:
+                recente = max(arquivos, key=lambda f: f.stat().st_mtime)
+                print(f"📖 Arquivo localizado ({recente.parent.name}): {recente.name}")
+                return recente
 
-# Atribuir idfazenda
-df_carga["idfazenda"] = df_carga["codigo_lr"].map(id_map)
-df_carga = df_carga[df_carga["idfazenda"].notna()].copy()
-df_carga["idfazenda"] = df_carga["idfazenda"].astype(int)
+    raise FileNotFoundError(f"❌ Nenhum arquivo '{padrao_glob}' encontrado nas pastas: {[str(p) for p in pastas_busca]}")
 
-# Converter "Nenhum", "NaN", nulos para None ou string limpa
-df_carga["detalhamento_inconsistencia"] = df_carga["detalhamento_inconsistencia"].apply(
-    lambda x: None if pd.isna(x) or str(x).strip().lower() in ["nenhum", "nan", "", "none"] else str(x).strip()
-)
 
-# Tratar duplicatas por idfazenda e mês (chave primária da tabela) e também por codigo_lr e mês
-df_carga.drop_duplicates(subset=["idfazenda", "mes_referencia"], keep="last", inplace=True)
-df_carga.drop_duplicates(subset=["codigo_lr", "mes_referencia"], keep="last", inplace=True)
-print(f"📊 Total de registros válidos para atualização (após deduplicação): {len(df_carga)}")
+def atualizar_consistencia_mensal(supabase, raiz_projeto: Path, config: dict, id_map: dict[str, int]) -> int:
+    """Processa e executa UPSERT em 'tab_consistencia_mensal'."""
+    print("\n" + "=" * 70)
+    print("📊 ETAPA: ATUALIZANDO TABELA DE CONSISTÊNCIA MENSAL (tab_consistencia_mensal)")
+    print("=" * 70)
 
-# Realizar o UPSERT em lotes de 1.000
-records = df_carga.to_dict(orient="records")
-chunk_size = 1000
-sucessos = 0
+    dir_elabore = Path(config.get("caminhos", {}).get("elabore_mensal", ""))
+    fallbacks = [
+        raiz_projeto / "DB" / "INPUT" / "TEMP",
+        raiz_projeto / "DB" / "INPUT",
+    ]
 
-print(f"\n🚀 Enviando atualizações para o Supabase (tab_consistencia_mensal)...")
-for i in range(0, len(records), chunk_size):
-    chunk = records[i:i + chunk_size]
+    arquivo_excel = localizar_arquivo_recente(dir_elabore, fallbacks, "*indicadores_mensais.xlsx")
+    df_excel = pd.read_excel(arquivo_excel)
+
+    col_codigo = next((c for c in df_excel.columns if "código" in c.lower() or "codigo" in c.lower()), None)
+    col_mes = next((c for c in df_excel.columns if "mês de referência" in c.lower() or "mes de referencia" in c.lower() or "referência" in c.lower()), None)
+    col_detalhe = next((c for c in df_excel.columns if "detalhamento" in c.lower()), None)
+    col_status = next((c for c in df_excel.columns if "status de consistência" in c.lower() or "status de consistencia" in c.lower()), None)
+    col_cadastral = next((c for c in df_excel.columns if "status cadastral" in c.lower() or "status_code" in c.lower()), None)
+
+    if not col_codigo or not col_mes:
+        raise ValueError("❌ Colunas obrigatórias ('Código LR', 'Mês de Referência') não encontradas na planilha mensal.")
+
+    df_carga = pd.DataFrame()
+    df_carga["codigo_lr"] = df_excel[col_codigo].astype(str).str.strip()
+    df_carga["mes_referencia"] = pd.to_datetime(df_excel[col_mes]).dt.strftime("%Y-%m-%d")
+    df_carga["mes_elabore"] = df_carga["mes_referencia"]
+
+    if col_status:
+        df_carga["consistencia_mensal"] = df_excel[col_status].fillna("Inconsistente").astype(str).str.strip()
+    else:
+        df_carga["consistencia_mensal"] = "Inconsistente"
+
+    if col_cadastral:
+        df_carga["status_code"] = df_excel[col_cadastral].astype(str).str.strip()
+    else:
+        df_carga["status_code"] = "active_approved"
+
+    if col_detalhe:
+        df_carga["detalhamento_inconsistencia"] = df_excel[col_detalhe].apply(
+            lambda x: None if pd.isna(x) or str(x).strip().lower() in ["nenhum", "nan", "", "none"] else str(x).strip()
+        )
+    else:
+        df_carga["detalhamento_inconsistencia"] = None
+
+    # Timestamp de processamento
+    agora_iso = datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat()
+    df_carga["data_processamento"] = agora_iso
+
+    # Atribuir idfazenda
+    df_carga, _ = atribuir_idfazenda(df_carga, "codigo_lr", id_map)
+
+    # Filtrar inválidos e deduplicar
+    df_carga = df_carga[df_carga["codigo_lr"].notna() & df_carga["mes_referencia"].notna()].copy()
+    df_carga.drop_duplicates(subset=["idfazenda", "mes_referencia"], keep="last", inplace=True)
+    df_carga.drop_duplicates(subset=["codigo_lr", "mes_referencia"], keep="last", inplace=True)
+
+    print(f"📊 Total de registros válidos para UPSERT mensal: {len(df_carga)}")
+
+    # Enviar ao Supabase em lotes
+    records = df_carga.to_dict(orient="records")
+    chunk_size = config.get("execucao", {}).get("chunk_size_upsert", 1000)
+    sucessos = 0
+
+    print("🚀 Enviando registros para o Supabase (tab_consistencia_mensal)...")
+    for i in range(0, len(records), chunk_size):
+        chunk = records[i : i + chunk_size]
+        try:
+            supabase.table("tab_consistencia_mensal").upsert(
+                chunk, on_conflict="idfazenda,mes_referencia"
+            ).execute()
+            sucessos += len(chunk)
+            print(f"   ✅ Lote {i // chunk_size + 1}: {len(chunk)} registros atualizados.")
+        except Exception as e:
+            print(f"   ❌ Erro no lote {i // chunk_size + 1}: {e}")
+
+    print(f"✨ Concluído! {sucessos} registros sincronizados em 'tab_consistencia_mensal'.")
+    return sucessos
+
+
+def atualizar_consistencia_anual(supabase, raiz_projeto: Path, config: dict, id_map: dict[str, int]) -> int:
+    """Processa e executa UPSERT em 'tab_consistencia_anual'."""
+    print("\n" + "=" * 70)
+    print("📈 ETAPA: ATUALIZANDO TABELA DE CONSISTÊNCIA ANUAL (tab_consistencia_anual)")
+    print("=" * 70)
+
+    dir_elabore = Path(config.get("caminhos", {}).get("elabore_anual", ""))
+    fallbacks = [
+        raiz_projeto / "DB" / "INPUT" / "TEMP",
+        raiz_projeto / "DB" / "INPUT",
+    ]
+
+    arquivo_excel = localizar_arquivo_recente(dir_elabore, fallbacks, "*indicadores_anuais.xlsx")
+    df_excel = pd.read_excel(arquivo_excel)
+
+    col_codigo = next((c for c in df_excel.columns if "labor_rural_code" in c.lower() or "código" in c.lower() or "codigo" in c.lower()), None)
+    col_end = next((c for c in df_excel.columns if "annual_period_end" in c.lower() or "fim" in c.lower() or "referência" in c.lower() or "referencia" in c.lower()), None)
+    col_start = next((c for c in df_excel.columns if "annual_period_start" in c.lower() or "inicio" in c.lower() or "elabore" in c.lower()), None)
+    col_status = next((c for c in df_excel.columns if "annual_consistency_status" in c.lower() or "consistencia" in c.lower() or "status" in c.lower()), None)
+
+    if not col_codigo or not col_end:
+        raise ValueError("❌ Colunas obrigatórias ('labor_rural_code', 'annual_period_end') não encontradas na planilha anual.")
+
+    df_carga = pd.DataFrame()
+    df_carga["codigo_lr"] = df_excel[col_codigo].astype(str).str.strip()
+    df_carga["mes_referencia"] = pd.to_datetime(df_excel[col_end]).dt.strftime("%Y-%m-%d")
+
+    if col_start:
+        df_carga["mes_elabore"] = pd.to_datetime(df_excel[col_start]).dt.strftime("%Y-%m-%d")
+    else:
+        df_carga["mes_elabore"] = df_carga["mes_referencia"]
+
+    if col_status:
+        df_carga["consistencia_anual"] = df_excel[col_status].fillna("Inconsistente").astype(str).str.strip()
+    else:
+        df_carga["consistencia_anual"] = "Inconsistente"
+
+    agora_iso = datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat()
+    df_carga["data_processamento"] = agora_iso
+
+    # Atribuir idfazenda
+    df_carga, _ = atribuir_idfazenda(df_carga, "codigo_lr", id_map)
+
+    # Filtrar inválidos e deduplicar
+    df_carga = df_carga[df_carga["codigo_lr"].notna() & df_carga["mes_referencia"].notna()].copy()
+    df_carga.drop_duplicates(subset=["idfazenda", "mes_referencia"], keep="last", inplace=True)
+    df_carga.drop_duplicates(subset=["codigo_lr", "mes_referencia"], keep="last", inplace=True)
+
+    print(f"📊 Total de registros válidos para UPSERT anual: {len(df_carga)}")
+
+    # Enviar ao Supabase em lotes
+    records = df_carga.to_dict(orient="records")
+    chunk_size = config.get("execucao", {}).get("chunk_size_upsert", 1000)
+    sucessos = 0
+
+    print("🚀 Enviando registros para o Supabase (tab_consistencia_anual)...")
+    for i in range(0, len(records), chunk_size):
+        chunk = records[i : i + chunk_size]
+        try:
+            supabase.table("tab_consistencia_anual").upsert(
+                chunk, on_conflict="idfazenda,mes_referencia"
+            ).execute()
+            sucessos += len(chunk)
+            print(f"   ✅ Lote {i // chunk_size + 1}: {len(chunk)} registros atualizados.")
+        except Exception as e:
+            print(f"   ❌ Erro no lote {i // chunk_size + 1}: {e}")
+
+    print(f"✨ Concluído! {sucessos} registros sincronizados em 'tab_consistencia_anual'.")
+    return sucessos
+
+
+def executar_sincronizacao_consistencia(raiz_projeto: Path | None = None) -> bool:
+    """Função principal para executar a sincronização completa das duas tabelas."""
+    raiz = detectar_raiz(raiz_projeto)
+    config = carregar_configuracao(raiz)
+    supabase = obter_cliente_supabase(raiz)
+
+    print("\n" + "=" * 70)
+    print("🔄 INICIANDO SINCRONIZAÇÃO COMPLETA DAS TABELAS DE CONSISTÊNCIA")
+    print(f"⏰ Início: {datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%d/%m/%Y %H:%M:%S')}")
+    print("=" * 70)
+
     try:
-        res = supabase.table("tab_consistencia_mensal").upsert(
-            chunk,
-            on_conflict="idfazenda,mes_referencia"
-        ).execute()
-        sucessos += len(chunk)
-        print(f"   ✅ Lote {i//chunk_size + 1}: {len(chunk)} registros atualizados com sucesso.")
-    except Exception as e:
-        print(f"   ❌ Erro no lote {i//chunk_size + 1}: {e}")
+        id_map = obter_mapa_idfazenda(supabase)
+        total_m = atualizar_consistencia_mensal(supabase, raiz, config, id_map)
+        total_a = atualizar_consistencia_anual(supabase, raiz, config, id_map)
 
-print(f"\n✨ Processo finalizado! {sucessos} registros processados em 'tab_consistencia_mensal'.")
-print("👉 Agora você pode rodar o notebook 'ETL_BI_LR.ipynb' para propagar os dados para 'f_consistente_bi_lr'.")
+        print("\n" + "=" * 70)
+        print("🎉 SINCRONIZAÇÃO DE CONSISTÊNCIA FINALIZADA COM SUCESSO!")
+        print(f"   - Mensal: {total_m} registros sincronizados")
+        print(f"   - Anual:  {total_a} registros sincronizados")
+        print("=" * 70 + "\n")
+        return True
+
+    except Exception as e:
+        print(f"\n❌ ERRO NA SINCRONIZAÇÃO DE CONSISTÊNCIA: {e}")
+        return False
+
+
+if __name__ == "__main__":
+    sucesso = executar_sincronizacao_consistencia()
+    sys.exit(0 if sucesso else 1)

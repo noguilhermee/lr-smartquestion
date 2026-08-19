@@ -9,6 +9,10 @@ caminhos:
   # Pasta principal de leitura dos relatórios exportados do SmartQuestion
   bd_smartquestion: "C:/Users/Guilherme/LABOR RURAL/Analytics - Departamento Analytics/POWER_BI/PROJETOS/BI_LABOR_RURAL/BD_SMARTQUESTION"
   
+  # Pastas de origem dos relatórios do Elabore (Consistência)
+  elabore_mensal: "C:/Users/Guilherme/LABOR RURAL/Analytics - Departamento Analytics/TEMP/GUILHERME/SCRIPTS/projetcs/elabore-views/data/outputs/monthly"
+  elabore_anual: "C:/Users/Guilherme/LABOR RURAL/Analytics - Departamento Analytics/TEMP/GUILHERME/SCRIPTS/projetcs/elabore-views/data/outputs/annual"
+  
   # Pastas internas do projeto
   input: "DB/INPUT"
   output: "DB/OUTPUT"
@@ -26,6 +30,8 @@ supabase:
     visitas_fato: "f_visitas_bi_lr"
     inativacao_produtores_staging: "tab_inativacoes_sq"
     inativacao_consultores_staging: "tab_inativacao_consultor_sq"
+    consistencia_mensal_staging: "tab_consistencia_mensal"
+    consistencia_anual_staging: "tab_consistencia_anual"
     consistencia_fato: "f_consistente_bi_lr"
     movimentacao_fato: "tab_movimentacao_produtor"
 
