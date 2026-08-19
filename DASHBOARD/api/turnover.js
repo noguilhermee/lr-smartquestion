@@ -158,7 +158,7 @@ module.exports = async (req, res) => {
         .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
         .from('tab_inativacoes_sq')
-        .select('codigo_lr, nome_produtor, nome_propriedade, projeto, grupo_ponto_atendimento')),
+        .select('id_atendimento, codigo_lr, nome_produtor, nome_propriedade, projeto, grupo_ponto_atendimento')),
       fetchAll(() => supabase
         .from('tab_vinculos_sq')
         .select('codigo_lr, nome_produtor, nome_propriedade, projeto, unidade_atendimento'))
@@ -171,6 +171,11 @@ module.exports = async (req, res) => {
       }
     });
     (inativacoesFallback || []).forEach(i => {
+      const meta = {
+        nome_produtor: i.nome_produtor,
+        projeto: i.projeto,
+        unidade_atendimento: i.grupo_ponto_atendimento
+      };
       if (i.codigo_lr) {
         const prev = fallbackMetaMap.get(i.codigo_lr) || {};
         fallbackMetaMap.set(i.codigo_lr, {
@@ -178,6 +183,10 @@ module.exports = async (req, res) => {
           projeto: i.projeto || prev.projeto,
           unidade_atendimento: i.unidade_atendimento || prev.unidade_atendimento
         });
+      }
+      if (i.id_atendimento) {
+        fallbackMetaMap.set(`INAT_${i.id_atendimento}`, meta);
+        fallbackMetaMap.set(String(i.id_atendimento), meta);
       }
     });
 

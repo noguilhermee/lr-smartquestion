@@ -35,7 +35,7 @@ from FUNCTIONS.function import (
 from FUNCTIONS.metadata_tracker import obter_metadados_planilhas
 
 
-def extrair_consultor_individual(consultor_str: str, grupo_str: str) -> str:
+def extrair_consultor_individual(consultor_str: str, grupo_str: str = "") -> str:
     """Extrai o consultor individual responsável a partir do grupo ou do campo de consultor."""
     texto = grupo_str if (isinstance(grupo_str, str) and grupo_str.strip()) else consultor_str
     if not isinstance(texto, str) or not texto.strip():
@@ -166,13 +166,13 @@ def executar_reconciliacao():
     
     PROJETOS_OFICIAIS = ['ALVOAR ASSIST', 'ALVOAR ECO', 'ATEG_CCPR', 'LPA', 'REGENERA', 'SEMEAR']
 
-    # 4.1 Entradas (a partir de tab_vinculos_sq filtrado para projetos oficiais)
+    movimentacoes_lista = []
+
+    # 4.1 Entradas Pré-2026 (a partir de tab_vinculos_sq para histórico anterior a 2026)
     res_vinc = supabase.table("tab_vinculos_sq").select(
         "codigo_lr, consultor_grupo_atendimento, grupo_atendimento, data_associacao, projeto, nome_produtor, nome_propriedade, vinculo_ativo, unidade_atendimento, cidade_produtor, estado_produtor, codigo_agroindustria, codigo_fazenda"
     ).in_("projeto", PROJETOS_OFICIAIS).execute()
     df_vinc_db = pd.DataFrame(res_vinc.data) if res_vinc.data else pd.DataFrame()
-    
-    movimentacoes_lista = []
     
     if not df_vinc_db.empty:
         for _, row in df_vinc_db.iterrows():
@@ -194,28 +194,79 @@ def executar_reconciliacao():
             else:
                 dt_mov = "2024-01-01"
                 
-            id_comp = f"{cod}_{cons}_{dt_mov}_Entrada"
-            movimentacoes_lista.append({
-                "id_composto": id_comp,
-                "codigo_lr": cod,
-                "nome_consultor": cons,
-                "data_movimentacao": dt_mov,
-                "movimentacao": "Entrada",
-                "motivo_inativacao": None,
-                "outro_motivo": None,
-                "data_processamento": datetime.now().isoformat(),
-            })
+            # Somente incluir se for ANTES de 2026 (2026 em diante vem da lista de cadastro oficial)
+            if dt_mov < "2026-01-01":
+                id_comp = f"{cod}_{cons}_{dt_mov}_Entrada"
+                movimentacoes_lista.append({
+                    "id_composto": id_comp,
+                    "codigo_lr": cod,
+                    "nome_consultor": cons,
+                    "data_movimentacao": dt_mov,
+                    "movimentacao": "Entrada",
+                    "motivo_inativacao": None,
+                    "outro_motivo": None,
+                    "data_processamento": datetime.now().isoformat(),
+                })
 
-    # 4.2 Saídas (a partir de tab_inativacoes_sq vinculadas aos projetos oficiais)
-    # REGRA: De 2026 em diante, a data oficial é data_solicitacao. Dados antes disso mantêm o histórico.
+    # 4.2 Entradas de 2026 em diante (a partir de *_LISTA_CADASTRO.xlsx)
+    arquivos_cad = list(bd_path.glob("*_LISTA_CADASTRO.xlsx")) + list((bd_path / "BACKUPS").glob("*_LISTA_CADASTRO.xlsx"))
+    if arquivos_cad:
+        for arq_cad in arquivos_cad:
+            if not arq_cad.exists():
+                continue
+            try:
+                df_raw_c = pd.read_excel(arq_cad, header=None)
+                h_c = 0
+                for r in range(min(5, len(df_raw_c))):
+                    vals = [str(x).strip().lower() for x in df_raw_c.iloc[r].dropna().tolist()]
+                    if any("atendimento" in v for v in vals):
+                        h_c = r
+                        break
+                df_c = pd.read_excel(arq_cad, header=h_c).dropna(how="all", axis=1).dropna(how="all", axis=0)
+                col_id_c = [c for c in df_c.columns if "atendimento" in str(c).lower()][0]
+                col_cons_c = [c for c in df_c.columns if "consultor" in str(c).lower()][0]
+                col_dt_c = [c for c in df_c.columns if "solicita" in str(c).lower()][0]
+                col_cod_c = [c for c in df_c.columns if "código" in str(c).lower() or "codigo" in str(c).lower()][0]
+                col_tipo_c = [c for c in df_c.columns if "tipo de cadastro" in str(c).lower()]
+                
+                for _, row in df_c.iterrows():
+                    id_atend = str(row[col_id_c]).strip().replace(".0", "")
+                    if not id_atend or id_atend.lower() == "nan":
+                        continue
+                    dt_solic = pd.to_datetime(row[col_dt_c], errors="coerce")
+                    if pd.isna(dt_solic):
+                        continue
+                    dt_mov = dt_solic.strftime("%Y-%m-01")
+                    if dt_mov < "2026-01-01":
+                        continue
+                        
+                    cod_raw = str(row.get(col_cod_c) or "").strip().replace(".0", "")
+                    cod = cod_raw if (cod_raw and cod_raw.lower() != "nan") else f"CAD_{id_atend}"
+                    cons = extrair_consultor_individual(str(row[col_cons_c]))
+                    tipo_cad = str(row[col_tipo_c[0]]) if col_tipo_c and pd.notna(row.get(col_tipo_c[0])) else "Inclusão de propriedade"
+                    
+                    id_comp = f"CAD_{id_atend}_{dt_mov}_Entrada"
+                    movimentacoes_lista.append({
+                        "id_composto": id_comp,
+                        "codigo_lr": cod,
+                        "nome_consultor": cons,
+                        "data_movimentacao": dt_mov,
+                        "movimentacao": "Entrada",
+                        "motivo_inativacao": None,
+                        "outro_motivo": tipo_cad,
+                        "data_processamento": datetime.now().isoformat(),
+                    })
+            except Exception as e_cad:
+                print(f"   ⚠️ Aviso ao processar {arq_cad.name}: {e_cad}")
+
+    # 4.3 Saídas (Histórico Pré-2026 preservado + 2026 em diante por Data da Solicitação)
     codigos_oficiais_set = set(df_vinc_db["codigo_lr"].dropna().unique()) if not df_vinc_db.empty else set()
-    novos_ids_saida_2026 = set()
     
     if not df_inats_existentes.empty:
         for _, row in df_inats_existentes.iterrows():
-            cod = str(row.get("codigo_lr") or "").strip()
-            if not cod or cod.lower() == "nan" or (codigos_oficiais_set and cod not in codigos_oficiais_set):
-                continue
+            id_atend = str(row.get("id_atendimento") or "").strip().replace(".0", "")
+            cod_raw = str(row.get("codigo_lr") or "").strip()
+            cod = cod_raw if (cod_raw and cod_raw.lower() != "nan") else f"INAT_{id_atend}"
             cons = extrair_consultor_individual(row.get("nome_consultor"), row.get("grupo_ponto_atendimento"))
             
             dt_solic = row.get("data_solicitacao")
@@ -224,19 +275,17 @@ def executar_reconciliacao():
             dt_solic_p = pd.to_datetime(dt_solic, errors="coerce")
             if pd.notna(dt_solic_p) and dt_solic_p >= pd.Timestamp("2026-01-01"):
                 dt_mov = dt_solic_p.strftime("%Y-%m-01")
+                id_comp = f"INAT_{id_atend}_{dt_mov}_Saída" if id_atend else f"{cod}_{cons}_{dt_mov}_Saída"
             else:
                 dt_legado = pd.to_datetime(dt_inat or dt_solic, errors="coerce")
                 if pd.notna(dt_legado):
                     dt_mov = dt_legado.strftime("%Y-%m-01")
                 else:
                     dt_mov = "2026-08-01"
+                id_comp = f"{cod}_{cons}_{dt_mov}_Saída"
                 
             motivo = row.get("motivo_inativacao")
             outro = row.get("outro_motivo")
-            id_comp = f"{cod}_{cons}_{dt_mov}_Saída"
-            
-            if dt_mov >= "2026-01-01":
-                novos_ids_saida_2026.add(id_comp)
             
             movimentacoes_lista.append({
                 "id_composto": id_comp,
@@ -250,28 +299,23 @@ def executar_reconciliacao():
             })
             
     df_mov_final = pd.DataFrame(movimentacoes_lista).drop_duplicates(subset=["id_composto"], keep="last")
-    print(f"   -> Total de movimentações consolidadas (Leite): {len(df_mov_final)} (Entradas: {len(df_mov_final[df_mov_final['movimentacao'] == 'Entrada'])}, Saídas: {len(df_mov_final[df_mov_final['movimentacao'] == 'Saída'])})")
+    print(f"   -> Total de movimentações consolidadas: {len(df_mov_final)} (Entradas: {len(df_mov_final[df_mov_final['movimentacao'] == 'Entrada'])}, Saídas: {len(df_mov_final[df_mov_final['movimentacao'] == 'Saída'])})")
     
-    # 4.3 Limpar registros órfãos de saídas de 2026 no Supabase antes de gravar
+    # 4.4 Limpar rigorosamente registros de 2026 em diante no Supabase antes de reinserir
     try:
-        res_saidas_2026_db = supabase.table("tab_movimentacao_produtor").select("id_composto").eq("movimentacao", "Saída").gte("data_movimentacao", "2026-01-01").execute()
-        ids_saidas_2026_atuais = set([r["id_composto"] for r in (res_saidas_2026_db.data or [])])
-        ids_a_remover = ids_saidas_2026_atuais - novos_ids_saida_2026
-        if ids_a_remover:
-            print(f"   🧹 Removendo {len(ids_a_remover)} saídas obsoletas/órfãs de 2026...")
-            for id_rem in ids_a_remover:
-                supabase.table("tab_movimentacao_produtor").delete().eq("id_composto", id_rem).execute()
+        res_2026_db = supabase.table("tab_movimentacao_produtor").select("id_composto").gte("data_movimentacao", "2026-01-01").execute()
+        ids_2026_db = [r["id_composto"] for r in (res_2026_db.data or [])]
+        if ids_2026_db:
+            print(f"   🧹 Limpando {len(ids_2026_db)} registros antigos de 2026 em diante no Supabase...")
+            LOTE_DEL = 100
+            for d_idx in range(0, len(ids_2026_db), LOTE_DEL):
+                lote_ids = ids_2026_db[d_idx : d_idx + LOTE_DEL]
+                supabase.table("tab_movimentacao_produtor").delete().in_("id_composto", lote_ids).execute()
     except Exception as e_clean:
-        print(f"   ⚠️ Aviso ao limpar saídas obsoletas de 2026: {e_clean}")
-
-    # Checar se Thales Noronha LR02481 está na lista
-    thales_mov = df_mov_final[df_mov_final["codigo_lr"] == "LR02481"]
-    print(f"   -> Movimentações para LR02481 (Thales Noronha): {len(thales_mov)} registros.")
-    for _, r in thales_mov.iterrows():
-        print(f"      * {r['id_composto']} -> {r['movimentacao']} em {r['data_movimentacao']} ({r['motivo_inativacao']})")
+        print(f"   ⚠️ Aviso ao limpar registros de 2026: {e_clean}")
 
     # Upsert em lotes em tab_movimentacao_produtor
-    print("\n💾 5. Gravando movimentações em tab_movimentacao_produtor no Supabase...")
+    print("\n💾 5. Gravando movimentações consolidadas em tab_movimentacao_produtor no Supabase...")
     registros_mov = df_mov_final.replace({np.nan: None}).to_dict(orient="records")
     LOTE = 500
     sucesso_mov = 0

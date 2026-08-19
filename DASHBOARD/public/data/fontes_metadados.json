@@ -1,8 +1,8 @@
 {
-  "timestamp_inspecao": "2026-08-19T10:27:32.342341",
-  "timestamp_etl": "2026-08-19T10:27:32.342341",
-  "ultima_execucao_etl_formatada": "19/08/2026 às 10:27:32",
-  "ultima_leitura_planilhas_formatada": "19/08/2026 às 10:27:32",
+  "timestamp_inspecao": "2026-08-19T10:37:00.607907",
+  "timestamp_etl": "2026-08-19T10:37:00.607907",
+  "ultima_execucao_etl_formatada": "19/08/2026 às 10:37:00",
+  "ultima_leitura_planilhas_formatada": "19/08/2026 às 10:37:00",
   "arquivo_mais_recente_nome": "LISTA_LPA_VISITA.xlsx",
   "arquivo_mais_recente_data": "19/08/2026 às 08:53",
   "total_arquivos": 11,
