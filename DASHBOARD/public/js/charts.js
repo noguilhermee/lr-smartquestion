@@ -183,17 +183,205 @@ class DashboardCharts {
     if (!ctx) return;
     this.destroy(id);
     const color = this.colors();
+    const lineColor = '#2563eb'; // Azul linha e badge
+
+    const entradas = data.entradas || [];
+    const saidas = data.saidas || [];
+    const porcentagens = data.porcentagens || saidas.map((s, idx) => {
+      const e = entradas[idx] || 0;
+      const total = Number(e || 0) + Number(s || 0);
+      return total > 0 ? Number(((s / total) * 100).toFixed(1)) : 0;
+    });
+
+    const turnoverCustomLabels = {
+      id: 'turnoverCustomLabels',
+      afterDatasetsDraw: (chart) => {
+        const context = chart.ctx;
+        context.save();
+
+        chart.data.datasets.forEach((dataset, datasetIndex) => {
+          const meta = chart.getDatasetMeta(datasetIndex);
+          if (meta.hidden) return;
+
+          meta.data.forEach((element, dataIndex) => {
+            const rawValue = dataset.data[dataIndex];
+            if (rawValue === null || rawValue === undefined) return;
+
+            const x = element.x;
+
+            if (datasetIndex === 0 || datasetIndex === 1) {
+              // Barras (Entradas e Saídas): Rótulo na BASE INTERNA com texto branco
+              const valNum = Number(rawValue);
+              const label = String(valNum);
+
+              context.font = '700 11px Open Sans, Arial, sans-serif';
+              context.textAlign = 'center';
+              context.textBaseline = 'middle';
+
+              const baseY = element.base;
+              const topY = element.y;
+              const barHeight = Math.abs(baseY - topY);
+
+              if (valNum > 0 && barHeight >= 14) {
+                const y = baseY - 9;
+                context.fillStyle = '#ffffff';
+                context.fillText(label, x, y);
+              } else if (valNum === 0) {
+                const y = baseY - 8;
+                context.fillStyle = color.muted;
+                context.fillText(label, x, y);
+              } else {
+                const y = topY - 7;
+                context.fillStyle = color.ink;
+                context.fillText(label, x, y);
+              }
+            } else if (datasetIndex === 2) {
+              // Linha (% Inativações/Pedidos): Badge retangular com fundo azul e texto branco
+              const valNum = Number(rawValue);
+              const label = `${valNum.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
+
+              context.font = '700 10.5px Open Sans, Arial, sans-serif';
+              context.textAlign = 'center';
+              context.textBaseline = 'middle';
+
+              const textMetrics = context.measureText(label);
+              const textWidth = textMetrics.width;
+              const badgeWidth = textWidth + 10;
+              const badgeHeight = 18;
+              const badgeX = x - badgeWidth / 2;
+              const badgeY = element.y - 18;
+
+              // Desenhar retângulo arredondado (Badge azul)
+              const radius = 3;
+              context.fillStyle = lineColor;
+              context.beginPath();
+              context.moveTo(badgeX + radius, badgeY - badgeHeight / 2);
+              context.lineTo(badgeX + badgeWidth - radius, badgeY - badgeHeight / 2);
+              context.quadraticCurveTo(badgeX + badgeWidth, badgeY - badgeHeight / 2, badgeX + badgeWidth, badgeY - badgeHeight / 2 + radius);
+              context.lineTo(badgeX + badgeWidth, badgeY + badgeHeight / 2 - radius);
+              context.quadraticCurveTo(badgeX + badgeWidth, badgeY + badgeHeight / 2, badgeX + badgeWidth - radius, badgeY + badgeHeight / 2);
+              context.lineTo(badgeX + radius, badgeY + badgeHeight / 2);
+              context.quadraticCurveTo(badgeX, badgeY + badgeHeight / 2, badgeX, badgeY + badgeHeight / 2 - radius);
+              context.lineTo(badgeX, badgeY - badgeHeight / 2 + radius);
+              context.quadraticCurveTo(badgeX, badgeY - badgeHeight / 2, badgeX + radius, badgeY - badgeHeight / 2);
+              context.closePath();
+              context.fill();
+
+              // Texto branco dentro do badge
+              context.fillStyle = '#ffffff';
+              context.fillText(label, x, badgeY);
+            }
+          });
+        });
+
+        context.restore();
+      }
+    };
+
     this.instances[id] = new Chart(ctx, {
-      type: 'bar',
-      plugins: [this.valueLabels((value) => this.formatValue(value))],
       data: {
         labels: data.labels || [],
         datasets: [
-          { label: 'Entrada', data: data.entradas || [], backgroundColor: color.medium, borderRadius: 2, barPercentage: 0.72, categoryPercentage: 0.7 },
-          { label: 'Saída', data: data.saidas || [], backgroundColor: color.danger, borderRadius: 2, barPercentage: 0.72, categoryPercentage: 0.7 }
+          {
+            type: 'bar',
+            label: 'Entradas',
+            data: entradas,
+            backgroundColor: color.green,
+            borderRadius: 2,
+            barPercentage: 0.72,
+            categoryPercentage: 0.7,
+            order: 2,
+            yAxisID: 'y'
+          },
+          {
+            type: 'bar',
+            label: 'Saídas',
+            data: saidas,
+            backgroundColor: color.danger,
+            borderRadius: 2,
+            barPercentage: 0.72,
+            categoryPercentage: 0.7,
+            order: 3,
+            yAxisID: 'y'
+          },
+          {
+            type: 'line',
+            label: 'Inativações/total de pedidos',
+            data: porcentagens,
+            borderColor: lineColor,
+            backgroundColor: lineColor,
+            borderWidth: 2.2,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            pointBackgroundColor: lineColor,
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 1.5,
+            tension: 0.28,
+            fill: false,
+            order: 1,
+            yAxisID: 'y1'
+          }
         ]
       },
-      options: { layout: { padding: { top: 17 } }, plugins: { legend: { display: false }, tooltip: this.tooltip() }, scales: this.baseScales() }
+      plugins: [turnoverCustomLabels],
+      options: {
+        layout: { padding: { top: 25, right: 8 } },
+        plugins: {
+          legend: {
+            display: true,
+            position: 'top',
+            align: 'end',
+            labels: {
+              boxWidth: 10,
+              boxHeight: 10,
+              usePointStyle: true,
+              pointStyle: 'circle',
+              font: { size: 10.5, weight: '600' },
+              color: color.muted,
+              padding: 10
+            }
+          },
+          tooltip: {
+            ...this.tooltip(),
+            callbacks: {
+              label: (item) => {
+                if (item.datasetIndex === 2) {
+                  return ` Inativações/total de pedidos: ${item.raw}%`;
+                }
+                return ` ${item.dataset.label}: ${item.raw}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            border: { display: false },
+            ticks: { color: color.muted, font: { size: 11.2, weight: '600' } }
+          },
+          y: {
+            type: 'linear',
+            position: 'left',
+            beginAtZero: true,
+            grid: { color: color.grid },
+            border: { display: false },
+            ticks: { color: color.muted, font: { size: 11.2 }, precision: 0 }
+          },
+          y1: {
+            type: 'linear',
+            position: 'right',
+            beginAtZero: true,
+            suggestedMax: 100,
+            grid: { display: false },
+            border: { display: false },
+            ticks: {
+              color: color.muted,
+              font: { size: 11.2 },
+              callback: (val) => `${val}%`
+            }
+          }
+        }
+      }
     });
   }
 
@@ -307,7 +495,12 @@ class DashboardCharts {
         fazendasVisitadas: data.datasets[1]?.data,
         percCobertura: data.datasets[2]?.data
       });
-      else if (id.includes('Turnover')) this.renderTurnover(id, { labels: data.labels, entradas: data.datasets[0]?.data, saidas: data.datasets[1]?.data });
+      else if (id.includes('Turnover')) this.renderTurnover(id, {
+        labels: data.labels,
+        entradas: data.datasets[0]?.data,
+        saidas: data.datasets[1]?.data,
+        porcentagens: data.datasets[2]?.data
+      });
       else if (id.includes('Ranking')) this.renderRanking(id, { labels: data.labels, values: data.datasets[0]?.data });
       else if (id.includes('Portfolio')) this.renderPortfolio(id, { labels: data.labels, values: data.datasets[0]?.data });
       else if (id.includes('ConsistencyHistory')) this.renderConsistencyHistory(id, { labels: data.labels, mensal: data.datasets[0]?.data, anual: data.datasets[1]?.data });

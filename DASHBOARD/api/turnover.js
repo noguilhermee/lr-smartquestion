@@ -286,7 +286,12 @@ module.exports = async (req, res) => {
     const historicoMovimentacao = {
       labels: referencias.map(monthLabel),
       entradas: referencias.map(ref => movimentosPorMes.get(String(ref).slice(0, 7))?.entradas || 0),
-      saidas: referencias.map(ref => movimentosPorMes.get(String(ref).slice(0, 7))?.saidas || 0)
+      saidas: referencias.map(ref => movimentosPorMes.get(String(ref).slice(0, 7))?.saidas || 0),
+      porcentagens: referencias.map(ref => {
+        const item = movimentosPorMes.get(String(ref).slice(0, 7)) || { entradas: 0, saidas: 0 };
+        const total = item.entradas + item.saidas;
+        return total > 0 ? Number(((item.saidas / total) * 100).toFixed(1)) : 0;
+      })
     };
 
     const carteiraPorMes = new Map();
