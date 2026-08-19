@@ -247,9 +247,7 @@ def atualizar_consistencia_anual(supabase, raiz_projeto: Path, config: dict, id_
     for i in range(0, len(records), chunk_size):
         chunk = records[i : i + chunk_size]
         try:
-            supabase.table("tab_consistencia_anual").upsert(
-                chunk, on_conflict="idfazenda,mes_referencia"
-            ).execute()
+            supabase.table("tab_consistencia_anual").upsert(chunk).execute()
             sucessos += len(chunk)
             print(f"   ✅ Lote {i // chunk_size + 1}: {len(chunk)} registros atualizados.")
         except Exception as e:
