@@ -1192,7 +1192,12 @@ document.addEventListener('DOMContentLoaded', () => {
     state.masterRows = extractMasterRows(overview, visits, turnover, consistency);
 
     if (overview?.filterOptions?.meses) {
-      populateMonthSelect(overview.filterOptions.meses);
+      if (!state.allAvailableMonths || state.allAvailableMonths.length === 0) {
+        state.allAvailableMonths = overview.filterOptions.meses;
+      } else {
+        state.allAvailableMonths = [...new Set([...state.allAvailableMonths, ...overview.filterOptions.meses])];
+      }
+      populateMonthSelect(state.allAvailableMonths);
     }
   }
 
