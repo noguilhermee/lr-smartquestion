@@ -449,9 +449,13 @@ def executar_reconciliacao():
         s = str(val).strip().upper()
         if len(s) == 2:
             return s
-        return UF_MAP.get(s, s[:2] if s else None)
+    cfg_ref = carregar_config_referencia(raiz_projeto)
+    mes_ref_dt = cfg_ref.mes_referencia
+    mes_ref_str = mes_ref_dt.strftime("%Y-%m-01")
+    proximo_mes_str = (mes_ref_dt + pd.DateOffset(months=1)).strftime("%Y-%m-01")
+    meses_reconciliacao = [mes_ref_str, proximo_mes_str]
 
-    for ref_m in ["2026-08-01", "2026-09-01"]:
+    for ref_m in meses_reconciliacao:
         novos_ativos_m = []
         for _, r in df_vinculos_ativos.iterrows():
             c = str(r.get("codigo_lr") or "").strip()
