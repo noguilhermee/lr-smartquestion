@@ -255,12 +255,31 @@ module.exports = async (req, res) => {
       .select('codigo_lr, nome_consultor, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
       .order('data_movimentacao', { ascending: false }));
 
-    // 5. Consultar consistência do mês de referência
-    const consistenciaList = await fetchAll(() => supabase
-      .from('f_consistente_bi_lr')
-      .select('codigo_lr, consistencia_mensal, consistencia_anual, mes_elabore, mes_referencia')
-      .eq('mes_referencia', refMonth)
-      .order('codigo_lr', { ascending: true }));
+    // 5. Consultar consistência do mês de referência (tabela fato e tab_consistencia_mensal do Elabore)
+    const [consistenciaList, elaboreMensalList] = await Promise.all([
+      fetchAll(() => supabase
+        .from('f_consistente_bi_lr')
+        .select('codigo_lr, consistencia_mensal, consistencia_anual, mes_elabore, mes_referencia')
+        .eq('mes_referencia', refMonth)
+        .order('codigo_lr', { ascending: true })),
+      fetchAll(() => supabase
+        .from('tab_consistencia_mensal')
+        .select('codigo_lr, mes_elabore, consistencia_mensal, mes_referencia')
+        .eq('mes_referencia', refMonth))
+    ]);
+
+    // Conjunto de produtores com dados de fechamento no Elabore para o mês
+    const elaboreSet = new Set();
+    (elaboreMensalList || []).forEach(item => {
+      if (item.codigo_lr && item.mes_elabore) {
+        elaboreSet.add(String(item.codigo_lr).trim().toUpperCase());
+      }
+    });
+    (consistenciaList || []).forEach(item => {
+      if (item.codigo_lr && item.mes_elabore) {
+        elaboreSet.add(String(item.codigo_lr).trim().toUpperCase());
+      }
+    });
 
     const produtoresMap = new Map((produtoresFiltrados || []).map(p => [p.codigo_lr, p]));
     const consistenciaFiltrada = consistenciaList.filter(c => {
@@ -416,6 +435,9 @@ module.exports = async (req, res) => {
           numAtendimento = `VIS-${v.id}`;
         }
 
+        const codLrNorm = String(v.codigo_lr || '').trim().toUpperCase();
+        const hasElabore = elaboreSet.has(codLrNorm);
+
         return ({
           consultor: v.nome_consultor || 'CONSULTOR',
           codigo_lr: v.codigo_lr || '-',
@@ -428,7 +450,7 @@ module.exports = async (req, res) => {
           profissao: profissao,
           atendimento: numAtendimento,
           data_visita: formatDate(v.data_visita || v.mes_referencia),
-          elabore_ok: true
+          elabore_ok: hasElabore
         });
       });
 

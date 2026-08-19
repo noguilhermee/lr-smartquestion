@@ -6,8 +6,8 @@ Executa o notebook ETL_BI_LR.ipynb salvando diretamente no arquivo original
 """
 from __future__ import annotations
 
-import os
 import sys
+sys.stdout.reconfigure(encoding='utf-8')
 import time
 from datetime import datetime
 from pathlib import Path

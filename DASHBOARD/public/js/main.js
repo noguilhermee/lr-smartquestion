@@ -667,7 +667,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const consistency = state.consistency || emptyState.consistency;
 
     // Tabela 1: Sem Visita
-    let withoutVisit = (overview.tabelas?.sem_visita || []).filter((row) => matches(row, filter));
+    let withoutVisit = (overview.tabelas?.sem_visita || []).filter((row) => matches(row, filter, true));
     updateCount('countWithoutVisit', withoutVisit);
     withoutVisit = sortRows(withoutVisit, tableSort.tbodySemVisita, (row, key) => row[key] ?? row.data_referencia);
     updateTableHeadIcons('tbodySemVisita', tableSort.tbodySemVisita.colKey, tableSort.tbodySemVisita.dir);
@@ -683,14 +683,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Tabela 2: Visitados
-    let visited = (overview.tabelas?.visitados || []).filter((row) => matches(row, filter));
+    let visited = (overview.tabelas?.visitados || []).filter((row) => matches(row, filter, true));
     updateCount('countVisited', visited);
     visited = sortRows(visited, tableSort.tbodyVisitados, (row, key) => row[key]);
     updateTableHeadIcons('tbodyVisitados', tableSort.tbodyVisitados.colKey, tableSort.tbodyVisitados.dir);
     if (el('tbodyVisitados')) el('tbodyVisitados').innerHTML = rowsOrEmpty(visited, 7, (row) => `<tr><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-left" title="${escapeHtml(row.profissao || '—')}">${escapeHtml(row.profissao || '—')}</td><td class="col-center" title="${escapeHtml(row.atendimento || '—')}">${escapeHtml(row.atendimento || '—')}</td><td class="col-center">${escapeHtml(row.data_visita || '—')}</td><td class="col-center"><span class="badge ${row.elabore_ok === false ? 'badge-danger' : 'badge-positive'}">${row.elabore_ok === false ? 'NÃO' : 'SIM'}</span></td></tr>`);
 
     // Tabela 3: Turnover / Movimentação
-    let movements = (turnover.tabelaMovimentacao || []).filter((row) => matches(row, filter));
+    let movements = (turnover.tabelaMovimentacao || []).filter((row) => matches(row, filter, true));
     updateCount('countTurnover', movements);
     movements = sortRows(movements, tableSort.tbodyTurnover, (row, key) => key === 'grupo' ? (row.grupo || row.consultor) : row[key]);
     updateTableHeadIcons('tbodyTurnover', tableSort.tbodyTurnover.colKey, tableSort.tbodyTurnover.dir);
@@ -701,7 +701,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Tabela 4: Consultores
-    let consultants = (visits.tabelaConsultores || []).filter((row) => matches(row, filter));
+    let consultants = (visits.tabelaConsultores || []).filter((row) => matches(row, filter, true));
     updateCount('countConsultants', consultants);
     consultants = sortRows(consultants, tableSort.tbodyConsultants, (row, key) => row[key]);
     updateTableHeadIcons('tbodyConsultants', tableSort.tbodyConsultants.colKey, tableSort.tbodyConsultants.dir);
