@@ -1146,39 +1146,55 @@ body.table-resizing * {
   font-weight: 700;
 }
 
-/* Linha de Totais da Tabela (tfoot) */
-.data-table tfoot {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
+/* Linha de Mini-Filtros por Coluna (Estilo Excel) */
+.data-table thead tr.table-filter-row th {
+  padding: 3px 4px !important;
+  background: var(--surface-subtle, #f3f8f5) !important;
+  border-bottom: 1.5px solid var(--line-soft, #dde7e3) !important;
+  font-weight: normal !important;
+  cursor: default !important;
 }
 
-.data-table tfoot tr.table-totals-row td {
-  background: var(--surface-subtle, #f0f7f4) !important;
-  color: var(--ink-strong) !important;
-  font-weight: 750 !important;
-  border-top: 2px solid var(--green-400, #0F6E56) !important;
-  border-bottom: 0 !important;
-  padding: 6.5px 7px !important;
-  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.04);
+:root[data-theme="dark"] .data-table thead tr.table-filter-row th {
+  background: #15221f !important;
+  border-bottom-color: #243b35 !important;
 }
 
-:root[data-theme="dark"] .data-table tfoot tr.table-totals-row td {
-  background: #172421 !important;
-  color: #f1f5f9 !important;
-  border-top-color: #10b981 !important;
+.table-col-filter {
+  width: 100%;
+  height: 22px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-family: inherit;
+  color: var(--ink, #1e293b);
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--line-soft, #d1d5db);
+  border-radius: 4px;
+  outline: none;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
 }
 
-.badge-totals {
-  background: var(--green-100, #e6f4ea);
-  color: var(--green-500, #0a4635);
-  border: 1px solid rgba(15, 110, 86, 0.2);
+.table-col-filter::placeholder {
+  color: var(--muted, #94a3b8);
+  font-size: 9.5px;
 }
 
-:root[data-theme="dark"] .badge-totals {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border-color: rgba(52, 211, 153, 0.3);
+.table-col-filter:focus {
+  border-color: var(--green-400, #0F6E56);
+  background: var(--surface, #ffffff);
+  box-shadow: 0 0 0 1.5px rgba(15, 110, 86, 0.18);
+}
+
+:root[data-theme="dark"] .table-col-filter {
+  background: #0f1715;
+  color: #f1f5f9;
+  border-color: #2d453e;
+}
+
+:root[data-theme="dark"] .table-col-filter:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 1.5px rgba(16, 185, 129, 0.25);
 }
 
 /* Helpers de Alinhamento */

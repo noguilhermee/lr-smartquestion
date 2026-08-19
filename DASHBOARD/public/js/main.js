@@ -509,7 +509,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!tbody) return;
       const table = tbody.closest('table');
       if (!table) return;
-      const ths = table.querySelectorAll('thead th');
+      const ths = table.querySelectorAll('thead tr:first-child th');
       ths.forEach((th, idx) => {
         const key = colKeys[idx];
         if (!key || key === 'acao') return;
@@ -544,7 +544,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function setupColumnResizers() {
     document.querySelectorAll('.data-table').forEach((table) => {
-      const ths = table.querySelectorAll('thead th');
+      const ths = table.querySelectorAll('thead tr:first-child th');
       const tableScroll = table.closest('.table-scroll');
 
       ths.forEach((th, idx) => {
@@ -667,6 +667,80 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  const tableColFilters = {
+    tableSemVisita: {},
+    tableVisitados: {},
+    tableTurnover: {},
+    tableConsultants: {},
+    tableDataProducers: {},
+    tableInconsistencies: {}
+  };
+
+  function applyColumnFilters(rows, tableId) {
+    const filters = tableColFilters[tableId];
+    if (!filters || Object.keys(filters).length === 0) return rows;
+
+    return rows.filter((row) => {
+      for (const [colKey, rawVal] of Object.entries(filters)) {
+        if (!rawVal) continue;
+        const searchVal = String(rawVal).toLowerCase().trim();
+        if (!searchVal) continue;
+
+        let rowVal = '';
+        if (colKey === 'dias_sem_visita') {
+          rowVal = String(row.dias_sem_visita ?? '');
+        } else if (colKey === 'status') {
+          if (row.dias_sem_visita !== undefined) {
+            const hasDays = row.dias_sem_visita !== null && row.dias_sem_visita !== undefined && row.dias_sem_visita !== '';
+            const days = hasDays ? Number(row.dias_sem_visita) : null;
+            const isGrave = hasDays && days >= 60;
+            rowVal = !hasDays ? 'sem visita no período' : isGrave ? 'sem visita > 60 dias' : days >= 45 ? 'sem visita > 45 dias' : 'sem visita > 30 dias';
+          } else {
+            rowVal = String(row.status || 'ativo');
+          }
+        } else if (colKey === 'elabore') {
+          rowVal = row.elabore_ok === false ? 'não nao' : 'sim';
+        } else if (colKey === 'possui_dados') {
+          rowVal = row.possui_dados === false ? 'não nao' : 'sim';
+        } else if (colKey === 'data_vinculo') {
+          rowVal = String(row.data_vinculacao || row.data_referencia || '');
+        } else if (colKey === 'grupo') {
+          rowVal = String(row.grupo || row.consultor || '');
+        } else if (colKey === 'tipo') {
+          rowVal = String(row.tipo || row.movimentacao || '');
+        } else if (colKey === 'referencia') {
+          rowVal = String(row.referencia || row.mes_referencia || '');
+        } else if (colKey === 'atendimento') {
+          rowVal = String(row.atendimento || row.numero_atendimento || '');
+        } else if (colKey === 'perc_cobertura') {
+          rowVal = String(row.perc_cobertura ?? '') + '%';
+        } else {
+          rowVal = String(row[colKey] ?? '');
+        }
+
+        if (!rowVal.toLowerCase().includes(searchVal)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }
+
+  function setupColumnFilters() {
+    document.querySelectorAll('.table-col-filter').forEach((input) => {
+      input.addEventListener('input', (e) => {
+        const tableId = e.target.dataset.table;
+        const col = e.target.dataset.col;
+        if (!tableId || !col) return;
+        if (!tableColFilters[tableId]) tableColFilters[tableId] = {};
+        tableColFilters[tableId][col] = e.target.value;
+        renderTables();
+      });
+      input.addEventListener('click', (e) => e.stopPropagation());
+      input.addEventListener('keydown', (e) => e.stopPropagation());
+    });
+  }
+
   function renderTables() {
     const filter = currentFilter();
     const overview = state.overview || emptyState.overview;
@@ -676,6 +750,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Tabela 1: Sem Visita
     let withoutVisit = (overview.tabelas?.sem_visita || []).filter((row) => matches(row, filter, true));
+    withoutVisit = applyColumnFilters(withoutVisit, 'tableSemVisita');
     updateCount('countWithoutVisit', withoutVisit);
     withoutVisit = sortRows(withoutVisit, tableSort.tbodySemVisita, (row, key) => row[key] ?? row.data_referencia);
     updateTableHeadIcons('tbodySemVisita', tableSort.tbodySemVisita.colKey, tableSort.tbodySemVisita.dir);
@@ -692,6 +767,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Tabela 2: Visitados
     let visited = (overview.tabelas?.visitados || []).filter((row) => matches(row, filter, true));
+    visited = applyColumnFilters(visited, 'tableVisitados');
     updateCount('countVisited', visited);
     visited = sortRows(visited, tableSort.tbodyVisitados, (row, key) => row[key]);
     updateTableHeadIcons('tbodyVisitados', tableSort.tbodyVisitados.colKey, tableSort.tbodyVisitados.dir);
@@ -699,6 +775,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Tabela 3: Turnover / Movimentação
     let movements = (turnover.tabelaMovimentacao || []).filter((row) => matches(row, filter, true));
+    movements = applyColumnFilters(movements, 'tableTurnover');
     updateCount('countTurnover', movements);
     movements = sortRows(movements, tableSort.tbodyTurnover, (row, key) => key === 'grupo' ? (row.grupo || row.consultor) : row[key]);
     updateTableHeadIcons('tbodyTurnover', tableSort.tbodyTurnover.colKey, tableSort.tbodyTurnover.dir);
@@ -711,26 +788,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Tabela 4: Consultores
     let consultants = (visits.tabelaConsultores || []).filter((row) => matches(row, filter, true));
+    consultants = applyColumnFilters(consultants, 'tableConsultants');
     updateCount('countConsultants', consultants);
     consultants = sortRows(consultants, tableSort.tbodyConsultants, (row, key) => row[key]);
     updateTableHeadIcons('tbodyConsultants', tableSort.tbodyConsultants.colKey, tableSort.tbodyConsultants.dir);
     if (el('tbodyConsultants')) el('tbodyConsultants').innerHTML = rowsOrEmpty(consultants, 6, (row) => `<tr><td class="col-left" title="${escapeHtml(row.consultor || '—')}"><strong>${escapeHtml(row.consultor || '—')}</strong></td><td class="col-center font-tabular">${number(row.total_fazendas)}</td><td class="col-center font-tabular">${number(row.fazendas_visitadas)}</td><td class="col-center font-tabular">${number(row.total_visitas)}</td><td class="col-center font-tabular">${percent(row.perc_cobertura)}</td><td class="col-center"><span class="badge badge-positive">ATIVO</span></td></tr>`);
 
-    if (el('tfootConsultants')) {
-      if (consultants.length > 0) {
-        const totFazendas = consultants.reduce((acc, r) => acc + (Number(r.total_fazendas) || 0), 0);
-        const totVisitadas = consultants.reduce((acc, r) => acc + (Number(r.fazendas_visitadas) || 0), 0);
-        const totVisitas = consultants.reduce((acc, r) => acc + (Number(r.total_visitas) || 0), 0);
-        const cobMedia = totFazendas > 0 ? ((totVisitadas / totFazendas) * 100).toFixed(1) : '0.0';
-
-        el('tfootConsultants').innerHTML = `<tr class="table-totals-row"><td class="col-left"><strong>TOTAL (${consultants.length} consultor${consultants.length > 1 ? 'es' : ''})</strong></td><td class="col-center font-tabular"><strong>${number(totFazendas)}</strong></td><td class="col-center font-tabular"><strong>${number(totVisitadas)}</strong></td><td class="col-center font-tabular"><strong>${number(totVisitas)}</strong></td><td class="col-center font-tabular"><strong>${percent(cobMedia)}</strong></td><td class="col-center"><span class="badge badge-totals">MÉDIA GERAL</span></td></tr>`;
-      } else {
-        el('tfootConsultants').innerHTML = '';
-      }
-    }
-
     // Tabela 5: Produtores com Dados
     let withData = (consistency.tabelaProdutoresComDados || []).filter((row) => matches(row, filter, true));
+    withData = applyColumnFilters(withData, 'tableDataProducers');
     updateCount('countDataProducers', withData);
     withData = sortRows(withData, tableSort.tbodyDataProducers, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
     updateTableHeadIcons('tbodyDataProducers', tableSort.tbodyDataProducers.colKey, tableSort.tbodyDataProducers.dir);
@@ -742,6 +808,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Tabela 6: Inconsistências
     let inconsistencies = (consistency.tabelaInconsistentes || []).filter((row) => matches(row, filter, true));
+    inconsistencies = applyColumnFilters(inconsistencies, 'tableInconsistencies');
     updateCount('countInconsistencies', inconsistencies);
     inconsistencies = sortRows(inconsistencies, tableSort.tbodyInconsistencies, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
     updateTableHeadIcons('tbodyInconsistencies', tableSort.tbodyInconsistencies.colKey, tableSort.tbodyInconsistencies.dir);
@@ -1022,24 +1089,6 @@ document.addEventListener('DOMContentLoaded', () => {
         csvLines.push(rowValues.join(';'));
       }
     });
-
-    const tfoot = table.querySelector('tfoot');
-    if (tfoot) {
-      const footRows = Array.from(tfoot.querySelectorAll('tr'));
-      footRows.forEach((tr) => {
-        const cells = Array.from(tr.querySelectorAll('td, th'));
-        const rowValues = [];
-        cells.forEach((td, idx) => {
-          if (idx < headers.length) {
-            let txt = td.textContent.trim().replace(/\s+/g, ' ');
-            rowValues.push(`"${txt.replace(/"/g, '""')}"`);
-          }
-        });
-        if (rowValues.length > 0) {
-          csvLines.push(rowValues.join(';'));
-        }
-      });
-    }
 
     const bom = '\uFEFF';
     const blob = new Blob([bom + csvLines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
@@ -1716,6 +1765,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   setupTableSorting();
   setupColumnResizers();
+  setupColumnFilters();
   setupCustomSelectDropdowns();
   setupDetailsModal();
   setupKpiInfoPopovers();
