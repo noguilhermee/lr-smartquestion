@@ -1828,9 +1828,9 @@ body.table-resizing * {
 
 .provenance-summary-card {
   display: grid;
-  grid-template-columns: 1.5fr 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 12px;
-  padding: 12px 18px;
+  padding: 14px 18px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 14px;
@@ -1864,7 +1864,7 @@ body.table-resizing * {
   font-size: 12.5px;
   font-weight: 700;
   color: var(--green-950);
-  word-break: break-all;
+  word-break: break-word;
 }
 
 :root[data-theme="dark"] .prov-summary-value {
@@ -1877,6 +1877,161 @@ body.table-resizing * {
 
 :root[data-theme="dark"] .prov-summary-value--ok {
   color: #34d399;
+}
+
+/* Seção de Sincronização de Tabelas de Consistência */
+.provenance-sync-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.provenance-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.prov-sec-icon {
+  font-size: 18px;
+  color: var(--green-700);
+}
+
+:root[data-theme="dark"] .prov-sec-icon {
+  color: #5eead4;
+}
+
+.provenance-section-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--green-900);
+}
+
+:root[data-theme="dark"] .provenance-section-title {
+  color: #ccfbf1;
+}
+
+.provenance-sync-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.prov-sync-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 12px 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+:root[data-theme="dark"] .prov-sync-card {
+  background: #0f3833;
+  border-color: #1c4a43;
+}
+
+.prov-sync-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+:root[data-theme="dark"] .prov-sync-card-header {
+  border-bottom-color: #1a453f;
+}
+
+.prov-sync-title-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.prov-sync-icon {
+  font-size: 20px;
+  color: var(--green-800);
+}
+
+:root[data-theme="dark"] .prov-sync-icon {
+  color: #5eead4;
+}
+
+.prov-sync-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--green-950);
+  display: block;
+}
+
+:root[data-theme="dark"] .prov-sync-title {
+  color: #f1fbf8;
+}
+
+.prov-sync-subtitle {
+  font-size: 10.5px;
+  color: #64748b;
+  display: block;
+}
+
+:root[data-theme="dark"] .prov-sync-subtitle {
+  color: #94a3b8;
+}
+
+.prov-sync-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+:root[data-theme="dark"] .prov-sync-badge {
+  background: #064e3b;
+  color: #6ee7b7;
+  border-color: #047857;
+}
+
+.prov-sync-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prov-sync-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.prov-sync-label {
+  font-weight: 600;
+  color: #64748b;
+}
+
+:root[data-theme="dark"] .prov-sync-label {
+  color: #a9bbb6;
+}
+
+.prov-sync-val {
+  font-weight: 750;
+  color: var(--green-950);
+}
+
+:root[data-theme="dark"] .prov-sync-val {
+  color: #f1fbf8;
 }
 
 .provenance-groups-container {

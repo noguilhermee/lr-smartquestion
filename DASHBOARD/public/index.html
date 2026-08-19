@@ -245,22 +245,79 @@
       </div>
       
       <div class="modal-body provenance-modal-body" id="provModalBody">
+        <!-- Resumo Geral de Fontes e Execução -->
         <div class="provenance-summary-card">
           <div class="prov-summary-item">
             <span class="prov-summary-label">Diretório de Leitura</span>
             <strong class="prov-summary-value" id="provSummaryDir">BD_SMARTQUESTION</strong>
           </div>
           <div class="prov-summary-item">
-            <span class="prov-summary-label">Última Execução do ETL</span>
-            <strong class="prov-summary-value prov-summary-value--ok" id="provSummaryEtl">--/--/----</strong>
-          </div>
-          <div class="prov-summary-item">
-            <span class="prov-summary-label">Última Inspeção de Fontes</span>
+            <span class="prov-summary-label">Última Leitura das Planilhas</span>
             <strong class="prov-summary-value" id="provSummaryInspection">--/--/----</strong>
           </div>
           <div class="prov-summary-item">
-            <span class="prov-summary-label">Sincronização no Banco</span>
-            <strong class="prov-summary-value prov-summary-value--ok">✅ Atualizado</strong>
+            <span class="prov-summary-label">Planilha Mais Recente</span>
+            <strong class="prov-summary-value" id="provSummaryRecentFile" title="Arquivo de planilha com alteração mais recente">--</strong>
+          </div>
+          <div class="prov-summary-item">
+            <span class="prov-summary-label">Última Execução do ETL</span>
+            <strong class="prov-summary-value prov-summary-value--ok" id="provSummaryEtl">--/--/----</strong>
+          </div>
+        </div>
+
+        <!-- Sincronização das Tabelas de Consistência (Banco Supabase) -->
+        <div class="provenance-sync-section">
+          <div class="provenance-section-header">
+            <span class="material-symbols-rounded prov-sec-icon" aria-hidden="true">database</span>
+            <span class="provenance-section-title">Status de Atualização das Tabelas de Consistência (Supabase)</span>
+          </div>
+          
+          <div class="provenance-sync-grid">
+            <div class="prov-sync-card">
+              <div class="prov-sync-card-header">
+                <div class="prov-sync-title-box">
+                  <span class="material-symbols-rounded prov-sync-icon" aria-hidden="true">calendar_month</span>
+                  <div>
+                    <strong class="prov-sync-title">tab_consistencia_mensal</strong>
+                    <span class="prov-sync-subtitle">Consistência Mensal dos Produtores</span>
+                  </div>
+                </div>
+                <span class="prov-sync-badge" id="provMensalStatus">✅ Sincronizado</span>
+              </div>
+              <div class="prov-sync-card-body">
+                <div class="prov-sync-field">
+                  <span class="prov-sync-label">Última Atualização:</span>
+                  <strong class="prov-sync-val" id="provMensalUpdate">--/--/----</strong>
+                </div>
+                <div class="prov-sync-field">
+                  <span class="prov-sync-label">Total de Registros:</span>
+                  <strong class="prov-sync-val" id="provMensalRecords">--</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="prov-sync-card">
+              <div class="prov-sync-card-header">
+                <div class="prov-sync-title-box">
+                  <span class="material-symbols-rounded prov-sync-icon" aria-hidden="true">date_range</span>
+                  <div>
+                    <strong class="prov-sync-title">tab_consistencia_anual</strong>
+                    <span class="prov-sync-subtitle">Consistência Anual dos Produtores</span>
+                  </div>
+                </div>
+                <span class="prov-sync-badge" id="provAnualStatus">✅ Sincronizado</span>
+              </div>
+              <div class="prov-sync-card-body">
+                <div class="prov-sync-field">
+                  <span class="prov-sync-label">Última Atualização:</span>
+                  <strong class="prov-sync-val" id="provAnualUpdate">--/--/----</strong>
+                </div>
+                <div class="prov-sync-field">
+                  <span class="prov-sync-label">Total de Registros:</span>
+                  <strong class="prov-sync-val" id="provAnualRecords">--</strong>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

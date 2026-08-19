@@ -1573,9 +1573,50 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
-      if (summaryInspection && data.timestamp_inspecao) {
-        const d = new Date(data.timestamp_inspecao);
-        summaryInspection.textContent = `${d.toLocaleDateString('pt-BR')} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+      if (summaryInspection) {
+        if (data.ultima_leitura_planilhas_formatada) {
+          summaryInspection.textContent = data.ultima_leitura_planilhas_formatada;
+        } else if (data.timestamp_inspecao) {
+          const d = new Date(data.timestamp_inspecao);
+          summaryInspection.textContent = `${d.toLocaleDateString('pt-BR')} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+        }
+      }
+
+      const summaryRecentFile = el('provSummaryRecentFile');
+      if (summaryRecentFile) {
+        if (data.arquivo_mais_recente_nome) {
+          const dataFmt = data.arquivo_mais_recente_data ? ` (${data.arquivo_mais_recente_data})` : '';
+          summaryRecentFile.textContent = `${data.arquivo_mais_recente_nome}${dataFmt}`;
+          summaryRecentFile.setAttribute('title', `Última modificação detectada: ${data.arquivo_mais_recente_nome}`);
+        } else {
+          summaryRecentFile.textContent = '--';
+        }
+      }
+
+      // Preencher dados de Consistência Mensal
+      const mensalUpdate = el('provMensalUpdate');
+      const mensalRecords = el('provMensalRecords');
+      const mensalStatus = el('provMensalStatus');
+      if (data.consistencia_mensal) {
+        if (mensalUpdate) mensalUpdate.textContent = data.consistencia_mensal.ultima_atualizacao_formatada || '--';
+        if (mensalRecords) {
+          const count = data.consistencia_mensal.total_registros;
+          mensalRecords.textContent = count !== null && count !== undefined ? `${Number(count).toLocaleString('pt-BR')} registros` : '--';
+        }
+        if (mensalStatus && data.consistencia_mensal.status) mensalStatus.textContent = data.consistencia_mensal.status;
+      }
+
+      // Preencher dados de Consistência Anual
+      const anualUpdate = el('provAnualUpdate');
+      const anualRecords = el('provAnualRecords');
+      const anualStatus = el('provAnualStatus');
+      if (data.consistencia_anual) {
+        if (anualUpdate) anualUpdate.textContent = data.consistencia_anual.ultima_atualizacao_formatada || '--';
+        if (anualRecords) {
+          const count = data.consistencia_anual.total_registros;
+          anualRecords.textContent = count !== null && count !== undefined ? `${Number(count).toLocaleString('pt-BR')} registros` : '--';
+        }
+        if (anualStatus && data.consistencia_anual.status) anualStatus.textContent = data.consistencia_anual.status;
       }
 
       // Agrupar arquivos por categoria

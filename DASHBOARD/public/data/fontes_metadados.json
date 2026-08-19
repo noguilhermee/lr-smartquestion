@@ -1,9 +1,26 @@
 {
-  "timestamp_inspecao": "2026-08-19T09:20:56.152468",
-  "timestamp_etl": "2026-08-19T09:20:56.152468",
-  "ultima_execucao_etl_formatada": "19/08/2026 às 09:20:56",
+  "timestamp_inspecao": "2026-08-19T10:26:08.413773",
+  "timestamp_etl": "2026-08-19T10:26:08.413773",
+  "ultima_execucao_etl_formatada": "19/08/2026 às 10:26:08",
+  "ultima_leitura_planilhas_formatada": "19/08/2026 às 10:26:08",
+  "arquivo_mais_recente_nome": "LISTA_LPA_VISITA.xlsx",
+  "arquivo_mais_recente_data": "19/08/2026 às 08:53",
   "total_arquivos": 11,
   "diretorio_origem": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION",
+  "consistencia_mensal": {
+    "tabela": "tab_consistencia_mensal",
+    "ultima_atualizacao": "2026-08-18T13:18:59.822175+00:00",
+    "ultima_atualizacao_formatada": "18/08/2026 às 13:18",
+    "total_registros": 17010,
+    "status": "✅ Sincronizado"
+  },
+  "consistencia_anual": {
+    "tabela": "tab_consistencia_anual",
+    "ultima_atualizacao": "2026-08-18T12:12:01.031543+00:00",
+    "ultima_atualizacao_formatada": "18/08/2026 às 12:12",
+    "total_registros": 11241,
+    "status": "✅ Sincronizado"
+  },
   "arquivos": [
     {
       "nome": "260819_LISTA_CADASTRO.xlsx",
@@ -24,7 +41,7 @@
       "descricao": "Solicitações e histórico de inativação de produtores",
       "data_modificacao": "2026-08-19 04:01:41",
       "data_modificacao_formatada": "19/08/2026 às 04:01",
-      "tamanho_bytes": 39094,
+      "tamanho_bytes": 39123,
       "tamanho_formatado": "38.2 KB",
       "total_registros": 6,
       "caminho": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION\\260819_LISTA_INATIVACAO.xlsx"

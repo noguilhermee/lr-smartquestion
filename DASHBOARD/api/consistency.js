@@ -326,6 +326,8 @@ module.exports = async (req, res) => {
     return res.status(200).json({
       timestamp: new Date().toISOString(),
       refMonth,
+      mesFiltro: requestedMonth,
+      mesCompetencia: refMonth,
       kpis: {
         perc_consistente: percConsistente,
         perc_anual: percAnual,

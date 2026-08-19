@@ -105,7 +105,58 @@ def executar_reconciliacao():
 
     # 3. Processar Inativações Recentes para tab_inativacoes_sq
     print("\n🚫 3. Processando solicitações de inativação (tab_inativacoes_sq)...")
-    # Buscar inativações já no Supabase
+    
+    # Verificar se há inativações recentes na pasta para sincronizar no Supabase
+    try:
+        arquivos_inat = list(bd_path.glob("*_LISTA_INATIVACAO.xlsx")) + list((bd_path / "BACKUPS").glob("*_LISTA_INATIVACAO.xlsx"))
+        if arquivos_inat:
+            for arq_inat in arquivos_inat:
+                if arq_inat.exists():
+                    df_raw_i = pd.read_excel(arq_inat, header=None)
+                    h_i = 0
+                    for r in range(min(5, len(df_raw_i))):
+                        vals = [str(x).strip().lower() for x in df_raw_i.iloc[r].dropna().tolist()]
+                        if any("atendimento" in v for v in vals):
+                            h_i = r
+                            break
+                    df_i = pd.read_excel(arq_inat, header=h_i).dropna(how="all", axis=1).dropna(how="all", axis=0)
+                    col_id_i = [c for c in df_i.columns if "atendimento" in str(c).lower()]
+                    if col_id_i:
+                        df_i["id_atendimento"] = pd.to_numeric(df_i[col_id_i[0]], errors="coerce")
+                        df_i = df_i.dropna(subset=["id_atendimento"])
+                        df_i["id_atendimento"] = df_i["id_atendimento"].astype(int)
+                        
+                        mapa_cols = {
+                            "Consultor(a):": "nome_consultor",
+                            "Projeto": "projeto",
+                            "Código do(a) produtor(a):": "codigo_lr",
+                            "Produtor(a):": "nome_produtor",
+                            "Propriedade:": "nome_propriedade",
+                            "Grupo Ponto Atendimento": "grupo_ponto_atendimento",
+                            "Data da solicitação:": "data_solicitacao",
+                            "Data da inativação:": "data_inativacao",
+                            "Motivo da inativação:": "motivo_inativacao",
+                            "Se outro, qual motivo?": "outro_motivo",
+                            "Status": "produtor_ativo",
+                        }
+                        df_prep_i = df_i.rename(columns={k: v for k, v in mapa_cols.items() if k in df_i.columns})
+                        df_prep_i["data_processamento"] = datetime.now().isoformat()
+                        
+                        # Converter datas
+                        if "data_solicitacao" in df_prep_i.columns:
+                            df_prep_i["data_solicitacao"] = pd.to_datetime(df_prep_i["data_solicitacao"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M:%S")
+                        if "data_inativacao" in df_prep_i.columns:
+                            df_prep_i["data_inativacao"] = pd.to_datetime(df_prep_i["data_inativacao"], errors="coerce").dt.strftime("%Y-%m-%d")
+                            
+                        cols_finais = ["id_atendimento", "nome_consultor", "projeto", "codigo_lr", "nome_produtor", "nome_propriedade", "grupo_ponto_atendimento", "data_solicitacao", "data_inativacao", "motivo_inativacao", "outro_motivo", "produtor_ativo", "data_processamento"]
+                        cols_presentes = [c for c in cols_finais if c in df_prep_i.columns]
+                        registros_i = df_prep_i[cols_presentes].replace({np.nan: None}).to_dict(orient="records")
+                        if registros_i:
+                            supabase.table("tab_inativacoes_sq").upsert(registros_i, on_conflict="id_atendimento").execute()
+    except Exception as e_inat:
+        print(f"   ⚠️ Aviso ao sincronizar inativações recentes: {e_inat}")
+
+    # Buscar inativações já consolidadas no Supabase
     res_inats = supabase.table("tab_inativacoes_sq").select("*").execute()
     df_inats_existentes = pd.DataFrame(res_inats.data) if res_inats.data else pd.DataFrame()
     print(f"   -> Total de inativações existentes no banco: {len(df_inats_existentes)}")
@@ -156,25 +207,36 @@ def executar_reconciliacao():
             })
 
     # 4.2 Saídas (a partir de tab_inativacoes_sq vinculadas aos projetos oficiais)
+    # REGRA: De 2026 em diante, a data oficial é data_solicitacao. Dados antes disso mantêm o histórico.
     codigos_oficiais_set = set(df_vinc_db["codigo_lr"].dropna().unique()) if not df_vinc_db.empty else set()
+    novos_ids_saida_2026 = set()
+    
     if not df_inats_existentes.empty:
         for _, row in df_inats_existentes.iterrows():
             cod = str(row.get("codigo_lr") or "").strip()
             if not cod or cod.lower() == "nan" or (codigos_oficiais_set and cod not in codigos_oficiais_set):
                 continue
             cons = extrair_consultor_individual(row.get("nome_consultor"), row.get("grupo_ponto_atendimento"))
-            dt_inat = row.get("data_inativacao") or row.get("data_solicitacao")
-            if dt_inat:
-                try:
-                    dt_mov = pd.to_datetime(dt_inat).strftime("%Y-%m-01")
-                except Exception:
-                    dt_mov = "2026-08-01"
+            
+            dt_solic = row.get("data_solicitacao")
+            dt_inat = row.get("data_inativacao")
+            
+            dt_solic_p = pd.to_datetime(dt_solic, errors="coerce")
+            if pd.notna(dt_solic_p) and dt_solic_p >= pd.Timestamp("2026-01-01"):
+                dt_mov = dt_solic_p.strftime("%Y-%m-01")
             else:
-                dt_mov = "2026-08-01"
+                dt_legado = pd.to_datetime(dt_inat or dt_solic, errors="coerce")
+                if pd.notna(dt_legado):
+                    dt_mov = dt_legado.strftime("%Y-%m-01")
+                else:
+                    dt_mov = "2026-08-01"
                 
             motivo = row.get("motivo_inativacao")
             outro = row.get("outro_motivo")
             id_comp = f"{cod}_{cons}_{dt_mov}_Saída"
+            
+            if dt_mov >= "2026-01-01":
+                novos_ids_saida_2026.add(id_comp)
             
             movimentacoes_lista.append({
                 "id_composto": id_comp,
@@ -190,6 +252,18 @@ def executar_reconciliacao():
     df_mov_final = pd.DataFrame(movimentacoes_lista).drop_duplicates(subset=["id_composto"], keep="last")
     print(f"   -> Total de movimentações consolidadas (Leite): {len(df_mov_final)} (Entradas: {len(df_mov_final[df_mov_final['movimentacao'] == 'Entrada'])}, Saídas: {len(df_mov_final[df_mov_final['movimentacao'] == 'Saída'])})")
     
+    # 4.3 Limpar registros órfãos de saídas de 2026 no Supabase antes de gravar
+    try:
+        res_saidas_2026_db = supabase.table("tab_movimentacao_produtor").select("id_composto").eq("movimentacao", "Saída").gte("data_movimentacao", "2026-01-01").execute()
+        ids_saidas_2026_atuais = set([r["id_composto"] for r in (res_saidas_2026_db.data or [])])
+        ids_a_remover = ids_saidas_2026_atuais - novos_ids_saida_2026
+        if ids_a_remover:
+            print(f"   🧹 Removendo {len(ids_a_remover)} saídas obsoletas/órfãs de 2026...")
+            for id_rem in ids_a_remover:
+                supabase.table("tab_movimentacao_produtor").delete().eq("id_composto", id_rem).execute()
+    except Exception as e_clean:
+        print(f"   ⚠️ Aviso ao limpar saídas obsoletas de 2026: {e_clean}")
+
     # Checar se Thales Noronha LR02481 está na lista
     thales_mov = df_mov_final[df_mov_final["codigo_lr"] == "LR02481"]
     print(f"   -> Movimentações para LR02481 (Thales Noronha): {len(thales_mov)} registros.")
@@ -215,18 +289,24 @@ def executar_reconciliacao():
     print("\n🌱 6. Reconciliando base ativa mensal em tab_produtores_ativos_mensal (Leite)...")
     
     # Identificar todas as inativações com data e código
+    # REGRA: De 2026 em diante, usa data_solicitacao; antes disso mantém data_inativacao
     inativacoes_por_codigo: Dict[str, str] = {}
     if not df_inats_existentes.empty:
         for _, row in df_inats_existentes.iterrows():
             c = str(row.get("codigo_lr") or "").strip()
-            dt = row.get("data_inativacao") or row.get("data_solicitacao")
-            if c and dt:
-                try:
-                    dt_str = pd.to_datetime(dt).strftime("%Y-%m-01")
-                    if c not in inativacoes_por_codigo or dt_str < inativacoes_por_codigo[c]:
-                        inativacoes_por_codigo[c] = dt_str
-                except Exception:
-                    pass
+            dt_solic = row.get("data_solicitacao")
+            dt_inat = row.get("data_inativacao")
+            
+            dt_solic_p = pd.to_datetime(dt_solic, errors="coerce")
+            if pd.notna(dt_solic_p) and dt_solic_p >= pd.Timestamp("2026-01-01"):
+                dt_str = dt_solic_p.strftime("%Y-%m-01")
+            else:
+                dt_legado = pd.to_datetime(dt_inat or dt_solic, errors="coerce")
+                dt_str = dt_legado.strftime("%Y-%m-01") if pd.notna(dt_legado) else None
+                
+            if c and dt_str:
+                if c not in inativacoes_por_codigo or dt_str < inativacoes_por_codigo[c]:
+                    inativacoes_por_codigo[c] = dt_str
 
     print(f"   -> Mapeados {len(inativacoes_por_codigo)} produtores com inativação confirmada.")
 

@@ -57,6 +57,91 @@ def formatar_tamanho_bytes(tamanho_bytes: int) -> str:
         return f"{tamanho_bytes / (1024 * 1024):.1f} MB"
 
 
+def obter_info_consistencia_supabase(raiz: Path) -> Dict[str, Any]:
+    """Consulta segura (somente leitura) no Supabase dos metadados das tabelas de consistência."""
+    info = {
+        "consistencia_mensal": {
+            "tabela": "tab_consistencia_mensal",
+            "ultima_atualizacao": None,
+            "ultima_atualizacao_formatada": "Não disponível",
+            "total_registros": None,
+            "status": "Não sincronizado",
+        },
+        "consistencia_anual": {
+            "tabela": "tab_consistencia_anual",
+            "ultima_atualizacao": None,
+            "ultima_atualizacao_formatada": "Não disponível",
+            "total_registros": None,
+            "status": "Não sincronizado",
+        }
+    }
+    
+    try:
+        from dotenv import load_dotenv
+        for env_path in [raiz / "SCRIPTS" / "CONFIG" / ".env", raiz / "DASHBOARD" / ".env.local", raiz / ".env"]:
+            if env_path.is_file():
+                load_dotenv(env_path)
+                break
+                
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
+        
+        if supabase_url and supabase_key:
+            from supabase import create_client
+            supabase = create_client(supabase_url, supabase_key)
+            
+            # 1. Consistência Mensal
+            try:
+                res_m = supabase.table("tab_consistencia_mensal").select("data_processamento").order("data_processamento", desc=True).limit(1).execute()
+                res_m_count = supabase.table("tab_consistencia_mensal").select("idfazenda", count="exact").limit(1).execute()
+                
+                dt_m = None
+                if res_m.data and res_m.data[0].get("data_processamento"):
+                    dt_m_str = res_m.data[0]["data_processamento"]
+                    dt_m = datetime.fromisoformat(dt_m_str.replace("Z", "+00:00"))
+                    dt_m_fmt = dt_m.strftime("%d/%m/%Y às %H:%M")
+                else:
+                    dt_m_fmt = "Sem registro"
+                    
+                info["consistencia_mensal"] = {
+                    "tabela": "tab_consistencia_mensal",
+                    "ultima_atualizacao": dt_m.isoformat() if dt_m else None,
+                    "ultima_atualizacao_formatada": dt_m_fmt,
+                    "total_registros": res_m_count.count if hasattr(res_m_count, "count") and res_m_count.count is not None else len(res_m.data),
+                    "status": "✅ Sincronizado",
+                }
+            except Exception as e:
+                print(f"⚠️ Aviso ao consultar tab_consistencia_mensal: {e}")
+
+            # 2. Consistência Anual
+            try:
+                res_a = supabase.table("tab_consistencia_anual").select("data_processamento").order("data_processamento", desc=True).limit(1).execute()
+                res_a_count = supabase.table("tab_consistencia_anual").select("idfazenda", count="exact").limit(1).execute()
+                
+                dt_a = None
+                if res_a.data and res_a.data[0].get("data_processamento"):
+                    dt_a_str = res_a.data[0]["data_processamento"]
+                    dt_a = datetime.fromisoformat(dt_a_str.replace("Z", "+00:00"))
+                    dt_a_fmt = dt_a.strftime("%d/%m/%Y às %H:%M")
+                else:
+                    dt_a_fmt = "Sem registro"
+                    
+                info["consistencia_anual"] = {
+                    "tabela": "tab_consistencia_anual",
+                    "ultima_atualizacao": dt_a.isoformat() if dt_a else None,
+                    "ultima_atualizacao_formatada": dt_a_fmt,
+                    "total_registros": res_a_count.count if hasattr(res_a_count, "count") and res_a_count.count is not None else len(res_a.data),
+                    "status": "✅ Sincronizado",
+                }
+            except Exception as e:
+                print(f"⚠️ Aviso ao consultar tab_consistencia_anual: {e}")
+                
+    except Exception as e:
+        print(f"⚠️ Aviso ao inicializar Supabase para metadados: {e}")
+        
+    return info
+
+
 def obter_metadados_planilhas(raiz_projeto: Path | str | None = None) -> Dict[str, Any]:
     raiz = Path(raiz_projeto or Path.cwd()).resolve()
     config_path = raiz / "SCRIPTS" / "CONFIG" / "config.yaml"
@@ -70,12 +155,20 @@ def obter_metadados_planilhas(raiz_projeto: Path | str | None = None) -> Dict[st
     bd_path = Path(cfg.get("caminhos", {}).get("bd_smartquestion", ""))
     
     arquivos_info: List[Dict[str, Any]] = []
+    arquivo_mais_recente_nome = None
+    arquivo_mais_recente_data = None
+    max_mtime = None
     
     if bd_path.exists():
         for arquivo in sorted(bd_path.glob("*.xlsx")):
             stat = arquivo.stat()
             mtime = datetime.fromtimestamp(stat.st_mtime)
             cat_info = categorizar_arquivo(arquivo.name)
+            
+            if max_mtime is None or mtime > max_mtime:
+                max_mtime = mtime
+                arquivo_mais_recente_nome = arquivo.name
+                arquivo_mais_recente_data = mtime.strftime("%d/%m/%Y às %H:%M")
             
             # Tentar ler linhas de forma segura sem travar
             qtd_linhas = None
@@ -101,13 +194,21 @@ def obter_metadados_planilhas(raiz_projeto: Path | str | None = None) -> Dict[st
                 "caminho": str(arquivo),
             })
             
+    # Consultar metadados de consistência no Supabase (somente leitura)
+    info_consistencia = obter_info_consistencia_supabase(raiz)
+    
     agora = datetime.now()
     payload = {
         "timestamp_inspecao": agora.isoformat(),
         "timestamp_etl": agora.isoformat(),
         "ultima_execucao_etl_formatada": agora.strftime("%d/%m/%Y às %H:%M:%S"),
+        "ultima_leitura_planilhas_formatada": agora.strftime("%d/%m/%Y às %H:%M:%S"),
+        "arquivo_mais_recente_nome": arquivo_mais_recente_nome,
+        "arquivo_mais_recente_data": arquivo_mais_recente_data,
         "total_arquivos": len(arquivos_info),
         "diretorio_origem": str(bd_path),
+        "consistencia_mensal": info_consistencia.get("consistencia_mensal"),
+        "consistencia_anual": info_consistencia.get("consistencia_anual"),
         "arquivos": arquivos_info,
     }
     
@@ -131,3 +232,4 @@ def obter_metadados_planilhas(raiz_projeto: Path | str | None = None) -> Dict[st
 if __name__ == "__main__":
     resultado = obter_metadados_planilhas()
     print(f"Metadados gerados com sucesso para {resultado['total_arquivos']} planilhas.")
+

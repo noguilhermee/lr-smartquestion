@@ -178,24 +178,38 @@ module.exports = async (req, res) => {
     const latestAvailableMonth = (ultimasVisitas && ultimasVisitas.length > 0)
       ? ultimasVisitas[0].mes_referencia
       : maxAllowedMonth;
-    // Regra M-1: o mês selecionado pelo usuário mapeia para o mês anterior como referência de dados
-    const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
-      ? (shiftMonthMinus1(requestedMonth) || latestAvailableMonth)
+
+    // Regra Temporal:
+    // - Visitas e Cobertura: Mês exato selecionado no filtro (operação em campo em tempo real)
+    // - Consistência e Lançamentos: 1 mês retroativo (M-1 / fechamento zootécnico)
+    const visitasMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
+      ? requestedMonth
       : latestAvailableMonth;
+    const consistencyMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
+      ? (shiftMonthMinus1(requestedMonth) || latestAvailableMonth)
+      : (shiftMonthMinus1(latestAvailableMonth) || latestAvailableMonth);
 
-    // 2. Consultar produtores ativos no mês de referência
-    const produtoresListRaw = await fetchAll(() => supabase
-      .from('tab_produtores_ativos_mensal')
-      .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia')
-      .eq('data_referencia', refMonth)
-      .order('codigo_lr', { ascending: true }));
+    // 2. Consultar produtores ativos no mês de visitas e no mês de consistência
+    const [produtoresListRaw, produtoresConsistenciaRaw] = await Promise.all([
+      fetchAll(() => supabase
+        .from('tab_produtores_ativos_mensal')
+        .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia')
+        .eq('data_referencia', visitasMonth)
+        .order('codigo_lr', { ascending: true })),
+      fetchAll(() => supabase
+        .from('tab_produtores_ativos_mensal')
+        .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia')
+        .eq('data_referencia', consistencyMonth)
+        .order('codigo_lr', { ascending: true }))
+    ]);
     const produtoresList = (produtoresListRaw || []).filter(p => !isTestData(p.nome_consultor, p.projeto));
+    const produtoresConsistencia = (produtoresConsistenciaRaw || []).filter(p => !isTestData(p.nome_consultor, p.projeto));
 
-    // 3. Consultar visitas do mês de referência
+    // 3. Consultar visitas do mês selecionado (visitasMonth)
     const visitasListRaw = await fetchAll(() => supabase
       .from('f_visitas_bi_lr')
       .select('id, codigo_lr, nome_consultor, nome_produtor, nome_propriedade, data_visita, id_atendimento, projeto, mes_referencia')
-      .eq('mes_referencia', refMonth)
+      .eq('mes_referencia', visitasMonth)
       .order('data_visita', { ascending: false }));
     const visitasList = (visitasListRaw || []).filter(v => !isTestData(v.nome_consultor, v.projeto));
 
@@ -245,6 +259,7 @@ module.exports = async (req, res) => {
     }
 
     const produtoresFiltrados = produtoresList.filter(rowMatches);
+    const produtoresConsistenciaFiltrados = produtoresConsistencia.filter(rowMatches);
     const visitasFiltradas = visitasList.filter(rowMatches);
     const produtoresHistFiltrados = (produtoresHistoricos || []).filter(rowMatches);
     const visitasHistFiltradas = (visitasHistoricas || []).filter(rowMatches);
@@ -255,20 +270,20 @@ module.exports = async (req, res) => {
       .select('codigo_lr, nome_consultor, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
       .order('data_movimentacao', { ascending: false }));
 
-    // 5. Consultar consistência do mês de referência (tabela fato e tab_consistencia_mensal do Elabore)
+    // 5. Consultar consistência do mês M-1 (consistencyMonth)
     const [consistenciaList, elaboreMensalList] = await Promise.all([
       fetchAll(() => supabase
         .from('f_consistente_bi_lr')
         .select('codigo_lr, consistencia_mensal, consistencia_anual, mes_elabore, mes_referencia')
-        .eq('mes_referencia', refMonth)
+        .eq('mes_referencia', consistencyMonth)
         .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
         .from('tab_consistencia_mensal')
         .select('codigo_lr, mes_elabore, consistencia_mensal, mes_referencia')
-        .eq('mes_referencia', refMonth))
+        .eq('mes_referencia', consistencyMonth))
     ]);
 
-    // Conjunto de produtores com dados de fechamento no Elabore para o mês
+    // Conjunto de produtores com dados de fechamento no Elabore para o mês M-1
     const elaboreSet = new Set();
     (elaboreMensalList || []).forEach(item => {
       if (item.codigo_lr && item.mes_elabore) {
@@ -282,9 +297,10 @@ module.exports = async (req, res) => {
     });
 
     const produtoresMap = new Map((produtoresFiltrados || []).map(p => [p.codigo_lr, p]));
+    const produtoresConsistenciaMap = new Map((produtoresConsistenciaFiltrados || []).map(p => [p.codigo_lr, p]));
     const consistenciaFiltrada = consistenciaList.filter(c => {
-      if (!produtoresMap.has(c.codigo_lr)) return false;
-      const p = produtoresMap.get(c.codigo_lr);
+      if (!produtoresConsistenciaMap.has(c.codigo_lr)) return false;
+      const p = produtoresConsistenciaMap.get(c.codigo_lr);
       return rowMatches({ ...c, unidade_atendimento: p?.unidade_atendimento, nome_produtor: p?.nome_produtor });
     });
 
@@ -320,7 +336,7 @@ module.exports = async (req, res) => {
       .sort();
 
     const referencias = todosMesesDisponiveis
-      .filter(ref => !refMonth || ref <= refMonth);
+      .filter(ref => !visitasMonth || ref <= visitasMonth);
     const visitasPorMes = new Map();
     const ativosPorMes = new Map();
     (visitasHistFiltradas || []).forEach(v => {
@@ -377,8 +393,8 @@ module.exports = async (req, res) => {
     // Definir data de corte: se refMonth for mês passado, usar o fim do mês; caso contrário, usar a data atual (hoje).
     const hoje = new Date();
     let dataCorte = hoje;
-    if (refMonth) {
-      const parts = String(refMonth).slice(0, 10).split('-');
+    if (visitasMonth) {
+      const parts = String(visitasMonth).slice(0, 10).split('-');
       if (parts.length === 3) {
         const year = parseInt(parts[0], 10);
         const month = parseInt(parts[1], 10);
@@ -415,7 +431,7 @@ module.exports = async (req, res) => {
           regiao: getRegiao(p.codigo_lr, p.unidade_atendimento),
           projeto: p.projeto || 'NÃO INFORMADO',
           status: 'ATIVO',
-          mes_referencia: refMonth,
+          mes_referencia: visitasMonth,
           data_vinculacao: formatDate(p.data_referencia),
           dias_sem_visita: diasSemVisita
         };
@@ -477,7 +493,9 @@ module.exports = async (req, res) => {
 
     return res.status(200).json({
       timestamp: new Date().toISOString(),
-      refMonth,
+      refMonth: visitasMonth,
+      visitasMonth,
+      consistencyMonth,
       dataProvenance,
       kpis: {
         total_visitas: totalVisitas,

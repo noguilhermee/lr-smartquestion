@@ -197,9 +197,9 @@ module.exports = async (req, res) => {
     const latestMovementKey = String(movimentacoes?.[0]?.data_movimentacao || '').slice(0, 7);
     const latestMovementMonth = /^\d{4}-\d{2}$/.test(latestMovementKey) ? `${latestMovementKey}-01` : null;
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
-    // Regra M-1: mês selecionado pelo usuário mapeia para M-1 como referência real de dados
+    // Produtores ativos e movimentação no mês selecionado
     const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
-      ? (shiftMonthMinus1(requestedMonth) || maxDataRef)
+      ? requestedMonth
       : (latestMovementMonth || maxDataRef);
     const produtoresFiltrados = refMonth
       ? produtores.filter(p => p.data_referencia === refMonth)
