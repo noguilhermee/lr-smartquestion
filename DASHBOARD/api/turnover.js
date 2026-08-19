@@ -242,7 +242,7 @@ module.exports = async (req, res) => {
       }
     });
 
-    (movimentacoesFiltradas || []).forEach(m => {
+    (movimentacoesDoMes || []).forEach(m => {
       const isSaida = String(m.movimentacao || '').toLowerCase().includes('sa');
       const tipo = isSaida ? 'SAÍDA' : 'ENTRADA';
       const produtorAtivo = produtoresMap.get(m.codigo_lr);

@@ -208,7 +208,42 @@ def executar_reconciliacao():
                     "data_processamento": datetime.now().isoformat(),
                 })
 
-    # 4.2 Entradas de 2026 em diante (a partir de *_LISTA_CADASTRO.xlsx)
+    # Mapeamento dimensional para validação da cadeia produtiva (Leite vs Cacau, Café, Grãos)
+    res_all_vinc = supabase.table("tab_vinculos_sq").select("codigo_lr, projeto, tipo_ponto_atendimento").execute()
+    mapa_lr_tipo: Dict[str, str] = {}
+    mapa_lr_proj: Dict[str, str] = {}
+    for v in (res_all_vinc.data or []):
+        c_lr = str(v.get("codigo_lr") or "").strip()
+        if c_lr:
+            mapa_lr_tipo[c_lr] = str(v.get("tipo_ponto_atendimento") or "").strip().upper()
+            mapa_lr_proj[c_lr] = str(v.get("projeto") or "").strip().upper()
+
+    def eh_cadeia_leite(projeto_str: str, codigo_lr: str = "") -> bool:
+        proj_upper = (projeto_str or "").strip().upper()
+        # 1. Se o projeto contém termos de outras cadeias (Cacau, Grãos, Café)
+        for p_out in ['MAIS GRÃOS', 'MAIS GRAOS', 'MIMC', 'M&E', 'CAFE&GESTAO', 'CAFE & GESTAO', 'CARGILL', 'NCP', 'OFI', 'PV CARGILL']:
+            if p_out in proj_upper:
+                return False
+        # 2. Se o projeto é reconhecido de Leite
+        for p_lei in ['REGENERA', 'ALVOAR', 'SEMEAR', 'CCPR', 'ATEG_CCPR', 'LPA', 'CFT', 'CAMPILEITE', 'COPRIL', 'EDUCAMPO', 'QUILLAYES', 'NESTLE']:
+            if p_lei in proj_upper:
+                return True
+        # 3. Cruzamento com código LR em tab_vinculos_sq
+        if codigo_lr in mapa_lr_tipo:
+            t = mapa_lr_tipo[codigo_lr]
+            if "CACAU" in t or "CAFE" in t or "GRAOS" in t:
+                return False
+            if "LEITE" in t:
+                return True
+        if codigo_lr in mapa_lr_proj:
+            p = mapa_lr_proj[codigo_lr]
+            if any(p_out in p for p_out in ['MIMC', 'M&E', 'GRAOS', 'CAFE', 'CARGILL', 'NCP', 'OFI']):
+                return False
+            if any(p_lei in p for p_lei in ['REGENERA', 'ALVOAR', 'SEMEAR', 'CCPR', 'LPA', 'CFT', 'CAMPILEITE', 'COPRIL', 'EDUCAMPO', 'QUILLAYES', 'NESTLE']):
+                return True
+        return False
+
+    # 4.2 Entradas de 2026 em diante (a partir de *_LISTA_CADASTRO.xlsx - Filtrado apenas LEITE)
     arquivos_cad = list(bd_path.glob("*_LISTA_CADASTRO.xlsx")) + list((bd_path / "BACKUPS").glob("*_LISTA_CADASTRO.xlsx"))
     if arquivos_cad:
         for arq_cad in arquivos_cad:
@@ -228,6 +263,8 @@ def executar_reconciliacao():
                 col_dt_c = [c for c in df_c.columns if "solicita" in str(c).lower()][0]
                 col_cod_c = [c for c in df_c.columns if "código" in str(c).lower() or "codigo" in str(c).lower()][0]
                 col_tipo_c = [c for c in df_c.columns if "tipo de cadastro" in str(c).lower()]
+                col_cadeia_c = [c for c in df_c.columns if "cadeia" in str(c).lower()]
+                col_proj_c = [c for c in df_c.columns if "projeto" in str(c).lower()]
                 
                 for _, row in df_c.iterrows():
                     id_atend = str(row[col_id_c]).strip().replace(".0", "")
@@ -240,6 +277,15 @@ def executar_reconciliacao():
                     if dt_mov < "2026-01-01":
                         continue
                         
+                    # Filtro exclusivo de LEITE
+                    if col_cadeia_c:
+                        cadeia_val = str(row.get(col_cadeia_c[0]) or "").strip().lower()
+                        if cadeia_val and not ("leite" in cadeia_val):
+                            continue
+                    elif col_proj_c:
+                        if not eh_cadeia_leite(str(row.get(col_proj_c[0]) or ""), str(row.get(col_cod_c) or "")):
+                            continue
+
                     cod_raw = str(row.get(col_cod_c) or "").strip().replace(".0", "")
                     cod = cod_raw if (cod_raw and cod_raw.lower() != "nan") else f"CAD_{id_atend}"
                     cons = extrair_consultor_individual(str(row[col_cons_c]))
@@ -259,7 +305,7 @@ def executar_reconciliacao():
             except Exception as e_cad:
                 print(f"   ⚠️ Aviso ao processar {arq_cad.name}: {e_cad}")
 
-    # 4.3 Saídas (Histórico Pré-2026 preservado + 2026 em diante por Data da Solicitação)
+    # 4.3 Saídas (Histórico Pré-2026 preservado + 2026 em diante por Data da Solicitação - Filtrado LEITE)
     codigos_oficiais_set = set(df_vinc_db["codigo_lr"].dropna().unique()) if not df_vinc_db.empty else set()
     
     if not df_inats_existentes.empty:
@@ -268,12 +314,16 @@ def executar_reconciliacao():
             cod_raw = str(row.get("codigo_lr") or "").strip()
             cod = cod_raw if (cod_raw and cod_raw.lower() != "nan") else f"INAT_{id_atend}"
             cons = extrair_consultor_individual(row.get("nome_consultor"), row.get("grupo_ponto_atendimento"))
+            proj_inat = str(row.get("projeto") or "").strip()
             
             dt_solic = row.get("data_solicitacao")
             dt_inat = row.get("data_inativacao")
             
             dt_solic_p = pd.to_datetime(dt_solic, errors="coerce")
             if pd.notna(dt_solic_p) and dt_solic_p >= pd.Timestamp("2026-01-01"):
+                # Filtro de LEITE para 2026 em diante
+                if not eh_cadeia_leite(proj_inat, cod_raw):
+                    continue
                 dt_mov = dt_solic_p.strftime("%Y-%m-01")
                 id_comp = f"INAT_{id_atend}_{dt_mov}_Saída" if id_atend else f"{cod}_{cons}_{dt_mov}_Saída"
             else:
