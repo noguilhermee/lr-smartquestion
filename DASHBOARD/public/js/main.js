@@ -716,6 +716,19 @@ document.addEventListener('DOMContentLoaded', () => {
     updateTableHeadIcons('tbodyConsultants', tableSort.tbodyConsultants.colKey, tableSort.tbodyConsultants.dir);
     if (el('tbodyConsultants')) el('tbodyConsultants').innerHTML = rowsOrEmpty(consultants, 6, (row) => `<tr><td class="col-left" title="${escapeHtml(row.consultor || '—')}"><strong>${escapeHtml(row.consultor || '—')}</strong></td><td class="col-center font-tabular">${number(row.total_fazendas)}</td><td class="col-center font-tabular">${number(row.fazendas_visitadas)}</td><td class="col-center font-tabular">${number(row.total_visitas)}</td><td class="col-center font-tabular">${percent(row.perc_cobertura)}</td><td class="col-center"><span class="badge badge-positive">ATIVO</span></td></tr>`);
 
+    if (el('tfootConsultants')) {
+      if (consultants.length > 0) {
+        const totFazendas = consultants.reduce((acc, r) => acc + (Number(r.total_fazendas) || 0), 0);
+        const totVisitadas = consultants.reduce((acc, r) => acc + (Number(r.fazendas_visitadas) || 0), 0);
+        const totVisitas = consultants.reduce((acc, r) => acc + (Number(r.total_visitas) || 0), 0);
+        const cobMedia = totFazendas > 0 ? ((totVisitadas / totFazendas) * 100).toFixed(1) : '0.0';
+
+        el('tfootConsultants').innerHTML = `<tr class="table-totals-row"><td class="col-left"><strong>TOTAL (${consultants.length} consultor${consultants.length > 1 ? 'es' : ''})</strong></td><td class="col-center font-tabular"><strong>${number(totFazendas)}</strong></td><td class="col-center font-tabular"><strong>${number(totVisitadas)}</strong></td><td class="col-center font-tabular"><strong>${number(totVisitas)}</strong></td><td class="col-center font-tabular"><strong>${percent(cobMedia)}</strong></td><td class="col-center"><span class="badge badge-totals">MÉDIA GERAL</span></td></tr>`;
+      } else {
+        el('tfootConsultants').innerHTML = '';
+      }
+    }
+
     // Tabela 5: Produtores com Dados
     let withData = (consistency.tabelaProdutoresComDados || []).filter((row) => matches(row, filter, true));
     updateCount('countDataProducers', withData);
@@ -1009,6 +1022,24 @@ document.addEventListener('DOMContentLoaded', () => {
         csvLines.push(rowValues.join(';'));
       }
     });
+
+    const tfoot = table.querySelector('tfoot');
+    if (tfoot) {
+      const footRows = Array.from(tfoot.querySelectorAll('tr'));
+      footRows.forEach((tr) => {
+        const cells = Array.from(tr.querySelectorAll('td, th'));
+        const rowValues = [];
+        cells.forEach((td, idx) => {
+          if (idx < headers.length) {
+            let txt = td.textContent.trim().replace(/\s+/g, ' ');
+            rowValues.push(`"${txt.replace(/"/g, '""')}"`);
+          }
+        });
+        if (rowValues.length > 0) {
+          csvLines.push(rowValues.join(';'));
+        }
+      });
+    }
 
     const bom = '\uFEFF';
     const blob = new Blob([bom + csvLines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });

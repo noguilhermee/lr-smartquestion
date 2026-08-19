@@ -1146,6 +1146,41 @@ body.table-resizing * {
   font-weight: 700;
 }
 
+/* Linha de Totais da Tabela (tfoot) */
+.data-table tfoot {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+}
+
+.data-table tfoot tr.table-totals-row td {
+  background: var(--surface-subtle, #f0f7f4) !important;
+  color: var(--ink-strong) !important;
+  font-weight: 750 !important;
+  border-top: 2px solid var(--green-400, #0F6E56) !important;
+  border-bottom: 0 !important;
+  padding: 6.5px 7px !important;
+  box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.04);
+}
+
+:root[data-theme="dark"] .data-table tfoot tr.table-totals-row td {
+  background: #172421 !important;
+  color: #f1f5f9 !important;
+  border-top-color: #10b981 !important;
+}
+
+.badge-totals {
+  background: var(--green-100, #e6f4ea);
+  color: var(--green-500, #0a4635);
+  border: 1px solid rgba(15, 110, 86, 0.2);
+}
+
+:root[data-theme="dark"] .badge-totals {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.3);
+}
+
 /* Helpers de Alinhamento */
 .col-left { text-align: left !important; }
 .col-center { text-align: center !important; }
@@ -1171,11 +1206,12 @@ body.table-resizing * {
 #tableVisitados th:nth-child(7) { width: 9%; }
 
 /* Tabela 3: Movimentação dos produtores */
-#tableTurnover th:nth-child(1) { width: 27%; }
-#tableTurnover th:nth-child(2) { width: 14%; }
-#tableTurnover th:nth-child(3) { width: 14%; }
-#tableTurnover th:nth-child(4) { width: 23%; }
-#tableTurnover th:nth-child(5) { width: 22%; }
+#tableTurnover th:nth-child(1) { width: 10%; min-width: 95px; }
+#tableTurnover th:nth-child(2) { width: 25%; }
+#tableTurnover th:nth-child(3) { width: 12%; }
+#tableTurnover th:nth-child(4) { width: 13%; }
+#tableTurnover th:nth-child(5) { width: 20%; }
+#tableTurnover th:nth-child(6) { width: 20%; }
 
 /* Tabela 4: Consultores ativos */
 #tableConsultants th:nth-child(1) { width: 34%; }
