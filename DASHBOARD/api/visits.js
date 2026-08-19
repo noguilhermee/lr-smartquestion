@@ -106,8 +106,9 @@ module.exports = async (req, res) => {
     const latestAvailableMonth = (ultimasVisitas && ultimasVisitas.length > 0)
       ? ultimasVisitas[0].mes_referencia
       : maxAllowedMonth;
+    // Visitas e cobertura refletem exatamente o mês selecionado no filtro (operação em campo em tempo real)
     const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
-      ? (shiftMonthMinus1(requestedMonth) || latestAvailableMonth)
+      ? requestedMonth
       : latestAvailableMonth;
 
     const { getRegiaoMap, sanitizeRegiao } = require('./azurePostgres');

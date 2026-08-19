@@ -406,7 +406,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let loadingTimeout = null;
 
-  function showLoading(message = 'Atualizando dados...') {
+  function showLoading(message = 'Atualizando dashboard com filtros...') {
     const overlay = el('loadingOverlay');
     if (!overlay) return;
     const textEl = overlay.querySelector('.loading-text');
@@ -1118,10 +1118,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let debounceFilterTimer = null;
 
   async function loadAllData(isFilterChange = false) {
-    if (!isFilterChange) {
-      showLoading('Carregando dados...');
-    } else if (el('lastUpdateTag')) {
-      el('lastUpdateTag').textContent = 'Aplicando filtros...';
+    showLoading(isFilterChange ? 'Atualizando dashboard com filtros...' : 'Carregando dados...');
+    if (el('lastUpdateTag')) {
+      el('lastUpdateTag').textContent = 'Atualizando dashboard com filtros...';
     }
 
     try {
@@ -1163,11 +1162,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function handleFilterSelectionChange() {
+    showLoading('Atualizando dashboard com filtros...');
     updateAllCrossFilters();
-    clearTimeout(debounceFilterTimer);
-    debounceFilterTimer = setTimeout(() => {
-      loadAllData(true);
-    }, 120);
+    loadAllData(true);
   }
 
   function closeAllPopups() {
@@ -1272,6 +1269,7 @@ document.addEventListener('DOMContentLoaded', () => {
             select.value = val;
             syncDisplayValue();
             closeAllPopups();
+            showLoading('Atualizando dashboard com filtros...');
             select.dispatchEvent(new Event('change', { bubbles: true }));
           });
         });
@@ -1316,10 +1314,11 @@ document.addEventListener('DOMContentLoaded', () => {
   ['filterIndustry', 'filterRegion', 'filterProject', 'filterStatus', 'filterConsultant', 'filterProducer']
     .forEach((id) => el(id)?.addEventListener('change', handleFilterSelectionChange));
   el('filterMonth')?.addEventListener('change', async () => {
+    showLoading('Atualizando dashboard com filtros...');
     state.masterRows = null;
     await fetchMonthMasterData();
     updateAllCrossFilters();
-    loadAllData();
+    await loadAllData(true);
   });
   document.querySelectorAll('[data-ranking]').forEach((button) => button.addEventListener('click', () => {
     state.rankingDimension = button.dataset.ranking;

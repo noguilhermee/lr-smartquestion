@@ -430,16 +430,14 @@ button { color: inherit; }
   align-items: center;
   justify-content: center;
   gap: 12px;
-  background: rgba(247, 249, 249, 0.75);
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
+  background: #ffffff;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 220ms ease;
+  transition: opacity 120ms ease;
 }
 
 :root[data-theme="dark"] .loading-overlay {
-  background: rgba(7, 40, 36, 0.78);
+  background: #0f172a;
 }
 
 .loading-overlay.active {
