@@ -18,6 +18,12 @@ import yaml
 from dotenv import load_dotenv
 from supabase import create_client
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 
 def detectar_raiz(caminho_base: Path | None = None) -> Path:
     """Localiza a raiz do projeto de forma robusta."""
@@ -164,6 +170,14 @@ def atualizar_consistencia_mensal(
     col_detalhe = next((c for c in df_excel.columns if "detalhamento" in c.lower()), None)
     col_status = next((c for c in df_excel.columns if "status de consistência" in c.lower() or "status de consistencia" in c.lower()), None)
     col_cadastral = next((c for c in df_excel.columns if "status cadastral" in c.lower() or "status_code" in c.lower()), None)
+    
+    col_produtor = next((c for c in df_excel.columns if c.strip().lower() == "fazenda - produtor"), None)
+    if not col_produtor:
+        col_produtor = next((c for c in df_excel.columns if "produtor" in c.lower() and "id" not in c.lower()), None)
+    if not col_produtor:
+        col_produtor = next((c for c in df_excel.columns if "fazenda" in c.lower() and "id" not in c.lower()), None)
+
+    col_consultor = next((c for c in df_excel.columns if "consultor" in c.lower()), None)
 
     if not col_codigo or not col_mes:
         raise ValueError("❌ Colunas obrigatórias ('Código LR', 'Mês de Referência') não encontradas na planilha mensal.")
@@ -172,6 +186,16 @@ def atualizar_consistencia_mensal(
     df_carga["codigo_lr"] = df_excel[col_codigo].astype(str).str.strip()
     df_carga["mes_referencia"] = pd.to_datetime(df_excel[col_mes]).dt.strftime("%Y-%m-%d")
     df_carga["mes_elabore"] = df_carga["mes_referencia"]
+
+    if col_produtor:
+        df_carga["nome_produtor"] = df_excel[col_produtor].apply(lambda x: str(x).strip() if pd.notna(x) else None)
+    else:
+        df_carga["nome_produtor"] = None
+
+    if col_consultor:
+        df_carga["nome_consultor"] = df_excel[col_consultor].apply(lambda x: str(x).strip() if pd.notna(x) else None)
+    else:
+        df_carga["nome_consultor"] = None
 
     if col_status:
         df_carga["consistencia_mensal"] = df_excel[col_status].fillna("Inconsistente").astype(str).str.strip()
@@ -262,10 +286,12 @@ def atualizar_consistencia_anual(
     if not col_status:
         col_status = next((c for c in df_excel.columns if "status de consistência" in c.lower() or "consistencia" in c.lower()), None)
 
-    # Detalhamento de inconsistência / outliers anual
-    col_detalhe = next((c for c in df_excel.columns if c.strip().lower() in ["outlier_details_annual", "detalhamento_inconsistencia", "annual_violated_consistency_details"]), None)
-    if not col_detalhe:
-        col_detalhe = next((c for c in df_excel.columns if "outlier_details" in c.lower() or "detalhamento" in c.lower()), None)
+    # Detalhamento de inconsistência / outliers anual (prioriza annual_violated_consistency_details e outlier_details_annual)
+    col_violated = next((c for c in df_excel.columns if c.strip().lower() in ["annual_violated_consistency_details", "violated_consistency_details"]), None)
+    col_outlier = next((c for c in df_excel.columns if c.strip().lower() in ["outlier_details_annual", "detalhamento_inconsistencia", "outlier_details"]), None)
+
+    col_produtor = next((c for c in df_excel.columns if c.strip().lower() in ["property_name", "entrepreneur_name", "property_entrepreneur_label", "fazenda", "produtor"]), None)
+    col_consultor = next((c for c in df_excel.columns if c.strip().lower() in ["consultant_name", "consultor"]), None)
 
     if not col_codigo or not col_end:
         raise ValueError("❌ Colunas obrigatórias ('labor_rural_code', 'annual_period_end') não encontradas na planilha anual.")
@@ -279,17 +305,35 @@ def atualizar_consistencia_anual(
     else:
         df_carga["mes_elabore"] = df_carga["mes_referencia"]
 
+    if col_produtor:
+        df_carga["nome_produtor"] = df_excel[col_produtor].apply(lambda x: str(x).strip() if pd.notna(x) else None)
+    else:
+        df_carga["nome_produtor"] = None
+
+    if col_consultor:
+        df_carga["nome_consultor"] = df_excel[col_consultor].apply(lambda x: str(x).strip() if pd.notna(x) else None)
+    else:
+        df_carga["nome_consultor"] = None
+
     if col_status:
         df_carga["consistencia_anual"] = df_excel[col_status].fillna("Inconsistente").astype(str).str.strip()
     else:
         df_carga["consistencia_anual"] = "Inconsistente"
 
-    if col_detalhe:
-        df_carga["detalhamento_inconsistencia"] = df_excel[col_detalhe].apply(
-            lambda x: None if pd.isna(x) or str(x).strip().lower() in ["nenhum", "nan", "", "none"] else str(x).strip()
-        )
-    else:
-        df_carga["detalhamento_inconsistencia"] = None
+    def extrair_detalhe_anual(row):
+        partes = []
+        if col_violated and pd.notna(row[col_violated]):
+            v = str(row[col_violated]).strip()
+            if v and v.lower() not in ["nenhum", "nan", "none", ""]:
+                partes.append(v)
+        if col_outlier and pd.notna(row[col_outlier]):
+            o = str(row[col_outlier]).strip()
+            if o and o.lower() not in ["nenhum", "nan", "none", ""]:
+                if o not in partes:
+                    partes.append(o)
+        return " | ".join(partes) if partes else None
+
+    df_carga["detalhamento_inconsistencia"] = df_excel.apply(extrair_detalhe_anual, axis=1)
 
     agora_iso = datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat()
     df_carga["data_processamento"] = agora_iso

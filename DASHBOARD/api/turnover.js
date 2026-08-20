@@ -143,7 +143,9 @@ module.exports = async (req, res) => {
       return true;
     }
 
-    const maxAllowedMonth = new Date().toISOString().slice(0, 7) + '-01';
+    const nowLocal = new Date();
+    const nowUtc3 = new Date(nowLocal.getTime() - (nowLocal.getTimezoneOffset() * 60000));
+    const maxAllowedMonth = nowUtc3.toISOString().slice(0, 7) + '-01';
     const [movimentacoesBrutas, produtoresBrutos, inativacoesFallback, vinculosFallback] = await Promise.all([
       fetchAll(() => supabase
         .from('tab_movimentacao_produtor')
@@ -202,14 +204,11 @@ module.exports = async (req, res) => {
       return rowMatches({ ...m, projeto: p?.projeto, unidade_atendimento: p?.unidade_atendimento, nome_produtor: p?.nome_produtor });
     });
 
-    const maxDataRef = (produtores && produtores.length > 0) ? produtores[0].data_referencia : null;
-    const latestMovementKey = String(movimentacoes?.[0]?.data_movimentacao || '').slice(0, 7);
-    const latestMovementMonth = /^\d{4}-\d{2}$/.test(latestMovementKey) ? `${latestMovementKey}-01` : null;
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
-    // Produtores ativos e movimentação no mês selecionado
+    // Produtores ativos e movimentação no mês selecionado (ou mês atual)
     const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
       ? requestedMonth
-      : (latestMovementMonth || maxDataRef);
+      : maxAllowedMonth;
     const produtoresFiltrados = refMonth
       ? produtores.filter(p => p.data_referencia === refMonth)
       : (produtores || []);

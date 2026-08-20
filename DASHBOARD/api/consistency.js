@@ -125,23 +125,17 @@ module.exports = async (req, res) => {
       return 'NÃO INFORMADA';
     }
     
-    // Descobrir mês mais recente
-    const maxAllowedMonth = new Date().toISOString().slice(0, 7) + '-01';
-    const { data: ultimasVisitas } = await supabase
-      .from('f_visitas_bi_lr')
-      .select('mes_referencia')
-      .lte('mes_referencia', maxAllowedMonth)
-      .order('mes_referencia', { ascending: false })
-      .limit(1);
+    // 1. Descobrir mês de referência (M-1 em relação ao mês atual do Brasil)
+    const nowLocal = new Date();
+    const nowUtc3 = new Date(nowLocal.getTime() - (nowLocal.getTimezoneOffset() * 60000));
+    const maxAllowedMonth = nowUtc3.toISOString().slice(0, 7) + '-01';
 
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
-    const latestAvailableMonth = (ultimasVisitas && ultimasVisitas.length > 0)
-      ? ultimasVisitas[0].mes_referencia
+    // Regra M-1: mês selecionado pelo usuário (ou mês atual) mapeia para o mês anterior como referência zootécnica
+    const baseMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
+      ? requestedMonth
       : maxAllowedMonth;
-    // Regra M-1: mês selecionado pelo usuário mapeia para o mês anterior como referência de dados
-    const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
-      ? (shiftMonthMinus1(requestedMonth) || latestAvailableMonth)
-      : latestAvailableMonth;
+    const refMonth = shiftMonthMinus1(baseMonth) || baseMonth;
 
     const filters = {
       industry: String(req.query?.industry || '').trim(),
@@ -172,7 +166,7 @@ module.exports = async (req, res) => {
       return true;
     }
 
-    const [consistenciaHistoricaBruta, produtoresAtivosBrutos, vinculosFallback] = await Promise.all([
+    const [consistenciaHistoricaBruta, produtoresAtivosBrutos, vinculosFallback, consistenciaMensalBruta, consistenciaAnualBruta] = await Promise.all([
       fetchAll(() => supabase
         .from('f_consistente_bi_lr')
         .select('codigo_lr, nome_consultor, projeto, mes_referencia, data_carencia_fim, mes_elabore, consistencia_mensal, consistencia_anual, excecao, meses_sequenciais, detalhamento_inconsistencia')
@@ -185,10 +179,20 @@ module.exports = async (req, res) => {
         .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
         .from('tab_vinculos_sq')
-        .select('codigo_lr, nome_produtor, projeto, unidade_atendimento'))
+        .select('codigo_lr, nome_produtor, projeto, unidade_atendimento')),
+      fetchAll(() => supabase
+        .from('tab_consistencia_mensal')
+        .select('codigo_lr, mes_referencia, consistencia_mensal, detalhamento_inconsistencia')
+        .eq('mes_referencia', refMonth)),
+      fetchAll(() => supabase
+        .from('tab_consistencia_anual')
+        .select('codigo_lr, mes_referencia, consistencia_anual, detalhamento_inconsistencia')
+        .eq('mes_referencia', refMonth))
     ]);
 
     const fallbackMetaMap = new Map((vinculosFallback || []).map(v => [v.codigo_lr, v]));
+    const mensalRefMap = new Map((consistenciaMensalBruta || []).map(m => [String(m.codigo_lr).trim().toUpperCase(), m]));
+    const anualRefMap = new Map((consistenciaAnualBruta || []).map(a => [String(a.codigo_lr).trim().toUpperCase(), a]));
     const produtoresAtivos = (produtoresAtivosBrutos || []).filter(rowMatches);
     const produtoresMap = new Map((produtoresAtivos || []).map(p => [p.codigo_lr, p]));
 
@@ -222,12 +226,23 @@ module.exports = async (req, res) => {
         else if (seq <= 12) mesesSequenciaisDist['10-12 meses']++;
         else mesesSequenciaisDist['12+ meses']++;
 
-        const statusConsist = String(c.consistencia_mensal || '').toLowerCase();
+        const cdLrUpper = String(c.codigo_lr || '').trim().toUpperCase();
+        const mensalDirect = mensalRefMap.get(cdLrUpper);
+        const anualDirect = anualRefMap.get(cdLrUpper);
+
+        // Regra do Usuário: "Sem dados" é baseado estritamente na tab_consistencia_mensal
+        const hasNoMensalRecord = !mensalDirect || !mensalDirect.consistencia_mensal;
+        const statusConsist = String(mensalDirect ? mensalDirect.consistencia_mensal : (c.consistencia_mensal || '')).toLowerCase();
+        const detalheConsist = mensalDirect ? (mensalDirect.detalhamento_inconsistencia || c.detalhamento_inconsistencia) : null;
+
+        const statusConsistAnual = anualDirect ? anualDirect.consistencia_anual : (c.consistencia_anual || null);
+        const detalheConsistAnual = anualDirect ? anualDirect.detalhamento_inconsistencia : null;
+
         const refMonthStr = String(c.mes_referencia || '').slice(0, 7);
         const isCinthiaMissingMay = (c.codigo_lr === 'LR10245' || String(c.nome_produtor || '').toLowerCase().includes('cinthia')) && refMonthStr === '2026-05';
-        const isSemDadosExplicit = !c.consistencia_mensal || statusConsist.includes('sem dados') || statusConsist.includes('sem_dados') || statusConsist.includes('não calculado') || statusConsist.includes('nao calculado');
+        const isSemDadosExplicit = hasNoMensalRecord || statusConsist.includes('sem dados') || statusConsist.includes('sem_dados') || statusConsist.includes('não calculado') || statusConsist.includes('nao calculado');
 
-        const isSemDados = !c.mes_elabore || isSemDadosExplicit || isCinthiaMissingMay;
+        const isSemDados = isSemDadosExplicit || isCinthiaMissingMay;
         const isConsistente = !isSemDados && statusConsist.includes('consistente') && !statusConsist.includes('inconsistente');
         const isInconsistente = !isSemDados && !isConsistente && statusConsist.includes('inconsistente');
 
@@ -249,7 +264,9 @@ module.exports = async (req, res) => {
             mes_referencia: c.mes_referencia || refMonth,
             meses_sequenciais: seq,
             consistencia: 'Inconsistente',
-            detalhamento: c.detalhamento_inconsistencia || null
+            detalhamento: detalheConsist || null,
+            consistencia_anual: statusConsistAnual,
+            detalhamento_anual: detalheConsistAnual
           });
         } else {
           semDados++;
@@ -267,7 +284,9 @@ module.exports = async (req, res) => {
             mes_referencia: c.mes_referencia || refMonth,
             meses_sequenciais: seq,
             consistencia: 'Sem dados',
-            detalhamento: c.detalhamento_inconsistencia || null
+            detalhamento: null,
+            consistencia_anual: statusConsistAnual,
+            detalhamento_anual: detalheConsistAnual
           });
         }
       });
@@ -302,11 +321,14 @@ module.exports = async (req, res) => {
     const tabelaProdutoresComDados = consistenciaFiltrada.map(c => {
       const produtor = produtoresMap.get(c.codigo_lr);
       const metaFallback = fallbackMetaMap.get(c.codigo_lr);
-      const statusConsist = String(c.consistencia_mensal || '').toLowerCase();
+      const cdLrUpper = String(c.codigo_lr || '').trim().toUpperCase();
+      const mensalDirect = mensalRefMap.get(cdLrUpper);
+      const statusConsist = String(mensalDirect ? mensalDirect.consistencia_mensal : (c.consistencia_mensal || '')).toLowerCase();
+      const hasNoMensalRecord = !mensalDirect || !mensalDirect.consistencia_mensal;
       const refMonthStr = String(c.mes_referencia || '').slice(0, 7);
       const isCinthiaMissingMay = (c.codigo_lr === 'LR10245' || String(produtor?.nome_produtor || '').toLowerCase().includes('cinthia')) && refMonthStr === '2026-05';
-      const isSemDados = !c.mes_elabore || isCinthiaMissingMay || statusConsist.includes('sem dados') || statusConsist.includes('não calculado');
-      const possuiDados = Boolean(!isSemDados && c.mes_elabore && isConsistent(c.consistencia_mensal));
+      const isSemDados = hasNoMensalRecord || isCinthiaMissingMay || statusConsist.includes('sem dados') || statusConsist.includes('não calculado');
+      const possuiDados = Boolean(!isSemDados && isConsistent(statusConsist));
       const prodName = produtor?.nome_produtor || metaFallback?.nome_produtor || c.codigo_lr || 'PRODUTOR';
 
       return {

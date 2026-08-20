@@ -94,22 +94,14 @@ module.exports = async (req, res) => {
     const supabase = getSupabaseClient();
     
     // Descobrir mês mais recente (limitado ao mês atual maxAllowedMonth)
-    const maxAllowedMonth = new Date().toISOString().slice(0, 7) + '-01';
-    const { data: ultimasVisitas } = await supabase
-      .from('f_visitas_bi_lr')
-      .select('mes_referencia')
-      .lte('mes_referencia', maxAllowedMonth)
-      .order('mes_referencia', { ascending: false })
-      .limit(1);
+    const nowLocal = new Date();
+    const nowUtc3 = new Date(nowLocal.getTime() - (nowLocal.getTimezoneOffset() * 60000));
+    const maxAllowedMonth = nowUtc3.toISOString().slice(0, 7) + '-01';
 
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
-    const latestAvailableMonth = (ultimasVisitas && ultimasVisitas.length > 0)
-      ? ultimasVisitas[0].mes_referencia
-      : maxAllowedMonth;
-    // Visitas e cobertura refletem exatamente o mês selecionado no filtro (operação em campo em tempo real)
     const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
       ? requestedMonth
-      : latestAvailableMonth;
+      : maxAllowedMonth;
 
     const { getRegiaoMap, sanitizeRegiao } = require('./azurePostgres');
     const regiaoMap = await getRegiaoMap(supabase, fetchAll);

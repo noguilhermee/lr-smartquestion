@@ -1,24 +1,24 @@
 {
-  "timestamp_inspecao": "2026-08-19T15:17:17.401675",
-  "timestamp_etl": "2026-08-19T15:17:17.401675",
-  "ultima_execucao_etl_formatada": "19/08/2026 às 15:17:17",
-  "ultima_leitura_planilhas_formatada": "19/08/2026 às 15:17:17",
+  "timestamp_inspecao": "2026-08-19T15:50:28.888895-03:00",
+  "timestamp_etl": "2026-08-19T15:50:28.888895-03:00",
+  "ultima_execucao_etl_formatada": "19/08/2026 às 15:50:28",
+  "ultima_leitura_planilhas_formatada": "19/08/2026 às 15:50:28",
   "arquivo_mais_recente_nome": "BD_BI_VINCULOS_COMPLETO.xlsx",
   "arquivo_mais_recente_data": "19/08/2026 às 11:40",
   "total_arquivos": 11,
   "diretorio_origem": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION",
   "consistencia_mensal": {
     "tabela": "tab_consistencia_mensal",
-    "ultima_atualizacao": "2026-08-19T17:17:02.565301+00:00",
-    "ultima_atualizacao_formatada": "19/08/2026 às 17:17",
-    "total_registros": 17064,
+    "ultima_atualizacao": "2026-08-19T15:44:46.727045-03:00",
+    "ultima_atualizacao_formatada": "19/08/2026 às 15:44",
+    "total_registros": 13071,
     "status": "✅ Sincronizado"
   },
   "consistencia_anual": {
     "tabela": "tab_consistencia_anual",
-    "ultima_atualizacao": "2026-08-19T17:17:03.749829+00:00",
-    "ultima_atualizacao_formatada": "19/08/2026 às 17:17",
-    "total_registros": 11253,
+    "ultima_atualizacao": "2026-08-19T15:45:05.200920-03:00",
+    "ultima_atualizacao_formatada": "19/08/2026 às 15:45",
+    "total_registros": 5473,
     "status": "✅ Sincronizado"
   },
   "arquivos": [

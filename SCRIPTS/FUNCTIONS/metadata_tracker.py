@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
+from zoneinfo import ZoneInfo
 import pandas as pd
 import yaml
 
@@ -98,7 +99,7 @@ def obter_info_consistencia_supabase(raiz: Path) -> Dict[str, Any]:
                 dt_m = None
                 if res_m.data and res_m.data[0].get("data_processamento"):
                     dt_m_str = res_m.data[0]["data_processamento"]
-                    dt_m = datetime.fromisoformat(dt_m_str.replace("Z", "+00:00"))
+                    dt_m = datetime.fromisoformat(dt_m_str.replace("Z", "+00:00")).astimezone(ZoneInfo("America/Sao_Paulo"))
                     dt_m_fmt = dt_m.strftime("%d/%m/%Y às %H:%M")
                 else:
                     dt_m_fmt = "Sem registro"
@@ -121,7 +122,7 @@ def obter_info_consistencia_supabase(raiz: Path) -> Dict[str, Any]:
                 dt_a = None
                 if res_a.data and res_a.data[0].get("data_processamento"):
                     dt_a_str = res_a.data[0]["data_processamento"]
-                    dt_a = datetime.fromisoformat(dt_a_str.replace("Z", "+00:00"))
+                    dt_a = datetime.fromisoformat(dt_a_str.replace("Z", "+00:00")).astimezone(ZoneInfo("America/Sao_Paulo"))
                     dt_a_fmt = dt_a.strftime("%d/%m/%Y às %H:%M")
                 else:
                     dt_a_fmt = "Sem registro"
@@ -143,7 +144,14 @@ def obter_info_consistencia_supabase(raiz: Path) -> Dict[str, Any]:
 
 
 def obter_metadados_planilhas(raiz_projeto: Path | str | None = None) -> Dict[str, Any]:
-    raiz = Path(raiz_projeto or Path.cwd()).resolve()
+    caminho_base = Path(raiz_projeto or Path.cwd()).resolve()
+    for candidato in [caminho_base, *caminho_base.parents]:
+        if (candidato / "SCRIPTS").is_dir() and ((candidato / "DB").is_dir() or (candidato / "DASHBOARD").is_dir()):
+            raiz = candidato
+            break
+    else:
+        raiz = caminho_base
+        
     config_path = raiz / "SCRIPTS" / "CONFIG" / "config.yaml"
     
     if not config_path.exists():
@@ -162,7 +170,7 @@ def obter_metadados_planilhas(raiz_projeto: Path | str | None = None) -> Dict[st
     if bd_path.exists():
         for arquivo in sorted(bd_path.glob("*.xlsx")):
             stat = arquivo.stat()
-            mtime = datetime.fromtimestamp(stat.st_mtime)
+            mtime = datetime.fromtimestamp(stat.st_mtime, tz=ZoneInfo("America/Sao_Paulo"))
             cat_info = categorizar_arquivo(arquivo.name)
             
             if max_mtime is None or mtime > max_mtime:
@@ -197,7 +205,7 @@ def obter_metadados_planilhas(raiz_projeto: Path | str | None = None) -> Dict[st
     # Consultar metadados de consistência no Supabase (somente leitura)
     info_consistencia = obter_info_consistencia_supabase(raiz)
     
-    agora = datetime.now()
+    agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
     payload = {
         "timestamp_inspecao": agora.isoformat(),
         "timestamp_etl": agora.isoformat(),

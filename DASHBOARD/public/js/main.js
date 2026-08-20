@@ -7,7 +7,34 @@ document.addEventListener('DOMContentLoaded', () => {
   const themeMeta = document.querySelector('meta[name="theme-color"]');
   const carousel = new DashboardCarousel({ slideDuration: 30000 });
   const charts = new DashboardCharts();
-  const state = { overview: null, visits: null, turnover: null, consistency: null, rankingDimension: 'producer' };
+  const state = {
+    overview: null,
+    visits: null,
+    turnover: null,
+    consistency: null,
+    rankingDimension: 'producer',
+    chartHorizons: {
+      coverage: 12,
+      turnover: 12,
+      portfolio: 12,
+      consistency: 12
+    }
+  };
+
+  function sliceTimeSeries(seriesObj, monthsCount) {
+    if (!seriesObj || !seriesObj.labels || !seriesObj.labels.length) return seriesObj;
+    if (!monthsCount || monthsCount <= 0 || monthsCount >= seriesObj.labels.length) return seriesObj;
+    const startIdx = Math.max(0, seriesObj.labels.length - monthsCount);
+    const sliced = {};
+    for (const [k, v] of Object.entries(seriesObj)) {
+      if (Array.isArray(v)) {
+        sliced[k] = v.slice(startIdx);
+      } else {
+        sliced[k] = v;
+      }
+    }
+    return sliced;
+  }
   const projectOptions = [
     { value: 'ALVOAR ASSIST', label: 'Alvoar Assist' },
     { value: 'ALVOAR ECO', label: 'Alvoar Eco' },
@@ -131,7 +158,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updateValue('kpiDataProducers', number(kpi.produtores_com_dados));
     updateValue('kpiDataEligible', number(state.consistency?.kpis?.fazendas_aptas || kpi.produtores_com_dados));
 
-    charts.renderCoverage('chartVisitsCoverage', data.evolucaoMensal || emptyState.overview.evolucaoMensal);
+    const coverageData = sliceTimeSeries(data.evolucaoMensal || emptyState.overview.evolucaoMensal, state.chartHorizons.coverage);
+    charts.renderCoverage('chartVisitsCoverage', coverageData);
     renderSelectedRanking();
   }
 
@@ -185,8 +213,10 @@ document.addEventListener('DOMContentLoaded', () => {
     updateValue('kpiTurnSaidas', number(kpi.saidas_mes));
     updateValue('kpiTurnSaldo', Number(kpi.saldo) >= 0 ? `+${number(kpi.saldo)}` : number(kpi.saldo));
     updateValue('kpiTurnChurn', percent(kpi.taxa_churn));
-    charts.renderTurnover('chartTurnoverHistory', data.historicoMovimentacao || emptyState.turnover.historicoMovimentacao);
-    charts.renderPortfolio('chartPortfolioHistory', data.historicoCarteira || emptyState.turnover.historicoCarteira);
+    const turnoverData = sliceTimeSeries(data.historicoMovimentacao || emptyState.turnover.historicoMovimentacao, state.chartHorizons.turnover);
+    charts.renderTurnover('chartTurnoverHistory', turnoverData);
+    const portfolioData = sliceTimeSeries(data.historicoCarteira || emptyState.turnover.historicoCarteira, state.chartHorizons.portfolio);
+    charts.renderPortfolio('chartPortfolioHistory', portfolioData);
   }
 
   function renderConsistency(data) {
@@ -200,7 +230,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updateValue('kpiDataAnnual', percent(kpi.perc_anual));
     updateValue('kpiDataDivergent', number(divergences));
     updateValue('kpiDataBase', number(base));
-    charts.renderConsistencyHistory('chartConsistencyHistory', data.evolucaoConsistencia || emptyState.consistency.evolucaoConsistencia);
+    const consistencyData = sliceTimeSeries(data.evolucaoConsistencia || emptyState.consistency.evolucaoConsistencia, state.chartHorizons.consistency);
+    charts.renderConsistencyHistory('chartConsistencyHistory', consistencyData);
     charts.renderQuality('chartDataQuality', data.distribuicaoDonut || emptyState.consistency.distribuicaoDonut);
   }
 
@@ -496,7 +527,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function setupTableSorting() {
     const MAPPINGS = {
-      tbodySemVisita: ['consultor', 'codigo_lr', 'produtor', 'data_vinculacao', 'dias_sem_visita', 'status'],
+      tbodySemVisita: ['consultor', 'codigo_lr', 'produtor', 'data_associacao', 'dias_sem_visita', 'status'],
       tbodyVisitados: ['consultor', 'codigo_lr', 'produtor', 'profissao', 'atendimento', 'data_visita', 'elabore_ok'],
       tbodyTurnover: ['atendimento', 'produtor', 'tipo', 'data', 'grupo', 'motivo'],
       tbodyConsultants: ['consultor', 'total_fazendas', 'fazendas_visitadas', 'total_visitas', 'perc_cobertura', 'status'],
@@ -702,8 +733,8 @@ document.addEventListener('DOMContentLoaded', () => {
           rowVal = row.elabore_ok === false ? 'não nao' : 'sim';
         } else if (colKey === 'possui_dados') {
           rowVal = row.possui_dados === false ? 'não nao' : 'sim';
-        } else if (colKey === 'data_vinculo') {
-          rowVal = String(row.data_vinculacao || row.data_referencia || '');
+        } else if (colKey === 'data_associacao' || colKey === 'data_vinculo') {
+          rowVal = String(row.data_associacao || row.data_vinculacao || row.data_referencia || '');
         } else if (colKey === 'grupo') {
           rowVal = String(row.grupo || row.consultor || '');
         } else if (colKey === 'tipo') {
@@ -752,7 +783,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let withoutVisit = (overview.tabelas?.sem_visita || []).filter((row) => matches(row, filter, true));
     withoutVisit = applyColumnFilters(withoutVisit, 'tableSemVisita');
     updateCount('countWithoutVisit', withoutVisit);
-    withoutVisit = sortRows(withoutVisit, tableSort.tbodySemVisita, (row, key) => row[key] ?? row.data_referencia);
+    withoutVisit = sortRows(withoutVisit, tableSort.tbodySemVisita, (row, key) => row[key] ?? row.data_associacao ?? row.data_referencia);
     updateTableHeadIcons('tbodySemVisita', tableSort.tbodySemVisita.colKey, tableSort.tbodySemVisita.dir);
     if (el('tbodySemVisita')) el('tbodySemVisita').innerHTML = rowsOrEmpty(withoutVisit, 6, (row) => {
       const hasDays = row.dias_sem_visita !== null && row.dias_sem_visita !== undefined && row.dias_sem_visita !== '';
@@ -761,8 +792,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const status = !hasDays ? 'Sem visita no período' : isGrave ? 'Sem visita > 60 dias' : days >= 45 ? 'Sem visita > 45 dias' : 'Sem visita > 30 dias';
       const rowClass = isGrave ? 'table-row-grave' : 'table-row-pending';
       const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
-      const dtVinc = row.data_vinculacao || row.data_referencia || '—';
-      return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-center" title="${escapeHtml(dtVinc)}">${escapeHtml(dtVinc)}</td><td class="col-center font-tabular">${hasDays ? days : '—'}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(status)}">${escapeHtml(status)}</span></td></tr>`;
+      const dtAssoc = row.data_associacao || row.data_vinculacao || row.data_referencia || '—';
+      return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-center" title="${escapeHtml(dtAssoc)}">${escapeHtml(dtAssoc)}</td><td class="col-center font-tabular">${hasDays ? days : '—'}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(status)}">${escapeHtml(status)}</span></td></tr>`;
     });
 
     // Tabela 2: Visitados
@@ -1418,10 +1449,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function openDetailsModal(item) {
       if (!item || !detailsModal || !modalBody) return;
-      const isGrave = isStatusInconsistente(item.consistencia);
-      const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
-      const highlightBoxClass = isGrave ? 'field-box--danger' : 'field-box--warning';
+      const isMensalInconsistente = isStatusInconsistente(item.consistencia);
+      const isMensalSemDados = String(item.consistencia || '').toLowerCase().includes('sem dados');
+      const badgeClassMensal = isMensalInconsistente ? 'badge-danger' : (isMensalSemDados ? 'badge-warning' : 'badge-positive');
+      const highlightBoxClassMensal = isMensalInconsistente ? 'field-box--danger' : (isMensalSemDados ? 'field-box--warning' : '');
       const statusBadge = String(item.status || 'ATIVO').toUpperCase() === 'INATIVO' ? 'badge-danger' : 'badge-positive';
+
+      const statusAnualStr = String(item.consistencia_anual || 'Não calculado');
+      const isAnualInconsistente = isStatusInconsistente(statusAnualStr);
+      const isAnualConsistente = statusAnualStr.toLowerCase().includes('consistente') && !isAnualInconsistente;
+      const isAnualSemDados = statusAnualStr.toLowerCase().includes('sem dados') || statusAnualStr.toLowerCase().includes('não calculado');
+      const badgeClassAnual = isAnualInconsistente ? 'badge-danger' : (isAnualConsistente ? 'badge-positive' : 'badge-warning');
+      const highlightBoxClassAnual = isAnualInconsistente ? 'field-box--danger' : (isAnualSemDados ? 'field-box--warning' : '');
 
       const refMonthText = item.mes_referencia ? String(item.mes_referencia).slice(0, 7).split('-').reverse().join('/') : '--/----';
       const refMonthEl = el('modalRefMonthText');
@@ -1463,7 +1502,7 @@ document.addEventListener('DOMContentLoaded', () => {
         </fieldset>
 
         <fieldset class="modal-fieldset">
-          <legend class="modal-legend">Indicadores de Consistência e Qualidade</legend>
+          <legend class="modal-legend">Consistência Mensal</legend>
           <div class="detail-grid">
             <div class="detail-field">
               <label class="field-label">Mês Referência</label>
@@ -1474,12 +1513,26 @@ document.addEventListener('DOMContentLoaded', () => {
               <div class="field-box">${number(item.meses_sequenciais)} mês(es)</div>
             </div>
             <div class="detail-field">
-              <label class="field-label">Classificação da Inconsistência</label>
-              <div class="field-box"><span class="badge ${badgeClass}">${escapeHtml(item.consistencia || 'PENDENTE')}</span></div>
+              <label class="field-label">Classificação Mensal</label>
+              <div class="field-box"><span class="badge ${badgeClassMensal}">${escapeHtml(item.consistencia || 'PENDENTE')}</span></div>
             </div>
             <div class="detail-field field-full">
-              <label class="field-label">Detalhamento da Inconsistência</label>
-              <div class="field-box ${highlightBoxClass}">${escapeHtml(item.detalhamento || 'Nenhum detalhamento registrado na base de auditoria.')}</div>
+              <label class="field-label">Detalhamento da Inconsistência Mensal</label>
+              <div class="field-box ${highlightBoxClassMensal}">${escapeHtml(item.detalhamento || 'Nenhum detalhamento registrado na base de auditoria.')}</div>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="modal-fieldset">
+          <legend class="modal-legend">Consistência Anual</legend>
+          <div class="detail-grid">
+            <div class="detail-field">
+              <label class="field-label">Classificação Anual</label>
+              <div class="field-box"><span class="badge ${badgeClassAnual}">${escapeHtml(item.consistencia_anual || 'Não calculado')}</span></div>
+            </div>
+            <div class="detail-field field-full">
+              <label class="field-label">Detalhamento da Inconsistência Anual</label>
+              <div class="field-box ${highlightBoxClassAnual}">${escapeHtml(item.detalhamento_anual || 'Nenhum detalhamento registrado na base anual.')}</div>
             </div>
           </div>
         </fieldset>
@@ -1768,6 +1821,42 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function setupChartHorizonControls() {
+    document.querySelectorAll('.chart-horizon-control button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const container = btn.closest('.chart-horizon-control');
+        if (!container) return;
+        const horizonKey = container.dataset.chartHorizon;
+        const months = Number(btn.dataset.months) || 0;
+
+        container.querySelectorAll('button').forEach((b) => {
+          b.classList.remove('active');
+          b.setAttribute('aria-pressed', 'false');
+        });
+        btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
+
+        if (horizonKey && state.chartHorizons) {
+          state.chartHorizons[horizonKey] = months;
+        }
+
+        if (horizonKey === 'coverage' && state.overview) {
+          const coverageData = sliceTimeSeries(state.overview.evolucaoMensal || emptyState.overview.evolucaoMensal, months);
+          charts.renderCoverage('chartVisitsCoverage', coverageData);
+        } else if (horizonKey === 'turnover' && state.turnover) {
+          const turnoverData = sliceTimeSeries(state.turnover.historicoMovimentacao || emptyState.turnover.historicoMovimentacao, months);
+          charts.renderTurnover('chartTurnoverHistory', turnoverData);
+        } else if (horizonKey === 'portfolio' && state.turnover) {
+          const portfolioData = sliceTimeSeries(state.turnover.historicoCarteira || emptyState.turnover.historicoCarteira, months);
+          charts.renderPortfolio('chartPortfolioHistory', portfolioData);
+        } else if (horizonKey === 'consistency' && state.consistency) {
+          const consistencyData = sliceTimeSeries(state.consistency.evolucaoConsistencia || emptyState.consistency.evolucaoConsistencia, months);
+          charts.renderConsistencyHistory('chartConsistencyHistory', consistencyData);
+        }
+      });
+    });
+  }
+
   setupTableSorting();
   setupColumnResizers();
   setupColumnFilters();
@@ -1776,6 +1865,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupKpiInfoPopovers();
   setupProvenanceModal();
   setupExportButtons();
+  setupChartHorizonControls();
   loadAllData();
   setInterval(loadAllData, 300000);
 

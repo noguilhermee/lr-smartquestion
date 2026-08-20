@@ -449,15 +449,44 @@ def obter_cliente_supabase(raiz: Path | str | None = None):
 def consultar_tabela_supabase(
     tabela: str,
     colunas: str = "*",
+    filtros: dict | None = None,
     raiz: Path | str | None = None,
+    limite: int | None = None,
 ) -> pd.DataFrame:
     """
     Executa uma consulta SELECT de leitura em uma tabela/visão do Supabase e retorna um pandas.DataFrame.
+    Suporta paginação automática transparente para trazer todos os registros (superando o limite de 1000 da API).
     Esta função cumpre a regra estrita do projeto: APENAS LEITURA (READ-ONLY).
     """
     client = obter_cliente_supabase(raiz)
-    resposta = client.table(tabela).select(colunas).execute()
-    return pd.DataFrame(resposta.data or [])
+    
+    todos_registros = []
+    chunk_size = 1000
+    offset = 0
+    
+    while True:
+        query = client.table(tabela).select(colunas)
+        if filtros:
+            for col, val in filtros.items():
+                query = query.eq(col, val)
+                
+        limite_fim = offset + chunk_size - 1
+        if limite is not None and limite_fim >= limite:
+            limite_fim = limite - 1
+            
+        resposta = query.range(offset, limite_fim).execute()
+        dados = resposta.data or []
+        if not dados:
+            break
+            
+        todos_registros.extend(dados)
+        
+        if len(dados) < chunk_size or (limite is not None and len(todos_registros) >= limite):
+            break
+            
+        offset += chunk_size
+        
+    return pd.DataFrame(todos_registros)
 
 
 def consultar_view_azure_postgres(

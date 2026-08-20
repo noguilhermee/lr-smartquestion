@@ -165,29 +165,22 @@ module.exports = async (req, res) => {
       return 'NÃO INFORMADA';
     }
 
-    // 1. Descobrir mês de referência mais recente nas visitas (limitado ao mês atual maxAllowedMonth)
-    const maxAllowedMonth = new Date().toISOString().slice(0, 7) + '-01';
-    const { data: ultimasVisitas } = await supabase
-      .from('f_visitas_bi_lr')
-      .select('mes_referencia')
-      .lte('mes_referencia', maxAllowedMonth)
-      .order('mes_referencia', { ascending: false })
-      .limit(1);
+    // 1. Descobrir mês de referência (Mês Atual no fuso horário do Brasil)
+    const nowLocal = new Date();
+    const nowUtc3 = new Date(nowLocal.getTime() - (nowLocal.getTimezoneOffset() * 60000));
+    const maxAllowedMonth = nowUtc3.toISOString().slice(0, 7) + '-01';
 
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
-    const latestAvailableMonth = (ultimasVisitas && ultimasVisitas.length > 0)
-      ? ultimasVisitas[0].mes_referencia
-      : maxAllowedMonth;
 
     // Regra Temporal:
-    // - Visitas e Cobertura: Mês exato selecionado no filtro (operação em campo em tempo real)
-    // - Consistência e Lançamentos: 1 mês retroativo (M-1 / fechamento zootécnico)
+    // - Visitas e Cobertura: Se filtro "Atual" (vazio), usa estritamente o mês atual maxAllowedMonth
+    // - Consistência e Lançamentos: Se filtro "Atual", usa 1 mês retroativo (M-1 / fechamento zootécnico)
     const visitasMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
       ? requestedMonth
-      : latestAvailableMonth;
+      : maxAllowedMonth;
     const consistencyMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
-      ? (shiftMonthMinus1(requestedMonth) || latestAvailableMonth)
-      : (shiftMonthMinus1(latestAvailableMonth) || latestAvailableMonth);
+      ? (shiftMonthMinus1(requestedMonth) || requestedMonth)
+      : (shiftMonthMinus1(maxAllowedMonth) || maxAllowedMonth);
 
     // 2. Consultar produtores ativos no mês de visitas e no mês de consistência
     const [produtoresListRaw, produtoresConsistenciaRaw] = await Promise.all([
@@ -234,8 +227,8 @@ module.exports = async (req, res) => {
       }
     }
 
-    // Histórico necessário para os gráficos. Consultas exclusivamente de leitura com ordenação determinística.
-    const [visitasHistoricas, produtoresHistoricos] = await Promise.all([
+    // Histórico necessário para os gráficos e datas de associação. Consultas exclusivamente de leitura com ordenação determinística.
+    const [visitasHistoricas, produtoresHistoricos, vinculosSQRaw] = await Promise.all([
       fetchAll(() => supabase
         .from('f_visitas_bi_lr')
         .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia, data_visita')
@@ -245,7 +238,12 @@ module.exports = async (req, res) => {
         .from('tab_produtores_ativos_mensal')
         .select('codigo_lr, nome_consultor, nome_produtor, projeto, unidade_atendimento, data_referencia')
         .order('data_referencia', { ascending: false })
-        .order('codigo_lr', { ascending: true }))
+        .order('codigo_lr', { ascending: true })),
+      fetchAll(() => supabase
+        .from('tab_vinculos_sq')
+        .select('codigo_lr, data_associacao')
+        .not('data_associacao', 'is', null)
+        .order('data_associacao', { ascending: true }))
     ]);
 
     // Filtros selecionados no frontend
@@ -304,18 +302,9 @@ module.exports = async (req, res) => {
         .eq('mes_referencia', consistencyMonth))
     ]);
 
-    // Conjunto de produtores com dados de fechamento no Elabore para o mês M-1
-    const elaboreSet = new Set();
-    (elaboreMensalList || []).forEach(item => {
-      if (item.codigo_lr && item.mes_elabore) {
-        elaboreSet.add(String(item.codigo_lr).trim().toUpperCase());
-      }
-    });
-    (consistenciaList || []).forEach(item => {
-      if (item.codigo_lr && item.mes_elabore) {
-        elaboreSet.add(String(item.codigo_lr).trim().toUpperCase());
-      }
-    });
+    const elaboreMensalMap = new Map(
+      (elaboreMensalList || []).map(item => [String(item.codigo_lr).trim().toUpperCase(), item])
+    );
 
     const produtoresMap = new Map((produtoresFiltrados || []).map(p => [p.codigo_lr, p]));
     const produtoresConsistenciaMap = new Map((produtoresConsistenciaFiltrados || []).map(p => [p.codigo_lr, p]));
@@ -339,13 +328,27 @@ module.exports = async (req, res) => {
     const percVisitados = totalAtivos > 0 ? Math.min(100.0, (totalVisitadosUnicos / totalAtivos) * 100).toFixed(1) : '0.0';
     const visitasPorProdutor = totalAtivos > 0 ? (totalVisitas / totalAtivos).toFixed(1) : '0.0';
 
-    // Consistência
-    const consistentesCount = consistenciaFiltrada.filter(c => String(c.consistencia_mensal || '').toLowerCase() === 'consistente').length;
-    const avaliadosCount = consistenciaFiltrada.filter(c => c.consistencia_mensal !== null).length;
+    // Consistência baseada estritamente na tab_consistencia_mensal
+    let consistentesCount = 0;
+    let avaliadosCount = 0;
+    let comDadosCount = 0;
+
+    consistenciaFiltrada.forEach(c => {
+      const cdLrUpper = String(c.codigo_lr || '').trim().toUpperCase();
+      const mensalItem = elaboreMensalMap.get(cdLrUpper);
+      if (mensalItem && mensalItem.consistencia_mensal) {
+        comDadosCount++;
+        avaliadosCount++;
+        const status = String(mensalItem.consistencia_mensal).toLowerCase();
+        if (status.includes('consistente') && !status.includes('inconsistente')) {
+          consistentesCount++;
+        }
+      }
+    });
+
     const percConsistente = avaliadosCount > 0 
       ? ((consistentesCount / avaliadosCount) * 100).toFixed(1)
       : '0.0';
-    const comDadosCount = consistenciaFiltrada.filter(c => c.mes_elabore !== null || c.consistencia_mensal !== null).length;
 
     // Evolução mensal calculada com as referências disponíveis nas fontes analíticas.
     function gerarMesesHistoricos(inicioStr, fimStr) {
@@ -366,12 +369,17 @@ module.exports = async (req, res) => {
       return meses;
     }
 
-    const mesesHistoricosPadrao = gerarMesesHistoricos('2024-01-01', maxAllowedMonth);
+    const mesesComDados = [...new Set([
+      ...(produtoresHistoricos || []).map(p => p.data_referencia),
+      ...(visitasHistoricas || []).map(v => v.mes_referencia)
+    ].filter(Boolean))].sort();
+
+    const primeiroMesReal = mesesComDados.length > 0 ? mesesComDados[0] : '2026-01-01';
+    const mesesHistoricosPadrao = gerarMesesHistoricos(primeiroMesReal, maxAllowedMonth);
     const todosMesesDisponiveis = [...new Set([
       ...mesesHistoricosPadrao,
-      ...(produtoresHistoricos || []).map(p => p.data_referencia),
-      ...(visitasHistoricas || []).map(v => v.mes_referencia),
-      maxAllowedMonth // Garante que o mês corrente aparece para que o usuário possa selecionar (M-1)
+      ...mesesComDados,
+      maxAllowedMonth
     ].filter(Boolean))]
       .filter(m => m <= maxAllowedMonth)
       .sort();
@@ -430,6 +438,19 @@ module.exports = async (req, res) => {
       }
     });
 
+    // Mapear data de associação por codigo_lr (data de entrada/associação original)
+    const dataAssociacaoMap = new Map();
+    (vinculosSQRaw || []).forEach(v => {
+      if (!v.codigo_lr || !v.data_associacao) return;
+      const cod = String(v.codigo_lr).trim().toUpperCase();
+      const d = new Date(v.data_associacao);
+      if (Number.isNaN(d.getTime())) return;
+      const prev = dataAssociacaoMap.get(cod);
+      if (!prev || d < prev) {
+        dataAssociacaoMap.set(cod, d);
+      }
+    });
+
     // Tabela: Produtores sem visita
     // Definir data de corte: se refMonth for mês passado, usar o fim do mês; caso contrário, usar a data atual (hoje).
     const hoje = new Date();
@@ -451,9 +472,15 @@ module.exports = async (req, res) => {
       produtoresFiltrados.filter(p => !codigosVisitados.has(p.codigo_lr))
     ).map(p => {
         let diasSemVisita = null;
-        const dataUltimaVisita = ultimaVisitaMap.get(p.codigo_lr);
+        const codNorm = String(p.codigo_lr || '').trim().toUpperCase();
+        const dataUltimaVisita = ultimaVisitaMap.get(p.codigo_lr) || (codNorm ? ultimaVisitaMap.get(codNorm) : null);
+        const dataAssoc = dataAssociacaoMap.get(p.codigo_lr) || (codNorm ? dataAssociacaoMap.get(codNorm) : null);
+
         if (dataUltimaVisita) {
           const diffMs = dataCorte.getTime() - dataUltimaVisita.getTime();
+          diasSemVisita = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+        } else if (dataAssoc) {
+          const diffMs = dataCorte.getTime() - dataAssoc.getTime();
           diasSemVisita = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
         } else if (p.data_referencia) {
           const dataVinc = new Date(`${String(p.data_referencia).slice(0, 10)}T12:00:00`);
@@ -462,6 +489,10 @@ module.exports = async (req, res) => {
             diasSemVisita = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
           }
         }
+
+        const dataExibicao = dataAssoc
+          ? formatDate(dataAssoc.toISOString().slice(0, 10))
+          : formatDate(p.data_referencia);
 
         return {
           consultor: p.nome_consultor || 'NÃO ATRIBUÍDO',
@@ -473,7 +504,8 @@ module.exports = async (req, res) => {
           projeto: p.projeto || 'NÃO INFORMADO',
           status: 'ATIVO',
           mes_referencia: visitasMonth,
-          data_vinculacao: formatDate(p.data_referencia),
+          data_associacao: dataExibicao,
+          data_vinculacao: dataExibicao,
           dias_sem_visita: diasSemVisita
         };
       });
@@ -493,7 +525,7 @@ module.exports = async (req, res) => {
         }
 
         const codLrNorm = String(v.codigo_lr || '').trim().toUpperCase();
-        const hasElabore = elaboreSet.has(codLrNorm);
+        const hasElabore = elaboreMensalMap.has(codLrNorm);
 
         return ({
           consultor: v.nome_consultor || 'CONSULTOR',
