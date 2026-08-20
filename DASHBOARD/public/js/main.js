@@ -97,6 +97,15 @@ document.addEventListener('DOMContentLoaded', () => {
     return normalized.includes('INCONSIST') || normalized.includes('DIVERG');
   }
 
+  function isStatusConsistente(statusStr) {
+    if (!statusStr) return false;
+    const normalized = String(statusStr)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase();
+    return normalized.includes('CONSIST') && !normalized.includes('INCONSIST');
+  }
+
   function updateValue(id, value) {
     const node = el(id);
     if (!node) return;
@@ -176,23 +185,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const paired = (rawRanking.labels || []).map((label, idx) => ({
       label,
       value: Number(rawRanking.values?.[idx]) || 0
-    }));
+    })).filter((item) => item.value > 0);
     paired.sort((a, b) => b.value - a.value);
 
+    // Limita aos Top 30 para manter o Canvas em alta performance (60fps) e evitar travamento da GPU do navegador
+    const maxRankingItems = isConsultant ? 40 : 30;
+    const topPaired = paired.slice(0, maxRankingItems);
+
     const ranking = {
-      labels: paired.map((item) => item.label),
-      values: paired.map((item) => item.value)
+      labels: topPaired.map((item) => item.label),
+      values: topPaired.map((item) => item.value)
     };
 
     const viewport = el('rankingChartViewport');
     const inner = el('rankingChartInner');
     if (viewport && inner) {
-      const availableHeight = Math.max(viewport.clientHeight, 170);
-      inner.style.height = `${Math.max(availableHeight, ranking.labels.length * 28 + 8)}px`;
+      const availableHeight = Math.max(viewport.clientHeight || 0, 170);
+      const computedHeight = Math.min(Math.max(availableHeight, ranking.labels.length * 28 + 8), 900);
+      inner.style.height = `${computedHeight}px`;
       viewport.scrollTop = 0;
     }
     charts.renderRanking('chartVisitsRanking', ranking);
-    if (el('rankingSubtitle')) el('rankingSubtitle').textContent = `Ranking por ${isConsultant ? 'consultor' : 'produtor'}`;
+    if (el('rankingSubtitle')) el('rankingSubtitle').textContent = `Ranking por ${isConsultant ? 'consultor' : 'produtor'} (Top ${topPaired.length})`;
     document.querySelectorAll('[data-ranking]').forEach((button) => {
       const active = button.dataset.ranking === state.rankingDimension;
       button.classList.toggle('active', active);
@@ -500,9 +514,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  const MAX_VISIBLE_ROWS = 100;
+
   function rowsOrEmpty(rows, columns, mapper) {
-    if (!rows.length) return `<tr><td colspan="${columns}" class="empty-cell">Nenhum registro para os filtros selecionados.</td></tr>`;
-    return rows.map(mapper).join('');
+    if (!rows || !rows.length) {
+      return `<tr><td colspan="${columns}" class="empty-cell">Nenhum registro para os filtros selecionados.</td></tr>`;
+    }
+    const visibleRows = rows.slice(0, MAX_VISIBLE_ROWS);
+    const htmlRows = visibleRows.map(mapper).join('');
+    if (rows.length > MAX_VISIBLE_ROWS) {
+      const moreMsg = `Exibindo os primeiros ${MAX_VISIBLE_ROWS} de ${rows.length.toLocaleString('pt-BR')} registros (use os filtros acima ou o botão Exportar para a planilha completa).`;
+      return `${htmlRows}<tr class="table-row-more"><td colspan="${columns}" class="empty-cell" style="padding: 7px 10px; font-size: 10.5px; color: var(--muted); font-style: italic; background: var(--surface-soft); border-top: 1px solid var(--line-soft); text-align: center;">${escapeHtml(moreMsg)}</td></tr>`;
+    }
+    return htmlRows;
   }
 
   function updateCount(id, rows) {
@@ -988,7 +1012,7 @@ document.addEventListener('DOMContentLoaded', () => {
         : parsed.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).replace(/^./, (letter) => letter.toUpperCase());
       return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
     }).join('');
-    select.innerHTML = `<option value="">Atual</option>${options}`;
+    select.innerHTML = `<option value="">Todos</option>${options}`;
     if (unique.includes(current)) select.value = current;
     syncCustomSelectDisplay('filterMonth');
   }
@@ -998,29 +1022,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const rows = state.masterRows || [];
     if (!rows.length) return;
 
+    const curInd = current.industry;
+    const curReg = current.region;
+    const curProj = current.project;
+    const curStat = current.status;
+    const curCons = (current.consultant || '').toLowerCase();
+    const curProd = (current.producer || '').toLowerCase();
+
     function matchesActiveExcept(row, fieldKey) {
-      if (fieldKey !== 'industry' && current.industry) {
-        if (mapAgroindustria(row.agroindustria || row.projeto) !== current.industry) return false;
-      }
-      if (fieldKey !== 'region' && current.region) {
-        const rowReg = sanitizeRegiao(row.regiao);
-        const curReg = sanitizeRegiao(current.region);
-        if (rowReg !== curReg) return false;
-      }
-      if (fieldKey !== 'project' && current.project) {
-        if (String(row.projeto || '') !== current.project) return false;
-      }
-      if (fieldKey !== 'status' && current.status) {
-        if (normalizeStatus(row.status) !== normalizeStatus(current.status)) return false;
-      }
-      if (fieldKey !== 'consultant' && current.consultant) {
-        const consultores = sanitizeConsultorList(row.consultor);
-        if (!consultores.some((c) => c && c.toLowerCase() === current.consultant.toLowerCase())) return false;
-      }
-      if (fieldKey !== 'producer' && current.producer) {
-        const pName = String(row.produtor || row.codigo_lr || '').toLowerCase();
-        if (pName !== current.producer.toLowerCase()) return false;
-      }
+      if (fieldKey !== 'industry' && curInd && row.agroindustria !== curInd) return false;
+      if (fieldKey !== 'region' && curReg && row.regiao !== curReg) return false;
+      if (fieldKey !== 'project' && curProj && row.projeto !== curProj) return false;
+      if (fieldKey !== 'status' && curStat && row.status !== curStat) return false;
+      if (fieldKey !== 'consultant' && curCons && (row.consultor || '').toLowerCase() !== curCons) return false;
+      if (fieldKey !== 'producer' && curProd && (row.produtor || '').toLowerCase() !== curProd) return false;
       return true;
     }
 
@@ -1029,7 +1044,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (indSelect) {
       const prevVal = indSelect.value;
       const validRows = rows.filter((r) => matchesActiveExcept(r, 'industry'));
-      const available = [...new Set(validRows.map((r) => mapAgroindustria(r.agroindustria || r.projeto)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      const available = [...new Set(validRows.map((r) => r.agroindustria).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
       indSelect.innerHTML = `<option value="">Todas</option>${available.map((ind) => `<option value="${escapeHtml(ind)}">${escapeHtml(ind)}</option>`).join('')}`;
       if (available.includes(prevVal)) indSelect.value = prevVal;
       else indSelect.value = '';
@@ -1041,7 +1056,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (regSelect) {
       const prevVal = regSelect.value;
       const validRows = rows.filter((r) => matchesActiveExcept(r, 'region'));
-      const available = [...new Set(validRows.map((r) => sanitizeRegiao(r.regiao)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      const available = [...new Set(validRows.map((r) => r.regiao).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
       regSelect.innerHTML = `<option value="">Todas</option>${available.map((reg) => `<option value="${escapeHtml(reg)}">${escapeHtml(reg)}</option>`).join('')}`;
       if (available.includes(prevVal)) regSelect.value = prevVal;
       else regSelect.value = '';
@@ -1065,7 +1080,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (statSelect) {
       const prevVal = normalizeStatus(statSelect.value);
       const validRows = rows.filter((r) => matchesActiveExcept(r, 'status'));
-      const availableStatuses = new Set(validRows.map((r) => normalizeStatus(r.status)));
+      const availableStatuses = new Set(validRows.map((r) => r.status));
       const ordered = ['ATIVO', 'INATIVO'].filter((val) => availableStatuses.has(val));
       const labels = { ATIVO: 'Ativa', INATIVO: 'Inativo' };
       statSelect.innerHTML = `<option value="">Todos</option>${ordered.map((val) => `<option value="${val}">${labels[val]}</option>`).join('')}`;
@@ -1079,7 +1094,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (consultSelect) {
       const prevVal = consultSelect.value;
       const validRows = rows.filter((r) => matchesActiveExcept(r, 'consultant'));
-      const available = [...new Set(validRows.flatMap((r) => sanitizeConsultorList(r.consultor)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      const available = [...new Set(validRows.map((r) => r.consultor).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
       consultSelect.innerHTML = `<option value="">Todos</option>${available.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}`;
       if (available.includes(prevVal)) consultSelect.value = prevVal;
       else consultSelect.value = '';
@@ -1102,38 +1117,115 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function getTableDataForExport(tableId) {
+    const filter = currentFilter();
+    const overview = state.overview || emptyState.overview;
+    const visits = state.visits || emptyState.visits;
+    const turnover = state.turnover || emptyState.turnover;
+    const consistency = state.consistency || emptyState.consistency;
+
+    if (tableId === 'tableSemVisita') {
+      let data = (overview.tabelas?.sem_visita || []).filter((row) => matches(row, filter, true));
+      data = applyColumnFilters(data, 'tableSemVisita');
+      return {
+        headers: ['Consultor(a)', 'ID (Código LR)', 'Produtor(a)', 'Propriedade', 'Agroindústria', 'Região', 'Projeto', 'Data Associação', 'Dias s/ Visita', 'Status'],
+        rows: data.map((r) => [
+          r.consultor || '—',
+          r.codigo_lr || '—',
+          r.produtor || '—',
+          r.propriedade || '—',
+          r.agroindustria || '—',
+          r.regiao || '—',
+          r.projeto || '—',
+          r.data_associacao || r.data_vinculacao || '—',
+          r.dias_sem_visita !== null && r.dias_sem_visita !== undefined ? r.dias_sem_visita : '—',
+          r.dias_sem_visita >= 60 ? 'Sem visita > 60 dias' : (r.dias_sem_visita >= 45 ? 'Sem visita > 45 dias' : (r.dias_sem_visita >= 30 ? 'Sem visita > 30 dias' : 'Sem visita no período'))
+        ])
+      };
+    }
+
+    if (tableId === 'tableVisitados') {
+      let data = (overview.tabelas?.visitados || []).filter((row) => matches(row, filter, true));
+      data = applyColumnFilters(data, 'tableVisitados');
+      return {
+        headers: ['Consultor(a)', 'ID (Código LR)', 'Produtor(a)', 'Profissão', 'Nº Atendimento', 'Data Visita', 'Mês Referência', 'Projeto', 'Agroindústria', 'Região', 'Elabore'],
+        rows: data.map((r) => [
+          r.consultor || '—',
+          r.codigo_lr || '—',
+          r.produtor || '—',
+          r.profissao || '—',
+          r.atendimento || '—',
+          r.data_visita || '—',
+          r.mes_referencia || '—',
+          r.projeto || '—',
+          r.agroindustria || '—',
+          r.regiao || '—',
+          r.elabore_ok === false ? 'NÃO' : 'SIM'
+        ])
+      };
+    }
+
+    if (tableId === 'tableTurnover') {
+      let data = (turnover.tabelaMovimentacao || []).filter((row) => matches(row, filter, true));
+      data = applyColumnFilters(data, 'tableTurnover');
+      return {
+        headers: ['Nº Atendimento', 'Produtor(a)', 'Movimentação', 'Data', 'Consultor / Grupo', 'Motivo da Inativação'],
+        rows: data.map((r) => [
+          r.atendimento || r.numero_atendimento || '—',
+          r.produtor || '—',
+          r.tipo || (String(r.movimentacao).toLowerCase().includes('sa') ? 'SAÍDA' : 'ENTRADA'),
+          r.data || '—',
+          r.grupo || r.consultor || '—',
+          r.motivo || '—'
+        ])
+      };
+    }
+
+    if (tableId === 'tableConsultants') {
+      let data = (visits.tabelaConsultores || []).filter((row) => matches(row, filter, true));
+      data = applyColumnFilters(data, 'tableConsultants');
+      return {
+        headers: ['Consultor(a)', 'Total Fazendas', 'Fazendas Visitadas', 'Total Visitas', '% Cobertura', 'Status'],
+        rows: data.map((r) => [
+          r.consultor || '—',
+          r.total_fazendas ?? 0,
+          r.fazendas_visitadas ?? 0,
+          r.total_visitas ?? 0,
+          percent(r.perc_cobertura),
+          'ATIVO'
+        ])
+      };
+    }
+
+    if (tableId === 'tableDataProducers') {
+      let data = (consistency.tabelaProdutoresComDados || []).filter((row) => matches(row, filter, true));
+      data = applyColumnFilters(data, 'tableDataProducers');
+      return {
+        headers: ['ID (Código LR)', 'Produtor(a)', 'Consultor(a)', 'Possui Dados', 'Última Referência', 'Status Cadastral'],
+        rows: data.map((r) => [
+          r.codigo_lr || '—',
+          r.produtor || r.codigo_lr || '—',
+          r.consultor || '—',
+          r.possui_dados ? 'SIM' : 'NÃO',
+          r.referencia || '—',
+          r.status || 'ATIVO'
+        ])
+      };
+    }
+
+    return null;
+  }
+
   function exportTableToCsv(tableId, defaultFilename) {
-    const table = el(tableId);
-    if (!table) return;
-    const thead = table.querySelector('thead');
-    const tbody = table.querySelector('tbody');
-    if (!thead || !tbody) return;
-
-    const headers = Array.from(thead.querySelectorAll('th')).map((th) => {
-      return th.textContent.replace(/[↑↓▲▼]/g, '').trim();
-    }).filter((h) => h && h !== 'Ação');
-
-    const rows = Array.from(tbody.querySelectorAll('tr'));
-    if (rows.length === 1 && rows[0].querySelector('.empty-cell')) {
+    const exportData = getTableDataForExport(tableId);
+    if (!exportData || !exportData.rows.length) {
       alert('Nenhum dado disponível para exportação com os filtros atuais.');
       return;
     }
 
-    const csvLines = [headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(';')];
-
-    rows.forEach((tr) => {
-      if (tr.querySelector('.empty-cell')) return;
-      const cells = Array.from(tr.querySelectorAll('td'));
-      const rowValues = [];
-      cells.forEach((td, idx) => {
-        if (idx < headers.length) {
-          let txt = td.textContent.trim().replace(/\s+/g, ' ');
-          rowValues.push(`"${txt.replace(/"/g, '""')}"`);
-        }
-      });
-      if (rowValues.length > 0) {
-        csvLines.push(rowValues.join(';'));
-      }
+    const csvLines = [exportData.headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(';')];
+    exportData.rows.forEach((rowVals) => {
+      csvLines.push(rowVals.map((v) => `"${String(v ?? '—').trim().replace(/\r?\n/g, ' | ').replace(/"/g, '""')}"`).join(';'));
     });
 
     const bom = '\uFEFF';
@@ -1469,22 +1561,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function openDetailsModal(item) {
       if (!item || !detailsModal || !modalBody) return;
-      const isMensalInconsistente = isStatusInconsistente(item.consistencia);
-      const isMensalSemDados = String(item.consistencia || '').toLowerCase().includes('sem dados');
-      const badgeClassMensal = isMensalInconsistente ? 'badge-danger' : (isMensalSemDados ? 'badge-warning' : 'badge-positive');
+
+      const statusMensalStr = String(item.consistencia_mensal || item.consistencia || 'Consistente');
+      const isMensalInconsistente = isStatusInconsistente(statusMensalStr);
+      const isMensalConsistente = isStatusConsistente(statusMensalStr);
+      const isMensalSemDados = statusMensalStr.toLowerCase().includes('sem dados') || statusMensalStr.toLowerCase().includes('não calculado');
+
+      const badgeClassMensal = isMensalInconsistente ? 'badge-danger' : (isMensalConsistente ? 'badge-positive' : 'badge-warning');
       const highlightBoxClassMensal = isMensalInconsistente ? 'field-box--danger' : (isMensalSemDados ? 'field-box--warning' : '');
-      const statusBadge = String(item.status || 'ATIVO').toUpperCase() === 'INATIVO' ? 'badge-danger' : 'badge-positive';
 
       const statusAnualStr = String(item.consistencia_anual || 'Não calculado');
       const isAnualInconsistente = isStatusInconsistente(statusAnualStr);
-      const isAnualConsistente = statusAnualStr.toLowerCase().includes('consistente') && !isAnualInconsistente;
+      const isAnualConsistente = isStatusConsistente(statusAnualStr);
       const isAnualSemDados = statusAnualStr.toLowerCase().includes('sem dados') || statusAnualStr.toLowerCase().includes('não calculado');
+
       const badgeClassAnual = isAnualInconsistente ? 'badge-danger' : (isAnualConsistente ? 'badge-positive' : 'badge-warning');
       const highlightBoxClassAnual = isAnualInconsistente ? 'field-box--danger' : (isAnualSemDados ? 'field-box--warning' : '');
+
+      const statusBadge = String(item.status || 'ATIVO').toUpperCase() === 'INATIVO' ? 'badge-danger' : 'badge-positive';
 
       const refMonthText = item.mes_referencia ? String(item.mes_referencia).slice(0, 7).split('-').reverse().join('/') : '--/----';
       const refMonthEl = el('modalRefMonthText');
       if (refMonthEl) refMonthEl.textContent = refMonthText;
+
+      const mensalDetailText = isMensalConsistente
+        ? 'Registros mensais conformes e validados (sem inconsistências apuradas).'
+        : (item.detalhamento || 'Nenhum detalhamento registrado na base de auditoria mensal.');
+
+      const anualDetailText = isAnualConsistente
+        ? 'Fechamento anual em conformidade (sem inconsistências apuradas).'
+        : (item.detalhamento_anual || 'Nenhum detalhamento registrado na base de auditoria anual.');
 
       modalBody.innerHTML = `
         <fieldset class="modal-fieldset">
@@ -1534,11 +1640,11 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <div class="detail-field">
               <label class="field-label">Classificação Mensal</label>
-              <div class="field-box"><span class="badge ${badgeClassMensal}">${escapeHtml(item.consistencia || 'PENDENTE')}</span></div>
+              <div class="field-box"><span class="badge ${badgeClassMensal}">${escapeHtml(statusMensalStr)}</span></div>
             </div>
             <div class="detail-field field-full">
-              <label class="field-label">Detalhamento da Inconsistência Mensal</label>
-              <div class="field-box ${highlightBoxClassMensal}">${escapeHtml(item.detalhamento || 'Nenhum detalhamento registrado na base de auditoria.')}</div>
+              <label class="field-label">Detalhamento da Consistência Mensal</label>
+              <div class="field-box ${highlightBoxClassMensal}">${escapeHtml(mensalDetailText)}</div>
             </div>
           </div>
         </fieldset>
@@ -1548,11 +1654,11 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="detail-grid">
             <div class="detail-field">
               <label class="field-label">Classificação Anual</label>
-              <div class="field-box"><span class="badge ${badgeClassAnual}">${escapeHtml(item.consistencia_anual || 'Não calculado')}</span></div>
+              <div class="field-box"><span class="badge ${badgeClassAnual}">${escapeHtml(statusAnualStr)}</span></div>
             </div>
             <div class="detail-field field-full">
-              <label class="field-label">Detalhamento da Inconsistência Anual</label>
-              <div class="field-box ${highlightBoxClassAnual}">${escapeHtml(item.detalhamento_anual || 'Nenhum detalhamento registrado na base anual.')}</div>
+              <label class="field-label">Detalhamento da Consistência Anual</label>
+              <div class="field-box ${highlightBoxClassAnual}">${escapeHtml(anualDetailText)}</div>
             </div>
           </div>
         </fieldset>

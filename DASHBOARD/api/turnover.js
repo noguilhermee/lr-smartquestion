@@ -205,10 +205,8 @@ module.exports = async (req, res) => {
     });
 
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
-    // Produtores ativos e movimentação no mês selecionado (ou mês atual)
-    const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
-      ? requestedMonth
-      : maxAllowedMonth;
+    const isAllMonths = !/^\d{4}-\d{2}-\d{2}$/.test(requestedMonth);
+    const refMonth = isAllMonths ? null : requestedMonth;
     const produtoresFiltrados = refMonth
       ? produtores.filter(p => p.data_referencia === refMonth)
       : (produtores || []);

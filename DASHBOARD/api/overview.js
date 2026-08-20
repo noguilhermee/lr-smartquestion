@@ -171,39 +171,45 @@ module.exports = async (req, res) => {
     const maxAllowedMonth = nowUtc3.toISOString().slice(0, 7) + '-01';
 
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
+    const isAllMonths = !/^\d{4}-\d{2}-\d{2}$/.test(requestedMonth);
 
-    // Regra Temporal:
-    // - Visitas e Cobertura: Se filtro "Atual" (vazio), usa estritamente o mês atual maxAllowedMonth
-    // - Consistência e Lançamentos: Se filtro "Atual", usa 1 mês retroativo (M-1 / fechamento zootécnico)
-    const visitasMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
-      ? requestedMonth
-      : maxAllowedMonth;
-    const consistencyMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
-      ? (shiftMonthMinus1(requestedMonth) || requestedMonth)
-      : (shiftMonthMinus1(maxAllowedMonth) || maxAllowedMonth);
+    // Se o usuário selecionou um mês específico:
+    // - Visitas e Cobertura: usa o mês solicitado
+    // - Consistência e Lançamentos: usa 1 mês retroativo (M-1 / fechamento zootécnico)
+    // Se não selecionou nenhum mês (isAllMonths), traz todas as informações
+    const visitasMonth = isAllMonths ? null : requestedMonth;
+    const consistencyMonth = isAllMonths ? null : (shiftMonthMinus1(requestedMonth) || requestedMonth);
 
-    // 2. Consultar produtores ativos no mês de visitas e no mês de consistência
+    // 2. Consultar produtores ativos no mês de visitas e no mês de consistência (ou todo o histórico)
     const [produtoresListRaw, produtoresConsistenciaRaw] = await Promise.all([
-      fetchAll(() => supabase
-        .from('sq_base_produtores_ativos')
-        .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia')
-        .eq('data_referencia', visitasMonth)
-        .order('codigo_lr', { ascending: true })),
-      fetchAll(() => supabase
-        .from('sq_base_produtores_ativos')
-        .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia')
-        .eq('data_referencia', consistencyMonth)
-        .order('codigo_lr', { ascending: true }))
+      fetchAll(() => {
+        let q = supabase
+          .from('sq_base_produtores_ativos')
+          .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia');
+        if (visitasMonth) q = q.eq('data_referencia', visitasMonth);
+        else q = q.lte('data_referencia', maxAllowedMonth);
+        return q.order('data_referencia', { ascending: false }).order('codigo_lr', { ascending: true });
+      }),
+      fetchAll(() => {
+        let q = supabase
+          .from('sq_base_produtores_ativos')
+          .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia');
+        if (consistencyMonth) q = q.eq('data_referencia', consistencyMonth);
+        else q = q.lte('data_referencia', maxAllowedMonth);
+        return q.order('data_referencia', { ascending: false }).order('codigo_lr', { ascending: true });
+      })
     ]);
     const produtoresList = (produtoresListRaw || []).filter(p => !isTestData(p.nome_consultor, p.projeto));
     const produtoresConsistencia = (produtoresConsistenciaRaw || []).filter(p => !isTestData(p.nome_consultor, p.projeto));
 
-    // 3. Consultar visitas do mês selecionado (visitasMonth)
-    const visitasListRaw = await fetchAll(() => supabase
-      .from('sq_fato_visitas')
-      .select('id, codigo_lr, nome_consultor, nome_produtor, nome_propriedade, data_visita, id_atendimento, projeto, mes_referencia')
-      .eq('mes_referencia', visitasMonth)
-      .order('data_visita', { ascending: false }));
+    // 3. Consultar visitas do mês selecionado (ou todas as visitas)
+    const visitasListRaw = await fetchAll(() => {
+      let q = supabase
+        .from('sq_fato_visitas')
+        .select('id, codigo_lr, nome_consultor, nome_produtor, nome_propriedade, data_visita, id_atendimento, projeto, mes_referencia');
+      if (visitasMonth) q = q.eq('mes_referencia', visitasMonth);
+      return q.order('data_visita', { ascending: false });
+    });
     let visitasList = (visitasListRaw || []).filter(v => !isTestData(v.nome_consultor, v.projeto));
 
     if (visitasList.length === 0 && visitasMonth) {
@@ -289,27 +295,34 @@ module.exports = async (req, res) => {
       .select('codigo_lr, nome_consultor, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
       .order('data_movimentacao', { ascending: false }));
 
-    // 5. Consultar consistência do mês M-1 (consistencyMonth)
+    // 5. Consultar consistência do mês M-1 (consistencyMonth ou todo o histórico)
     const [consistenciaList, elaboreMensalList] = await Promise.all([
-      fetchAll(() => supabase
-        .from('sq_fato_consistencia')
-        .select('codigo_lr, consistencia_mensal, consistencia_anual, mes_elabore, mes_referencia')
-        .eq('mes_referencia', consistencyMonth)
-        .order('codigo_lr', { ascending: true })),
-      fetchAll(() => supabase
-        .from('sq_raw_consistencia_mensal')
-        .select('codigo_lr, mes_elabore, consistencia_mensal, mes_referencia')
-        .eq('mes_referencia', consistencyMonth))
+      fetchAll(() => {
+        let q = supabase
+          .from('sq_fato_consistencia')
+          .select('codigo_lr, consistencia_mensal, consistencia_anual, mes_elabore, mes_referencia');
+        if (consistencyMonth) q = q.eq('mes_referencia', consistencyMonth);
+        return q.order('mes_referencia', { ascending: false }).order('codigo_lr', { ascending: true });
+      }),
+      fetchAll(() => {
+        let q = supabase
+          .from('sq_raw_consistencia_mensal')
+          .select('codigo_lr, mes_elabore, consistencia_mensal, mes_referencia');
+        if (consistencyMonth) q = q.eq('mes_referencia', consistencyMonth);
+        return q.order('mes_referencia', { ascending: false });
+      })
     ]);
 
     const elaboreMensalMap = new Map(
-      (elaboreMensalList || []).map(item => [String(item.codigo_lr).trim().toUpperCase(), item])
+      (elaboreMensalList || []).map(item => [
+        `${String(item.codigo_lr).trim().toUpperCase()}_${String(item.mes_referencia || '').slice(0, 7)}`,
+        item
+      ])
     );
 
     const produtoresMap = new Map((produtoresFiltrados || []).map(p => [p.codigo_lr, p]));
     const produtoresConsistenciaMap = new Map((produtoresConsistenciaFiltrados || []).map(p => [p.codigo_lr, p]));
-    const consistenciaFiltrada = consistenciaList.filter(c => {
-      if (!produtoresConsistenciaMap.has(c.codigo_lr)) return false;
+    const consistenciaFiltrada = (consistenciaList || []).filter(c => {
       const p = produtoresConsistenciaMap.get(c.codigo_lr);
       return rowMatches({ ...c, unidade_atendimento: p?.unidade_atendimento, nome_produtor: p?.nome_produtor });
     });
@@ -335,11 +348,12 @@ module.exports = async (req, res) => {
 
     consistenciaFiltrada.forEach(c => {
       const cdLrUpper = String(c.codigo_lr || '').trim().toUpperCase();
-      const mensalItem = elaboreMensalMap.get(cdLrUpper);
-      if (mensalItem && mensalItem.consistencia_mensal) {
+      const monthKey = String(c.mes_referencia || '').slice(0, 7);
+      const mensalItem = elaboreMensalMap.get(`${cdLrUpper}_${monthKey}`) || c;
+      const status = String(mensalItem.consistencia_mensal || c.consistencia_mensal || '').toLowerCase();
+      if (status && !status.includes('sem dados') && !status.includes('não calculado')) {
         comDadosCount++;
         avaliadosCount++;
-        const status = String(mensalItem.consistencia_mensal).toLowerCase();
         if (status.includes('consistente') && !status.includes('inconsistente')) {
           consistentesCount++;
         }

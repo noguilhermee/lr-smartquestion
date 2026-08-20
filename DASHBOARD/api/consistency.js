@@ -131,11 +131,9 @@ module.exports = async (req, res) => {
     const maxAllowedMonth = nowUtc3.toISOString().slice(0, 7) + '-01';
 
     const requestedMonth = String(req.query?.month || '').slice(0, 10);
-    // Regra M-1: mês selecionado pelo usuário (ou mês atual) mapeia para o mês anterior como referência zootécnica
-    const baseMonth = /^\d{4}-\d{2}-\d{2}$/.test(requestedMonth)
-      ? requestedMonth
-      : maxAllowedMonth;
-    const refMonth = shiftMonthMinus1(baseMonth) || baseMonth;
+    const isAllMonths = !/^\d{4}-\d{2}-\d{2}$/.test(requestedMonth);
+    const baseMonth = isAllMonths ? null : requestedMonth;
+    const refMonth = baseMonth ? (shiftMonthMinus1(baseMonth) || baseMonth) : null;
 
     const filters = {
       industry: String(req.query?.industry || '').trim(),
@@ -172,27 +170,42 @@ module.exports = async (req, res) => {
         .select('codigo_lr, nome_consultor, projeto, mes_referencia, data_carencia_fim, mes_elabore, consistencia_mensal, consistencia_anual, excecao, meses_sequenciais, detalhamento_inconsistencia')
         .order('mes_referencia', { ascending: false })
         .order('codigo_lr', { ascending: true })),
-      fetchAll(() => supabase
-        .from('sq_base_produtores_ativos')
-        .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
-        .eq('data_referencia', refMonth)
-        .order('codigo_lr', { ascending: true })),
+      fetchAll(() => {
+        let q = supabase
+          .from('sq_base_produtores_ativos')
+          .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia');
+        if (refMonth) q = q.eq('data_referencia', refMonth);
+        else q = q.lte('data_referencia', maxAllowedMonth);
+        return q.order('data_referencia', { ascending: false }).order('codigo_lr', { ascending: true });
+      }),
       fetchAll(() => supabase
         .from('sq_raw_vinculos')
         .select('codigo_lr, nome_produtor, projeto, unidade_atendimento')),
-      fetchAll(() => supabase
-        .from('sq_raw_consistencia_mensal')
-        .select('codigo_lr, mes_referencia, consistencia_mensal, detalhamento_inconsistencia')
-        .eq('mes_referencia', refMonth)),
-      fetchAll(() => supabase
-        .from('sq_raw_consistencia_anual')
-        .select('codigo_lr, mes_referencia, consistencia_anual, detalhamento_inconsistencia')
-        .eq('mes_referencia', refMonth))
+      fetchAll(() => {
+        let q = supabase
+          .from('sq_raw_consistencia_mensal')
+          .select('codigo_lr, mes_referencia, consistencia_mensal, detalhamento_inconsistencia');
+        if (refMonth) q = q.eq('mes_referencia', refMonth);
+        return q.order('mes_referencia', { ascending: false });
+      }),
+      fetchAll(() => {
+        let q = supabase
+          .from('sq_raw_consistencia_anual')
+          .select('codigo_lr, mes_referencia, consistencia_anual, detalhamento_inconsistencia');
+        if (refMonth) q = q.eq('mes_referencia', refMonth);
+        return q.order('mes_referencia', { ascending: false });
+      })
     ]);
 
     const fallbackMetaMap = new Map((vinculosFallback || []).map(v => [v.codigo_lr, v]));
-    const mensalRefMap = new Map((consistenciaMensalBruta || []).map(m => [String(m.codigo_lr).trim().toUpperCase(), m]));
-    const anualRefMap = new Map((consistenciaAnualBruta || []).map(a => [String(a.codigo_lr).trim().toUpperCase(), a]));
+    const mensalRefMap = new Map((consistenciaMensalBruta || []).map(m => [
+      `${String(m.codigo_lr).trim().toUpperCase()}_${String(m.mes_referencia || '').slice(0, 7)}`,
+      m
+    ]));
+    const anualRefMap = new Map((consistenciaAnualBruta || []).map(a => [
+      `${String(a.codigo_lr).trim().toUpperCase()}_${String(a.mes_referencia || '').slice(0, 7)}`,
+      a
+    ]));
     const produtoresAtivos = (produtoresAtivosBrutos || []).filter(rowMatches);
     const produtoresMap = new Map((produtoresAtivos || []).map(p => [p.codigo_lr, p]));
 
@@ -202,7 +215,9 @@ module.exports = async (req, res) => {
       return rowMatches({ ...c, unidade_atendimento: p?.unidade_atendimento, nome_produtor: p?.nome_produtor });
     });
 
-    const consistenciaFiltrada = (consistenciaHistorica || []).filter(c => c.mes_referencia === refMonth);
+    const consistenciaFiltrada = refMonth
+      ? (consistenciaHistorica || []).filter(c => c.mes_referencia === refMonth)
+      : (consistenciaHistorica || []);
     const total = consistenciaFiltrada.length;
 
     let consistentes = 0;
@@ -231,8 +246,9 @@ module.exports = async (req, res) => {
         else mesesSequenciaisDist['12+ meses']++;
 
         const cdLrUpper = String(c.codigo_lr || '').trim().toUpperCase();
-        const mensalDirect = mensalRefMap.get(cdLrUpper);
-        const anualDirect = anualRefMap.get(cdLrUpper);
+        const mKey = String(c.mes_referencia || '').slice(0, 7);
+        const mensalDirect = mensalRefMap.get(`${cdLrUpper}_${mKey}`) || mensalRefMap.get(cdLrUpper);
+        const anualDirect = anualRefMap.get(`${cdLrUpper}_${mKey}`) || anualRefMap.get(cdLrUpper);
 
         // Regra Mensal
         const hasNoMensalRecord = !mensalDirect || !mensalDirect.consistencia_mensal;
@@ -297,7 +313,7 @@ module.exports = async (req, res) => {
             meses_sequenciais: seq,
             consistencia_mensal: sitMensal,
             consistencia_anual: sitAnual,
-            consistencia: isInconsistente ? 'Inconsistente' : (isAnualInconsist ? 'Inconsistente Anual' : sitMensal),
+            consistencia: sitMensal,
             detalhamento: detalheConsist || null,
             consistencia_anual_raw: statusConsistAnual,
             detalhamento_anual: detalheConsistAnual

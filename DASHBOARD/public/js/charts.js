@@ -436,10 +436,22 @@ class DashboardCharts {
         ]
       },
       options: {
-        layout: { padding: { top: 8 } },
+        layout: { padding: { top: 22, right: 14, left: 6, bottom: 4 } },
         interaction: { mode: 'index', intersect: false },
         plugins: { legend: { display: false }, tooltip: this.tooltip() },
-        scales: this.baseScales({ y: { min: 0, max: 100, grid: { color: color.grid }, border: { display: false }, ticks: { color: color.muted, font: { size: 11.2 }, callback: (value) => `${value}%` } } })
+        scales: this.baseScales({
+          y: {
+            min: 0,
+            max: 108,
+            grid: { color: color.grid },
+            border: { display: false },
+            ticks: {
+              color: color.muted,
+              font: { size: 11.2 },
+              callback: (value) => value <= 100 ? `${value}%` : ''
+            }
+          }
+        })
       }
     });
   }
@@ -450,33 +462,45 @@ class DashboardCharts {
     this.destroy(id);
     const color = this.colors();
     const values = data.values || [];
-    const baseLabels = (data.labels || []).map((label) => String(label).split(':')[0]);
-    const labels = baseLabels.map((label, index) => `${label}: ${this.formatValue(values[index] || 0)}`);
+    const baseLabels = ['Registros aptos', 'Registros incompletos', 'Registros divergentes'];
     this.instances[id] = new Chart(ctx, {
       type: 'doughnut',
-      plugins: [this.valueLabels((value, context) => this.formatValue(context.percentage, '%'), { minimumPercentage: 1, fontSize: 10 })],
+      plugins: [this.valueLabels((value, context) => {
+        const val = Number(value || 0);
+        if (val === 0) return '';
+        const pct = this.formatValue(context.percentage, '%');
+        return `${this.formatValue(val)} (${pct})`;
+      }, { minimumPercentage: 2, fontSize: 10 })],
       data: {
-        labels,
-        datasets: [{ data: values, backgroundColor: [color.dark, color.warning, color.danger, color.info], borderColor: color.surface, borderWidth: 2 }]
+        labels: baseLabels,
+        datasets: [{
+          data: values,
+          backgroundColor: [color.dark, color.warning, color.danger],
+          borderColor: color.surface,
+          borderWidth: 2
+        }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: '38%',
-        radius: '88%',
+        cutout: '45%',
+        radius: '85%',
+        layout: { padding: { top: 2, bottom: 2, left: 2, right: 2 } },
         plugins: {
           legend: {
-            position: 'bottom',
-            labels: {
-              color: color.ink,
-              boxWidth: 8,
-              boxHeight: 8,
-              usePointStyle: true,
-              padding: 4,
-              font: { size: 9.5, weight: '600' }
-            }
+            display: false
           },
-          tooltip: this.tooltip()
+          tooltip: {
+            ...this.tooltip(),
+            callbacks: {
+              label: (context) => {
+                const val = context.raw || 0;
+                const total = (context.dataset.data || []).reduce((a, b) => a + Number(b || 0), 0);
+                const pct = total > 0 ? ((val / total) * 100).toFixed(1).replace('.', ',') : '0,0';
+                return ` ${context.label}: ${val} (${pct}%)`;
+              }
+            }
+          }
         }
       }
     });

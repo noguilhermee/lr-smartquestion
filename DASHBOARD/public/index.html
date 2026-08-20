@@ -83,7 +83,7 @@
     </label>
     <label class="filter-control">
       <span>Mês</span>
-      <select id="filterMonth" aria-label="Mês de referência"><option value="">Atual</option></select>
+      <select id="filterMonth" aria-label="Mês de referência"><option value="">Todos</option></select>
     </label>
   </section>
 
@@ -173,14 +173,18 @@
                   <div class="chart-box chart-box--quality"><canvas id="chartDataQualityAnnual"></canvas></div>
                 </div>
               </div>
-              <div class="criteria-strip"><span class="criteria-icon">i</span><div><strong>Critérios de consistência</strong><p>Indicadores calculados a partir das fontes analíticas oficiais (Mensal e Anual).</p></div></div>
+              <div class="quality-legend-sidebar" aria-label="Legenda dos gráficos de qualidade">
+                <div class="legend-item"><span class="legend-dot dot-aptos"></span><span>Registros aptos</span></div>
+                <div class="legend-item"><span class="legend-dot dot-incompletos"></span><span>Registros incompletos</span></div>
+                <div class="legend-item"><span class="legend-dot dot-divergentes"></span><span>Registros divergentes</span></div>
+              </div>
             </div>
           </article>
         </div>
 
         <div class="grid-two grid-two--tables">
           <article class="panel-card table-card">
-            <div class="panel-heading"><h2>Produtores com dados</h2><div class="panel-actions"><span class="record-count" id="countDataProducers">0 registros</span><button class="btn-table-export" id="btnExportDataProducers" type="button" title="Exportar tabela para CSV (Excel)" aria-label="Exportar para CSV"><span class="material-symbols-rounded" aria-hidden="true">download</span><span>Exportar</span></button></div></div>
+            <div class="panel-heading"><h2>Disponibilidade e Cobertura de Dados dos Produtores</h2><div class="panel-actions"><span class="record-count" id="countDataProducers">0 registros</span><button class="btn-table-export" id="btnExportDataProducers" type="button" title="Exportar tabela para CSV (Excel)" aria-label="Exportar para CSV"><span class="material-symbols-rounded" aria-hidden="true">download</span><span>Exportar</span></button></div></div>
             <div class="table-scroll"><table class="data-table" id="tableDataProducers"><thead><tr><th class="col-center">ID</th><th class="col-left">Produtor(a)</th><th class="col-left">Consultor(a)</th><th class="col-center">Dados</th><th class="col-center">Últ. Ref.</th><th class="col-center">Status</th></tr><tr class="table-filter-row"><th><input type="text" class="table-col-filter" data-table="tableDataProducers" data-col="codigo_lr" placeholder="Filtrar..." aria-label="Filtrar ID"></th><th><input type="text" class="table-col-filter" data-table="tableDataProducers" data-col="produtor" placeholder="Filtrar..." aria-label="Filtrar Produtor"></th><th><input type="text" class="table-col-filter" data-table="tableDataProducers" data-col="consultor" placeholder="Filtrar..." aria-label="Filtrar Consultor"></th><th><input type="text" class="table-col-filter" data-table="tableDataProducers" data-col="possui_dados" placeholder="Filtrar..." aria-label="Filtrar Dados"></th><th><input type="text" class="table-col-filter" data-table="tableDataProducers" data-col="referencia" placeholder="Filtrar..." aria-label="Filtrar Ref"></th><th><input type="text" class="table-col-filter" data-table="tableDataProducers" data-col="status" placeholder="Filtrar..." aria-label="Filtrar Status"></th></tr></thead><tbody id="tbodyDataProducers"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
           </article>
           <article class="panel-card table-card">
