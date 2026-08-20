@@ -103,8 +103,8 @@ def executar_reconciliacao():
         except Exception as e:
             print(f"   ⚠️ Aviso ao ler BD_STATUS_USUARIO_SQ.xlsx: {e}")
 
-    # 3. Processar Inativações Recentes para tab_inativacoes_sq
-    print("\n🚫 3. Processando solicitações de inativação (tab_inativacoes_sq)...")
+    # 3. Processar Inativações Recentes para sq_raw_inativacoes_produtor
+    print("\n🚫 3. Processando solicitações de inativação (sq_raw_inativacoes_produtor)...")
     
     # Verificar se há inativações recentes na pasta para sincronizar no Supabase
     try:
@@ -152,24 +152,24 @@ def executar_reconciliacao():
                         cols_presentes = [c for c in cols_finais if c in df_prep_i.columns]
                         registros_i = df_prep_i[cols_presentes].replace({np.nan: None}).to_dict(orient="records")
                         if registros_i:
-                            supabase.table("tab_inativacoes_sq").upsert(registros_i, on_conflict="id_atendimento").execute()
+                            supabase.table("sq_raw_inativacoes_produtor").upsert(registros_i, on_conflict="id_atendimento").execute()
     except Exception as e_inat:
         print(f"   ⚠️ Aviso ao sincronizar inativações recentes: {e_inat}")
 
     # Buscar inativações já consolidadas no Supabase
-    res_inats = supabase.table("tab_inativacoes_sq").select("*").execute()
+    res_inats = supabase.table("sq_raw_inativacoes_produtor").select("*").execute()
     df_inats_existentes = pd.DataFrame(res_inats.data) if res_inats.data else pd.DataFrame()
     print(f"   -> Total de inativações existentes no banco: {len(df_inats_existentes)}")
 
-    # 4. Construir Movimentações Consolidadas (tab_movimentacao_produtor)
-    print("\n🔄 4. Consolidando tabela fato de movimentação (tab_movimentacao_produtor)...")
+    # 4. Construir Movimentações Consolidadas (sq_fato_movimentacao)
+    print("\n🔄 4. Consolidando tabela fato de movimentação (sq_fato_movimentacao)...")
     
     PROJETOS_OFICIAIS = ['ALVOAR ASSIST', 'ALVOAR ECO', 'ATEG_CCPR', 'LPA', 'REGENERA', 'SEMEAR']
 
     movimentacoes_lista = []
 
-    # 4.1 Entradas Pré-2026 (a partir de tab_vinculos_sq para histórico anterior a 2026)
-    res_vinc = supabase.table("tab_vinculos_sq").select(
+    # 4.1 Entradas Pré-2026 (a partir de sq_raw_vinculos para histórico anterior a 2026)
+    res_vinc = supabase.table("sq_raw_vinculos").select(
         "codigo_lr, consultor_grupo_atendimento, grupo_atendimento, data_associacao, projeto, nome_produtor, nome_propriedade, vinculo_ativo, unidade_atendimento, cidade_produtor, estado_produtor, codigo_agroindustria, codigo_fazenda"
     ).in_("projeto", PROJETOS_OFICIAIS).execute()
     df_vinc_db = pd.DataFrame(res_vinc.data) if res_vinc.data else pd.DataFrame()
@@ -212,7 +212,7 @@ def executar_reconciliacao():
                 })
 
     # Mapeamento dimensional para validação da cadeia produtiva (Leite vs Cacau, Café, Grãos)
-    res_all_vinc = supabase.table("tab_vinculos_sq").select("codigo_lr, projeto, tipo_ponto_atendimento, nome_produtor").execute()
+    res_all_vinc = supabase.table("sq_raw_vinculos").select("codigo_lr, projeto, tipo_ponto_atendimento, nome_produtor").execute()
     mapa_lr_tipo: Dict[str, str] = {}
     mapa_lr_proj: Dict[str, str] = {}
     mapa_lr_nome: Dict[str, str] = {}
@@ -234,7 +234,7 @@ def executar_reconciliacao():
         for p_lei in ['REGENERA', 'ALVOAR', 'SEMEAR', 'CCPR', 'ATEG_CCPR', 'LPA', 'CFT', 'CAMPILEITE', 'COPRIL', 'EDUCAMPO', 'QUILLAYES', 'NESTLE']:
             if p_lei in proj_upper:
                 return True
-        # 3. Cruzamento com código LR em tab_vinculos_sq
+        # 3. Cruzamento com código LR em sq_raw_vinculos
         if codigo_lr in mapa_lr_tipo:
             t = mapa_lr_tipo[codigo_lr]
             if "CACAU" in t or "CAFE" in t or "GRAOS" in t:
@@ -379,34 +379,34 @@ def executar_reconciliacao():
     
     # 4.4 Limpar rigorosamente registros de 2026 em diante no Supabase antes de reinserir
     try:
-        res_2026_db = supabase.table("tab_movimentacao_produtor").select("id_composto").gte("data_movimentacao", "2026-01-01").execute()
+        res_2026_db = supabase.table("sq_fato_movimentacao").select("id_composto").gte("data_movimentacao", "2026-01-01").execute()
         ids_2026_db = [r["id_composto"] for r in (res_2026_db.data or [])]
         if ids_2026_db:
             print(f"   🧹 Limpando {len(ids_2026_db)} registros antigos de 2026 em diante no Supabase...")
             LOTE_DEL = 100
             for d_idx in range(0, len(ids_2026_db), LOTE_DEL):
                 lote_ids = ids_2026_db[d_idx : d_idx + LOTE_DEL]
-                supabase.table("tab_movimentacao_produtor").delete().in_("id_composto", lote_ids).execute()
+                supabase.table("sq_fato_movimentacao").delete().in_("id_composto", lote_ids).execute()
     except Exception as e_clean:
         print(f"   ⚠️ Aviso ao limpar registros de 2026: {e_clean}")
 
-    # Upsert em lotes em tab_movimentacao_produtor
-    print("\n💾 5. Gravando movimentações consolidadas em tab_movimentacao_produtor no Supabase...")
+    # Upsert em lotes em sq_fato_movimentacao
+    print("\n💾 5. Gravando movimentações consolidadas em sq_fato_movimentacao no Supabase...")
     registros_mov = df_mov_final.replace({np.nan: None}).to_dict(orient="records")
     LOTE = 500
     sucesso_mov = 0
     for i in range(0, len(registros_mov), LOTE):
         lote = registros_mov[i : i + LOTE]
         try:
-            supabase.table("tab_movimentacao_produtor").upsert(lote, on_conflict="id_composto").execute()
+            supabase.table("sq_fato_movimentacao").upsert(lote, on_conflict="id_composto").execute()
             sucesso_mov += len(lote)
         except Exception as e:
             print(f"   ❌ Erro ao enviar lote {i // LOTE + 1}: {e}")
         time.sleep(0.2)
     print(f"   ✅ {sucesso_mov} registros de movimentação atualizados no Supabase.")
 
-    # 6. Reconciliar tab_produtores_ativos_mensal (Restrito aos Projetos Oficiais de Leite)
-    print("\n🌱 6. Reconciliando base ativa mensal em tab_produtores_ativos_mensal (Leite)...")
+    # 6. Reconciliar sq_base_produtores_ativos (Restrito aos Projetos Oficiais de Leite)
+    print("\n🌱 6. Reconciliando base ativa mensal em sq_base_produtores_ativos (Leite)...")
     
     # Identificar todas as inativações com data e código
     # REGRA: De 2026 em diante, usa data_solicitacao; antes disso mantém data_inativacao
@@ -430,7 +430,7 @@ def executar_reconciliacao():
 
     print(f"   -> Mapeados {len(inativacoes_por_codigo)} produtores com inativação confirmada.")
 
-    # Base ativa consolidada a partir de tab_vinculos_sq (Apenas Projetos Oficiais)
+    # Base ativa consolidada a partir de sq_raw_vinculos (Apenas Projetos Oficiais)
     df_vinculos_ativos = df_vinc_db[df_vinc_db["vinculo_ativo"] == True].copy() if "vinculo_ativo" in df_vinc_db.columns else df_vinc_db.copy()
     df_vinculos_ativos = df_vinculos_ativos[df_vinculos_ativos["projeto"].isin(PROJETOS_OFICIAIS)]
     if "unidade_atendimento" in df_vinculos_ativos.columns:
@@ -495,11 +495,11 @@ def executar_reconciliacao():
         for i in range(0, len(registros_ativos), LOTE):
             lote_at = registros_ativos[i : i + LOTE]
             try:
-                supabase.table("tab_produtores_ativos_mensal").upsert(lote_at, on_conflict="codigo_lr,data_referencia").execute()
+                supabase.table("sq_base_produtores_ativos").upsert(lote_at, on_conflict="codigo_lr,data_referencia").execute()
                 sucesso_ativos += len(lote_at)
             except Exception as e:
                 try:
-                    supabase.table("tab_produtores_ativos_mensal").upsert(lote_at).execute()
+                    supabase.table("sq_base_produtores_ativos").upsert(lote_at).execute()
                     sucesso_ativos += len(lote_at)
                 except Exception as e2:
                     print(f"     ❌ Erro ao enviar lote de ativos {i // LOTE + 1}: {e2}")

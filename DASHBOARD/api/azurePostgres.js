@@ -163,9 +163,9 @@ async function getRegiaoMap(supabase, fetchAll) {
     }
   }
 
-  // Fallback para tab_fazenda no Supabase se o Postgres não estiver disponível
+  // Fallback para sq_dim_fazenda no Supabase se o Postgres não estiver disponível
   try {
-    const fazendasDB = await fetchAll(() => supabase.from('tab_fazenda').select('codAgroindustria, regiaoLeiteira').not('regiaoLeiteira', 'is', null));
+    const fazendasDB = await fetchAll(() => supabase.from('sq_dim_fazenda').select('codAgroindustria, regiaoLeiteira').not('regiaoLeiteira', 'is', null));
     (fazendasDB || []).forEach(f => {
       if (f.codAgroindustria && f.regiaoLeiteira) {
         const cleanRegiao = sanitizeRegiao(f.regiaoLeiteira);
@@ -175,7 +175,7 @@ async function getRegiaoMap(supabase, fetchAll) {
       }
     });
   } catch (errSupabase) {
-    console.error('Erro no fallback Supabase tab_fazenda:', errSupabase.message);
+    console.error('Erro no fallback Supabase sq_dim_fazenda:', errSupabase.message);
   }
 
   return regiaoMap;

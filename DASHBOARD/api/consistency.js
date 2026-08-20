@@ -168,24 +168,24 @@ module.exports = async (req, res) => {
 
     const [consistenciaHistoricaBruta, produtoresAtivosBrutos, vinculosFallback, consistenciaMensalBruta, consistenciaAnualBruta] = await Promise.all([
       fetchAll(() => supabase
-        .from('f_consistente_bi_lr')
+        .from('sq_fato_consistencia')
         .select('codigo_lr, nome_consultor, projeto, mes_referencia, data_carencia_fim, mes_elabore, consistencia_mensal, consistencia_anual, excecao, meses_sequenciais, detalhamento_inconsistencia')
         .order('mes_referencia', { ascending: false })
         .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
-        .from('tab_produtores_ativos_mensal')
+        .from('sq_base_produtores_ativos')
         .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
         .eq('data_referencia', refMonth)
         .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
-        .from('tab_vinculos_sq')
+        .from('sq_raw_vinculos')
         .select('codigo_lr, nome_produtor, projeto, unidade_atendimento')),
       fetchAll(() => supabase
-        .from('tab_consistencia_mensal')
+        .from('sq_raw_consistencia_mensal')
         .select('codigo_lr, mes_referencia, consistencia_mensal, detalhamento_inconsistencia')
         .eq('mes_referencia', refMonth)),
       fetchAll(() => supabase
-        .from('tab_consistencia_anual')
+        .from('sq_raw_consistencia_anual')
         .select('codigo_lr, mes_referencia, consistencia_anual, detalhamento_inconsistencia')
         .eq('mes_referencia', refMonth))
     ]);

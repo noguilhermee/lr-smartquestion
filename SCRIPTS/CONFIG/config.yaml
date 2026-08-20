@@ -25,15 +25,19 @@ caminhos:
 # 🗄️ TABELAS DO SUPABASE (Configuração Oficial de Produção / Staging / Fato)
 supabase:
   tabelas:
-    vinculos_staging: "tab_vinculos_sq"
-    visitas_staging: "tab_visitas_sq"
-    visitas_fato: "f_visitas_bi_lr"
-    inativacao_produtores_staging: "tab_inativacoes_sq"
-    inativacao_consultores_staging: "tab_inativacao_consultor_sq"
-    consistencia_mensal_staging: "tab_consistencia_mensal"
-    consistencia_anual_staging: "tab_consistencia_anual"
-    consistencia_fato: "f_consistente_bi_lr"
-    movimentacao_fato: "tab_movimentacao_produtor"
+    vinculos_staging: "sq_raw_vinculos"
+    visitas_staging: "sq_raw_visitas"
+    visitas_fato: "sq_fato_visitas"
+    inativacao_produtores_staging: "sq_raw_inativacoes_produtor"
+    inativacao_consultores_staging: "sq_raw_inativacoes_consultor"
+    consistencia_mensal_staging: "sq_raw_consistencia_mensal"
+    consistencia_anual_staging: "sq_raw_consistencia_anual"
+    consistencia_fato: "sq_fato_consistencia"
+    movimentacao_fato: "sq_fato_movimentacao"
+    produtores_ativos_base: "sq_base_produtores_ativos"
+    agroindustria_dim: "sq_dim_agroindustria"
+    consultor_dim: "sq_dim_consultor"
+    fazenda_dim: "sq_dim_fazenda"
 
 # 📄 NOMES E PADRÕES DOS ARQUIVOS DE RELATÓRIO EXCEL
 smartquestion:

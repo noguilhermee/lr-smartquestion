@@ -133,8 +133,8 @@ module.exports = async (req, res) => {
 
     const { getRegiaoMap, sanitizeRegiao } = require('./azurePostgres');
     const [{ data: agrosDB }, consultoresDB, regiaoMap] = await Promise.all([
-      supabase.from('tab_agroindustria').select('nomeAgroindustria').order('nomeAgroindustria', { ascending: true }),
-      fetchAll(() => supabase.from('tab_consultor').select('nomeConsultor, formacaoConsultor')),
+      supabase.from('sq_dim_agroindustria').select('nomeAgroindustria').order('nomeAgroindustria', { ascending: true }),
+      fetchAll(() => supabase.from('sq_dim_consultor').select('nomeConsultor, formacaoConsultor')),
       getRegiaoMap(supabase, fetchAll)
     ]);
     const agroindustriasOficiais = (agrosDB || []).map(a => a.nomeAgroindustria).filter(Boolean);
@@ -185,12 +185,12 @@ module.exports = async (req, res) => {
     // 2. Consultar produtores ativos no mês de visitas e no mês de consistência
     const [produtoresListRaw, produtoresConsistenciaRaw] = await Promise.all([
       fetchAll(() => supabase
-        .from('tab_produtores_ativos_mensal')
+        .from('sq_base_produtores_ativos')
         .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia')
         .eq('data_referencia', visitasMonth)
         .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
-        .from('tab_produtores_ativos_mensal')
+        .from('sq_base_produtores_ativos')
         .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia')
         .eq('data_referencia', consistencyMonth)
         .order('codigo_lr', { ascending: true }))
@@ -200,7 +200,7 @@ module.exports = async (req, res) => {
 
     // 3. Consultar visitas do mês selecionado (visitasMonth)
     const visitasListRaw = await fetchAll(() => supabase
-      .from('f_visitas_bi_lr')
+      .from('sq_fato_visitas')
       .select('id, codigo_lr, nome_consultor, nome_produtor, nome_propriedade, data_visita, id_atendimento, projeto, mes_referencia')
       .eq('mes_referencia', visitasMonth)
       .order('data_visita', { ascending: false }));
@@ -212,7 +212,7 @@ module.exports = async (req, res) => {
       const dtInicio = `${visitasMonth}`;
       const dtFim = `${anoRef}-${mesRef}-${String(ultimoDiaMes).padStart(2, '0')}`;
       const visitasFallback = await fetchAll(() => supabase
-        .from('tab_visitas_sq')
+        .from('sq_raw_visitas')
         .select('id_atendimento, codigo_lr, nome_consultor, nome_produtor, data_visita')
         .gte('data_visita', dtInicio)
         .lte('data_visita', dtFim)
@@ -230,17 +230,17 @@ module.exports = async (req, res) => {
     // Histórico necessário para os gráficos e datas de associação. Consultas exclusivamente de leitura com ordenação determinística.
     const [visitasHistoricas, produtoresHistoricos, vinculosSQRaw] = await Promise.all([
       fetchAll(() => supabase
-        .from('f_visitas_bi_lr')
+        .from('sq_fato_visitas')
         .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia, data_visita')
         .order('mes_referencia', { ascending: false })
         .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
-        .from('tab_produtores_ativos_mensal')
+        .from('sq_base_produtores_ativos')
         .select('codigo_lr, nome_consultor, nome_produtor, projeto, unidade_atendimento, data_referencia')
         .order('data_referencia', { ascending: false })
         .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
-        .from('tab_vinculos_sq')
+        .from('sq_raw_vinculos')
         .select('codigo_lr, data_associacao')
         .not('data_associacao', 'is', null)
         .order('data_associacao', { ascending: true }))
@@ -285,19 +285,19 @@ module.exports = async (req, res) => {
 
     // 4. Consultar movimentação (entradas/saídas)
     const movimentacoes = await fetchAll(() => supabase
-      .from('tab_movimentacao_produtor')
+      .from('sq_fato_movimentacao')
       .select('codigo_lr, nome_consultor, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
       .order('data_movimentacao', { ascending: false }));
 
     // 5. Consultar consistência do mês M-1 (consistencyMonth)
     const [consistenciaList, elaboreMensalList] = await Promise.all([
       fetchAll(() => supabase
-        .from('f_consistente_bi_lr')
+        .from('sq_fato_consistencia')
         .select('codigo_lr, consistencia_mensal, consistencia_anual, mes_elabore, mes_referencia')
         .eq('mes_referencia', consistencyMonth)
         .order('codigo_lr', { ascending: true })),
       fetchAll(() => supabase
-        .from('tab_consistencia_mensal')
+        .from('sq_raw_consistencia_mensal')
         .select('codigo_lr, mes_elabore, consistencia_mensal, mes_referencia')
         .eq('mes_referencia', consistencyMonth))
     ]);

@@ -147,13 +147,13 @@ module.exports = async (req, res) => {
     }
 
     const produtoresBrutos = await fetchAll(() => supabase
-      .from('tab_produtores_ativos_mensal')
+      .from('sq_base_produtores_ativos')
       .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
       .eq('data_referencia', refMonth)
       .order('codigo_lr', { ascending: true }));
 
     let visitasBrutas = await fetchAll(() => supabase
-      .from('f_visitas_bi_lr')
+      .from('sq_fato_visitas')
       .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia')
       .eq('mes_referencia', refMonth)
       .order('codigo_lr', { ascending: true }));
@@ -164,7 +164,7 @@ module.exports = async (req, res) => {
       const dtInicio = `${refMonth}`;
       const dtFim = `${anoRef}-${mesRef}-${String(ultimoDiaMes).padStart(2, '0')}`;
       const visitasFallback = await fetchAll(() => supabase
-        .from('tab_visitas_sq')
+        .from('sq_raw_visitas')
         .select('id_atendimento, codigo_lr, nome_consultor, nome_produtor, data_visita')
         .gte('data_visita', dtInicio)
         .lte('data_visita', dtFim)
