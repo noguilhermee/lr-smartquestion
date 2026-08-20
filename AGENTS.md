@@ -130,3 +130,17 @@ CAMINHO_ARQUIVO = PASTA_SAIDA / f"{DATA_EXPORTACAO}_nome_do_arquivo.ext"
 - **Regra**: Quando a mensagem do usuário for iniciada por ou contiver `análise:` acompanhada de um log de execução, o assistente deve fornecer **exclusivamente a análise técnica direta do log** (status, volume de registros, métricas de tempo e eventuais erros).
 - **Exceção de Mensagens**: Nestas respostas de análise direta, **não sugerir nomes de tarefas para o Microsoft Planner** nem **recomendar passos de versionamento Git**, mantendo a resposta estritamente focada na avaliação técnica.
 
+---
+
+## 🏛️ 11. Padrão Oficial de Nomenclatura de Tabelas no Supabase (`lr-analytics-db`)
+- **Regra**: No banco de dados central `lr-analytics-db` (Workspace `LaborRural Interno`), todas as tabelas devem obrigatoriamente seguir a taxonomia de prefixos por projeto e camadas analíticas:
+  - **Estrutura**: `<prefixo_projeto>_<camada>_<entidade>`
+  - **Prefixos de Projetos**: `sq_` (SmartQuestion), `elabore_` (Elabore), `meta_` (Metas), etc.
+  - **Camadas Oficiais**:
+    - `*_fato_*`: Tabelas fato analíticas agregadas (ex: `sq_fato_visitas`, `sq_fato_consistencia`, `sq_fato_movimentacao`).
+    - `*_dim_*`: Tabelas dimensionais cadastrais (ex: `sq_dim_agroindustria`, `sq_dim_consultor`, `sq_dim_fazenda`).
+    - `*_base_*`: Snapshots periódicos e bases congeladas mês a mês (ex: `sq_base_produtores_ativos`).
+    - `*_raw_*`: Ingestão bruta de relatórios e planilhas operacionais (ex: `sq_raw_visitas`, `sq_raw_vinculos`, `sq_raw_consistencia_mensal`).
+  - **Colunas**: Sempre em `snake_case` minúsculo com timestamps `data_processamento` e chaves `id_composto`.
+
+

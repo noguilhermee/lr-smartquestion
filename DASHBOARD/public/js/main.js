@@ -69,6 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
       kpis: {},
       evolucaoConsistencia: { labels: [], mensal: [], anual: [] },
       distribuicaoDonut: { labels: ['Registros aptos', 'Registros incompletos', 'Registros divergentes'], values: [0, 0, 0] },
+      distribuicaoDonutAnual: { labels: ['Registros aptos', 'Registros incompletos', 'Registros divergentes'], values: [0, 0, 0] },
       tabelaProdutoresComDados: [],
       tabelaInconsistentes: []
     }
@@ -232,7 +233,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updateValue('kpiDataBase', number(base));
     const consistencyData = sliceTimeSeries(data.evolucaoConsistencia || emptyState.consistency.evolucaoConsistencia, state.chartHorizons.consistency);
     charts.renderConsistencyHistory('chartConsistencyHistory', consistencyData);
-    charts.renderQuality('chartDataQuality', data.distribuicaoDonut || emptyState.consistency.distribuicaoDonut);
+    charts.renderQuality('chartDataQualityMonthly', data.distribuicaoDonut || emptyState.consistency.distribuicaoDonut);
+    charts.renderQuality('chartDataQualityAnnual', data.distribuicaoDonutAnual || emptyState.consistency.distribuicaoDonutAnual);
   }
 
   function currentFilter() {
@@ -431,7 +433,7 @@ document.addEventListener('DOMContentLoaded', () => {
     tbodyVisitados: { colKey: null, dir: 'asc' },
     tbodyTurnover: { colKey: null, dir: 'asc' },
     tbodyConsultants: { colKey: null, dir: 'asc' },
-    tbodyDataProducers: { colKey: null, dir: 'asc' },
+    tbodyDataProducers: { colKey: 'possui_dados', dir: 'asc' },
     tbodyInconsistencies: { colKey: null, dir: 'asc' }
   };
 
@@ -466,6 +468,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function parseSortValue(value) {
     if (value === null || value === undefined || value === '' || value === '—') return null;
+    if (typeof value === 'boolean') return value ? 1 : 0;
     if (typeof value === 'number') return value;
     const str = String(value).trim();
     if (/^-?\d+([.,]\d+)?%?$/.test(str)) {
@@ -532,7 +535,7 @@ document.addEventListener('DOMContentLoaded', () => {
       tbodyTurnover: ['atendimento', 'produtor', 'tipo', 'data', 'grupo', 'motivo'],
       tbodyConsultants: ['consultor', 'total_fazendas', 'fazendas_visitadas', 'total_visitas', 'perc_cobertura', 'status'],
       tbodyDataProducers: ['codigo_lr', 'produtor', 'consultor', 'possui_dados', 'referencia', 'status'],
-      tbodyInconsistencies: ['produtor', 'consultor', 'projeto', 'meses_sequenciais', 'consistencia', 'acao']
+      tbodyInconsistencies: ['produtor', 'consultor', 'projeto', 'meses_sequenciais', 'consistencia_mensal', 'consistencia_anual', 'acao']
     };
 
     Object.entries(MAPPINGS).forEach(([tbodyId, colKeys]) => {
@@ -843,12 +846,24 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCount('countInconsistencies', inconsistencies);
     inconsistencies = sortRows(inconsistencies, tableSort.tbodyInconsistencies, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
     updateTableHeadIcons('tbodyInconsistencies', tableSort.tbodyInconsistencies.colKey, tableSort.tbodyInconsistencies.dir);
-    if (el('tbodyInconsistencies')) el('tbodyInconsistencies').innerHTML = rowsOrEmpty(inconsistencies, 6, (row, idx) => {
-      const isGrave = isStatusInconsistente(row.consistencia);
+    if (el('tbodyInconsistencies')) el('tbodyInconsistencies').innerHTML = rowsOrEmpty(inconsistencies, 7, (row, idx) => {
+      const isGraveMensal = isStatusInconsistente(row.consistencia_mensal || row.consistencia);
+      const isGraveAnual = isStatusInconsistente(row.consistencia_anual);
+      const isGrave = isGraveMensal || isGraveAnual;
       const rowClass = isGrave ? 'table-row-grave' : 'table-row-pending';
-      const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
+
+      const getBadgeClass = (val) => {
+        const str = String(val || '').toLowerCase();
+        if (str.includes('consistente') && !str.includes('inconsistente')) return 'badge-positive';
+        if (str.includes('inconsistente')) return 'badge-danger';
+        return 'badge-warning';
+      };
+
+      const badgeClassMensal = getBadgeClass(row.consistencia_mensal || row.consistencia);
+      const badgeClassAnual = getBadgeClass(row.consistencia_anual);
       const prodName = row.produtor || row.codigo_lr || '—';
-      return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(prodName)}"><strong>${escapeHtml(prodName)}</strong></td><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-left" title="${escapeHtml(row.projeto || '—')}">${escapeHtml(row.projeto || '—')}</td><td class="col-center font-tabular">${number(row.meses_sequenciais)}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(row.consistencia || 'PENDENTE')}">${escapeHtml(row.consistencia || 'PENDENTE')}</span></td><td class="col-center"><button class="link-button btn-view-details" type="button" onclick="window.openInconsistencyDetail('${escapeHtml(row.codigo_lr || row.produtor)}')">Ver detalhes ›</button></td></tr>`;
+
+      return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(prodName)}"><strong>${escapeHtml(prodName)}</strong></td><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-left" title="${escapeHtml(row.projeto || '—')}">${escapeHtml(row.projeto || '—')}</td><td class="col-center font-tabular">${number(row.meses_sequenciais)}</td><td class="col-center"><span class="badge ${badgeClassMensal}" title="${escapeHtml(row.consistencia_mensal || 'SEM DADOS')}">${escapeHtml(row.consistencia_mensal || 'SEM DADOS')}</span></td><td class="col-center"><span class="badge ${badgeClassAnual}" title="${escapeHtml(row.consistencia_anual || 'SEM DADOS')}">${escapeHtml(row.consistencia_anual || 'SEM DADOS')}</span></td><td class="col-center"><button class="link-button btn-view-details" type="button" onclick="window.openInconsistencyDetail('${escapeHtml(row.codigo_lr || row.produtor)}')">Ver detalhes ›</button></td></tr>`;
     });
   }
 
@@ -1153,15 +1168,18 @@ document.addEventListener('DOMContentLoaded', () => {
       'Região',
       'Mês Referência',
       'Meses Consecutivos',
-      'Situação',
-      'Detalhamento da Inconsistência'
+      'Situação Mensal',
+      'Situação Anual',
+      'Detalhamento Mensal',
+      'Detalhamento Anual'
     ];
 
     const csvLines = [headers.map((h) => `"${h.replace(/"/g, '""')}"`).join(';')];
 
     inconsistencies.forEach((row) => {
       const prodName = row.produtor || row.codigo_lr || '—';
-      const det = row.detalhamento || 'Nenhum detalhamento registrado na base de auditoria.';
+      const detMensal = row.detalhamento || 'Nenhum detalhamento registrado na base mensal.';
+      const detAnual = row.detalhamento_anual || 'Nenhum detalhamento registrado na base anual.';
       const values = [
         row.codigo_lr || '—',
         prodName,
@@ -1171,8 +1189,10 @@ document.addEventListener('DOMContentLoaded', () => {
         row.regiao || '—',
         row.mes_referencia || '—',
         row.meses_sequenciais ?? '0',
-        row.consistencia || 'PENDENTE',
-        det
+        row.consistencia_mensal || 'SEM DADOS',
+        row.consistencia_anual || 'SEM DADOS',
+        detMensal,
+        detAnual
       ];
       csvLines.push(values.map((v) => `"${String(v).trim().replace(/\r?\n/g, ' | ').replace(/"/g, '""')}"`).join(';'));
     });

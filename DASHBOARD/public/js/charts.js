@@ -454,15 +454,28 @@ class DashboardCharts {
     const labels = baseLabels.map((label, index) => `${label}: ${this.formatValue(values[index] || 0)}`);
     this.instances[id] = new Chart(ctx, {
       type: 'doughnut',
-      plugins: [this.valueLabels((value, context) => this.formatValue(context.percentage, '%'), { minimumPercentage: 1, fontSize: 11.2 })],
+      plugins: [this.valueLabels((value, context) => this.formatValue(context.percentage, '%'), { minimumPercentage: 1, fontSize: 10 })],
       data: {
         labels,
         datasets: [{ data: values, backgroundColor: [color.dark, color.warning, color.danger, color.info], borderColor: color.surface, borderWidth: 2 }]
       },
       options: {
-        cutout: '38%', radius: '92%',
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '38%',
+        radius: '88%',
         plugins: {
-          legend: { position: 'right', labels: { color: color.ink, boxWidth: 10, usePointStyle: true, padding: 16, font: { size: 11.2, weight: '600' } } },
+          legend: {
+            position: 'bottom',
+            labels: {
+              color: color.ink,
+              boxWidth: 8,
+              boxHeight: 8,
+              usePointStyle: true,
+              padding: 4,
+              font: { size: 9.5, weight: '600' }
+            }
+          },
           tooltip: this.tooltip()
         }
       }

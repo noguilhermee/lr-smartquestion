@@ -211,6 +211,10 @@ module.exports = async (req, res) => {
     let excecoes = 0;
     let semDados = 0;
 
+    let anualConsistentes = 0;
+    let anualInconsistentes = 0;
+    let anualSemDados = 0;
+
     const mesesSequenciaisDist = { '0-3 meses': 0, '4-6 meses': 0, '7-9 meses': 0, '10-12 meses': 0, '12+ meses': 0 };
     const listaInconsistentes = [];
 
@@ -230,13 +234,10 @@ module.exports = async (req, res) => {
         const mensalDirect = mensalRefMap.get(cdLrUpper);
         const anualDirect = anualRefMap.get(cdLrUpper);
 
-        // Regra do Usuário: "Sem dados" é baseado estritamente na tab_consistencia_mensal
+        // Regra Mensal
         const hasNoMensalRecord = !mensalDirect || !mensalDirect.consistencia_mensal;
         const statusConsist = String(mensalDirect ? mensalDirect.consistencia_mensal : (c.consistencia_mensal || '')).toLowerCase();
-        const detalheConsist = mensalDirect ? (mensalDirect.detalhamento_inconsistencia || c.detalhamento_inconsistencia) : null;
-
-        const statusConsistAnual = anualDirect ? anualDirect.consistencia_anual : (c.consistencia_anual || null);
-        const detalheConsistAnual = anualDirect ? anualDirect.detalhamento_inconsistencia : null;
+        const detalheConsist = mensalDirect ? (mensalDirect.detalhamento_inconsistencia || c.detalhamento_inconsistencia) : (c.detalhamento_inconsistencia || null);
 
         const refMonthStr = String(c.mes_referencia || '').slice(0, 7);
         const isCinthiaMissingMay = (c.codigo_lr === 'LR10245' || String(c.nome_produtor || '').toLowerCase().includes('cinthia')) && refMonthStr === '2026-05';
@@ -250,42 +251,55 @@ module.exports = async (req, res) => {
           consistentes++;
         } else if (isInconsistente) {
           inconsistentes++;
-          const produtorAtivo = produtoresMap.get(c.codigo_lr);
-          const metaFallback = fallbackMetaMap.get(c.codigo_lr);
-          const nomeProdutor = produtorAtivo?.nome_produtor || metaFallback?.nome_produtor || c.codigo_lr || 'PRODUTOR';
-          listaInconsistentes.push({
-            codigo_lr: c.codigo_lr || 'PRODUTOR',
-            produtor: nomeProdutor,
-            consultor: c.nome_consultor || 'NÃO INFORMADO',
-            agroindustria: mapAgroindustria(produtorAtivo?.projeto || metaFallback?.projeto || c.projeto),
-            regiao: getRegiao(c.codigo_lr, produtorAtivo?.unidade_atendimento || metaFallback?.unidade_atendimento),
-            projeto: c.projeto || produtorAtivo?.projeto || metaFallback?.projeto || 'NÃO INFORMADO',
-            status: produtorAtivo ? 'ATIVO' : 'INATIVO',
-            mes_referencia: c.mes_referencia || refMonth,
-            meses_sequenciais: seq,
-            consistencia: 'Inconsistente',
-            detalhamento: detalheConsist || null,
-            consistencia_anual: statusConsistAnual,
-            detalhamento_anual: detalheConsistAnual
-          });
         } else {
           semDados++;
+        }
+
+        // Regra Anual
+        const statusConsistAnual = anualDirect ? anualDirect.consistencia_anual : (c.consistencia_anual || null);
+        const detalheConsistAnual = anualDirect ? anualDirect.detalhamento_inconsistencia : null;
+        const statusAnualStr = String(statusConsistAnual || '').toLowerCase();
+        const isAnualSemDados = !statusConsistAnual || statusAnualStr.includes('sem dados') || statusAnualStr.includes('sem_dados') || statusAnualStr.includes('não calculado') || statusAnualStr.includes('nao calculado');
+        const isAnualConsist = !isAnualSemDados && statusAnualStr.includes('consistente') && !statusAnualStr.includes('inconsistente');
+        const isAnualInconsist = !isAnualSemDados && !isAnualConsist && statusAnualStr.includes('inconsistente');
+
+        if (isAnualConsist) {
+          anualConsistentes++;
+        } else if (isAnualInconsist) {
+          anualInconsistentes++;
+        } else {
+          anualSemDados++;
+        }
+
+        let sitMensal = 'Sem dados';
+        if (isConsistente) sitMensal = 'Consistente';
+        else if (isInconsistente) sitMensal = 'Inconsistente';
+
+        let sitAnual = 'Sem dados';
+        if (isAnualConsist) sitAnual = 'Consistente';
+        else if (isAnualInconsist) sitAnual = 'Inconsistente';
+        else if (statusConsistAnual) sitAnual = String(statusConsistAnual);
+
+        // Se houver qualquer divergência ou falta de dados (mensal ou anual), inclui na tabela de inconsistências
+        if (isInconsistente || isSemDados || isAnualInconsist || isAnualSemDados) {
           const produtorAtivo = produtoresMap.get(c.codigo_lr);
           const metaFallback = fallbackMetaMap.get(c.codigo_lr);
           const nomeProdutor = produtorAtivo?.nome_produtor || metaFallback?.nome_produtor || c.codigo_lr || 'PRODUTOR';
           listaInconsistentes.push({
             codigo_lr: c.codigo_lr || 'PRODUTOR',
             produtor: nomeProdutor,
-            consultor: c.nome_consultor || 'NÃO INFORMADO',
+            consultor: c.nome_consultor || produtorAtivo?.nome_consultor || metaFallback?.nome_consultor || 'NÃO INFORMADO',
             agroindustria: mapAgroindustria(produtorAtivo?.projeto || metaFallback?.projeto || c.projeto),
             regiao: getRegiao(c.codigo_lr, produtorAtivo?.unidade_atendimento || metaFallback?.unidade_atendimento),
             projeto: c.projeto || produtorAtivo?.projeto || metaFallback?.projeto || 'NÃO INFORMADO',
             status: produtorAtivo ? 'ATIVO' : 'INATIVO',
             mes_referencia: c.mes_referencia || refMonth,
             meses_sequenciais: seq,
-            consistencia: 'Sem dados',
-            detalhamento: null,
-            consistencia_anual: statusConsistAnual,
+            consistencia_mensal: sitMensal,
+            consistencia_anual: sitAnual,
+            consistencia: isInconsistente ? 'Inconsistente' : (isAnualInconsist ? 'Inconsistente Anual' : sitMensal),
+            detalhamento: detalheConsist || null,
+            consistencia_anual_raw: statusConsistAnual,
             detalhamento_anual: detalheConsistAnual
           });
         }
@@ -294,9 +308,9 @@ module.exports = async (req, res) => {
 
     const percConsistente = ((consistentes / (total || 1)) * 100).toFixed(1);
     const percInconsistente = ((inconsistentes / (total || 1)) * 100).toFixed(1);
-    const anualAvaliados = consistenciaFiltrada.filter(c => c.consistencia_anual !== null && c.consistencia_anual !== undefined);
-    const anualConsistentes = anualAvaliados.filter(c => isConsistent(c.consistencia_anual)).length;
-    const percAnual = anualAvaliados.length > 0 ? ((anualConsistentes / anualAvaliados.length) * 100).toFixed(1) : percConsistente;
+    const percAnual = (anualConsistentes + anualInconsistentes + anualSemDados) > 0 
+      ? ((anualConsistentes / (anualConsistentes + anualInconsistentes + anualSemDados)) * 100).toFixed(1) 
+      : percConsistente;
     const produtoresComDados = new Set(consistenciaFiltrada.filter(c => {
       const statusConsist = String(c.consistencia_mensal || '').toLowerCase();
       const refMonthStr = String(c.mes_referencia || '').slice(0, 7);
@@ -364,6 +378,10 @@ module.exports = async (req, res) => {
       distribuicaoDonut: {
         labels: ['Registros aptos', 'Registros incompletos', 'Registros divergentes'],
         values: [consistentes, semDados + carencia, inconsistentes]
+      },
+      distribuicaoDonutAnual: {
+        labels: ['Registros aptos', 'Registros incompletos', 'Registros divergentes'],
+        values: [anualConsistentes, anualSemDados, anualInconsistentes]
       },
       evolucaoConsistencia,
       histogramaMeses: {

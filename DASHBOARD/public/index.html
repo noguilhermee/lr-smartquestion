@@ -163,8 +163,17 @@
           <article class="panel-card panel-card--quality">
             <div class="panel-heading"><h2>Qualidade dos dados</h2></div>
             <div class="quality-content">
-              <div class="chart-box chart-box--quality"><canvas id="chartDataQuality"></canvas></div>
-              <div class="criteria-strip"><span class="criteria-icon">i</span><div><strong>Critérios de consistência</strong><p>Os indicadores de presença de dados e consistência são calculados exclusivamente a partir das fontes analíticas autorizadas.</p></div></div>
+              <div class="quality-donuts-wrapper">
+                <div class="quality-donut-col">
+                  <div class="quality-donut-title">Qualidade Mensal</div>
+                  <div class="chart-box chart-box--quality"><canvas id="chartDataQualityMonthly"></canvas></div>
+                </div>
+                <div class="quality-donut-col">
+                  <div class="quality-donut-title">Qualidade Anual</div>
+                  <div class="chart-box chart-box--quality"><canvas id="chartDataQualityAnnual"></canvas></div>
+                </div>
+              </div>
+              <div class="criteria-strip"><span class="criteria-icon">i</span><div><strong>Critérios de consistência</strong><p>Indicadores calculados a partir das fontes analíticas oficiais (Mensal e Anual).</p></div></div>
             </div>
           </article>
         </div>
@@ -176,7 +185,7 @@
           </article>
           <article class="panel-card table-card">
             <div class="panel-heading"><h2>Inconsistências identificadas</h2><div class="panel-actions"><span class="record-count" id="countInconsistencies">0 registros</span><button class="btn-table-export" id="btnExportInconsistencies" type="button" title="Exportar tabela para CSV (Excel)" aria-label="Exportar para CSV"><span class="material-symbols-rounded" aria-hidden="true">download</span><span>Exportar</span></button></div></div>
-            <div class="table-scroll"><table class="data-table" id="tableInconsistencies"><thead><tr><th class="col-left">Produtor(a)</th><th class="col-left">Consultor(a)</th><th class="col-left">Projeto</th><th class="col-center">Meses Seq.</th><th class="col-center">Situação</th><th class="col-center">Ação</th></tr><tr class="table-filter-row"><th><input type="text" class="table-col-filter" data-table="tableInconsistencies" data-col="produtor" placeholder="Filtrar..." aria-label="Filtrar Produtor"></th><th><input type="text" class="table-col-filter" data-table="tableInconsistencies" data-col="consultor" placeholder="Filtrar..." aria-label="Filtrar Consultor"></th><th><input type="text" class="table-col-filter" data-table="tableInconsistencies" data-col="projeto" placeholder="Filtrar..." aria-label="Filtrar Projeto"></th><th><input type="text" class="table-col-filter" data-table="tableInconsistencies" data-col="meses_sequenciais" placeholder="Filtrar..." aria-label="Filtrar Meses"></th><th><input type="text" class="table-col-filter" data-table="tableInconsistencies" data-col="consistencia" placeholder="Filtrar..." aria-label="Filtrar Situação"></th><th></th></tr></thead><tbody id="tbodyInconsistencies"><tr><td colspan="6" class="empty-cell">Carregando...</td></tr></tbody></table></div>
+            <div class="table-scroll"><table class="data-table" id="tableInconsistencies"><thead><tr><th class="col-left">Produtor(a)</th><th class="col-left">Consultor(a)</th><th class="col-left">Projeto</th><th class="col-center">Meses Seq.</th><th class="col-center">Situação Mensal</th><th class="col-center">Situação Anual</th><th class="col-center">Ação</th></tr><tr class="table-filter-row"><th><input type="text" class="table-col-filter" data-table="tableInconsistencies" data-col="produtor" placeholder="Filtrar..." aria-label="Filtrar Produtor"></th><th><input type="text" class="table-col-filter" data-table="tableInconsistencies" data-col="consultor" placeholder="Filtrar..." aria-label="Filtrar Consultor"></th><th><input type="text" class="table-col-filter" data-table="tableInconsistencies" data-col="projeto" placeholder="Filtrar..." aria-label="Filtrar Projeto"></th><th><input type="text" class="table-col-filter" data-table="tableInconsistencies" data-col="meses_sequenciais" placeholder="Filtrar..." aria-label="Filtrar Meses"></th><th><input type="text" class="table-col-filter" data-table="tableInconsistencies" data-col="consistencia_mensal" placeholder="Filtrar..." aria-label="Filtrar Situação Mensal"></th><th><input type="text" class="table-col-filter" data-table="tableInconsistencies" data-col="consistencia_anual" placeholder="Filtrar..." aria-label="Filtrar Situação Anual"></th><th></th></tr></thead><tbody id="tbodyInconsistencies"><tr><td colspan="7" class="empty-cell">Carregando...</td></tr></tbody></table></div>
           </article>
         </div>
       </section>

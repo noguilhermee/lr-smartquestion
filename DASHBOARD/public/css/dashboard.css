@@ -1369,21 +1369,54 @@ body.table-resizing * {
 .quality-content {
   flex: 1;
   display: flex;
-  align-items: center;
-  gap: 12px;
+  align-items: stretch;
+  gap: 10px;
   min-height: 0;
 }
 
-.chart-box--quality {
+.quality-donuts-wrapper {
   flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
   min-width: 0;
   height: 100%;
 }
 
+.quality-donut-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+  height: 100%;
+  padding: 6px 4px 2px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+}
+
+.quality-donut-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-strong);
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+.quality-donut-col .chart-box--quality {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  position: relative;
+}
+
 .panel-card--quality .criteria-strip {
-  flex: 0 0 210px;
+  flex: 0 0 170px;
   min-height: auto;
-  padding: 8px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--line-soft);
   background: var(--surface-soft);
   border-radius: 8px;
