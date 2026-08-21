@@ -353,10 +353,11 @@ module.exports = async (req, res) => {
       const produtor = produtoresMap.get(c.codigo_lr);
       const metaFallback = fallbackMetaMap.get(c.codigo_lr);
       const cdLrUpper = String(c.codigo_lr || '').trim().toUpperCase();
-      const mensalDirect = mensalRefMap.get(cdLrUpper);
-      const statusConsist = String(mensalDirect ? mensalDirect.consistencia_mensal : (c.consistencia_mensal || '')).toLowerCase();
-      const hasNoMensalRecord = !mensalDirect || !mensalDirect.consistencia_mensal;
       const refMonthStr = String(c.mes_referencia || '').slice(0, 7);
+      const mKey = `${cdLrUpper}_${refMonthStr}`;
+      const mensalDirect = mensalRefMap.get(mKey) || mensalRefMap.get(cdLrUpper);
+      const statusConsist = String(mensalDirect ? mensalDirect.consistencia_mensal : (c.consistencia_mensal || '')).toLowerCase();
+      const hasNoMensalRecord = !mensalDirect && !c.mes_elabore && !c.consistencia_mensal;
       const isCinthiaMissingMay = (c.codigo_lr === 'LR10245' || String(produtor?.nome_produtor || '').toLowerCase().includes('cinthia')) && refMonthStr === '2026-05';
       const isSemDados = hasNoMensalRecord || isCinthiaMissingMay || statusConsist.includes('sem dados') || statusConsist.includes('não calculado');
       const possuiDados = Boolean(!isSemDados);

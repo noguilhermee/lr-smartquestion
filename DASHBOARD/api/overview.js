@@ -328,15 +328,21 @@ module.exports = async (req, res) => {
       })
     ]);
 
+    // O mapa de presenças no Elabore prioriza a tabela de snapshot bruta (sq_raw_consistencia_mensal),
+    // garantindo fidelidade estrita ao arquivo Excel exportado mais recente.
+    const fonteElabore = (elaboreMensalList && elaboreMensalList.length > 0) ? elaboreMensalList : (consistenciaList || []);
+
     const elaboreMensalMap = new Map(
-      (elaboreMensalList || []).map(item => [
+      fonteElabore.map(item => [
         `${String(item.codigo_lr).trim().toUpperCase()}_${String(item.mes_referencia || '').slice(0, 7)}`,
         item
       ])
     );
 
     const elaboreSet = new Set(
-      (elaboreMensalList || []).map(item => String(item.codigo_lr).trim().toUpperCase())
+      fonteElabore
+        .filter(item => item.mes_elabore || (item.consistencia_mensal && !String(item.consistencia_mensal).toLowerCase().includes('sem dados')))
+        .map(item => String(item.codigo_lr).trim().toUpperCase())
     );
 
     const produtoresMap = new Map((produtoresFiltrados || []).map(p => [p.codigo_lr, p]));

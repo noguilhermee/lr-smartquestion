@@ -73,15 +73,15 @@ def executar_notebook(caminho_notebook: Path) -> bool:
 
 def main():
     # 1. Sincronização Pré-ETL das Tabelas de Consistência (Mensal e Anual)
-    # try:
-    #     from FUNCTIONS.atualizar_detalhamento_consistencia import executar_sincronizacao_consistencia
-    #     print("\n📥 [PRÉ-ETL] Sincronizando relatórios mais recentes de consistência (Elabore)...")
-    #     sucesso_consistencia = executar_sincronizacao_consistencia(raiz_projeto)
-    #     if not sucesso_consistencia:
-    #         print("⚠️ Aviso: Sincronização de consistência retornou avisos ou falhou, prosseguindo com dados existentes.")
-    # except Exception as e_cons:
-    #     print(f"⚠️ Aviso ao sincronizar consistência pré-ETL: {e_cons}")
-
+    try:
+        from FUNCTIONS.atualizar_detalhamento_consistencia import executar_sincronizacao_consistencia
+        print("\n📥 [PRÉ-ETL] Sincronizando relatórios mais recentes de consistência (Elabore)...")
+        sucesso_consistencia = executar_sincronizacao_consistencia(raiz_projeto)
+        if not sucesso_consistencia:
+            print("⚠️ Aviso: Sincronização de consistência retornou avisos ou falhou, prosseguindo com dados existentes.")
+    except Exception as e_cons:
+        print(f"⚠️ Aviso ao sincronizar consistência pré-ETL: {e_cons}")
+    
     # 2. Execução do Notebook Principal
     notebook_path = raiz_projeto / "SCRIPTS" / "ETL_BI_LR.ipynb"
     if not notebook_path.exists():
@@ -89,7 +89,7 @@ def main():
         sys.exit(1)
 
     sucesso = executar_notebook(notebook_path)
-    
+
     # 3. Pós-ETL: Reconciliação de Movimentação e Ativos
     if sucesso:
         try:
