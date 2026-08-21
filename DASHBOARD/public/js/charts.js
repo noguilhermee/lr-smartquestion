@@ -511,7 +511,7 @@ class DashboardCharts {
         maintainAspectRatio: false,
         cutout: '42%',
         radius: '80%',
-        layout: { padding: { top: 6, bottom: 6, left: 6, right: 6 } },
+        layout: { padding: { top: 0, bottom: 24, left: 4, right: 4 } },
         plugins: {
           legend: {
             display: false
