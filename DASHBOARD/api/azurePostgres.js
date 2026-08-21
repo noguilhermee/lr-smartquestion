@@ -165,12 +165,14 @@ async function getRegiaoMap(supabase, fetchAll) {
 
   // Fallback para sq_dim_fazenda no Supabase se o Postgres não estiver disponível
   try {
-    const fazendasDB = await fetchAll(() => supabase.from('sq_dim_fazenda').select('codAgroindustria, regiaoLeiteira').not('regiaoLeiteira', 'is', null));
+    const fazendasDB = await fetchAll(() => supabase.from('sq_dim_fazenda').select('cod_agroindustria, regiao_leiteira, codAgroindustria, regiaoLeiteira'));
     (fazendasDB || []).forEach(f => {
-      if (f.codAgroindustria && f.regiaoLeiteira) {
-        const cleanRegiao = sanitizeRegiao(f.regiaoLeiteira);
+      const cod = f.cod_agroindustria || f.codAgroindustria;
+      const reg = f.regiao_leiteira || f.regiaoLeiteira;
+      if (cod && reg) {
+        const cleanRegiao = sanitizeRegiao(reg);
         if (cleanRegiao) {
-          regiaoMap.set(String(f.codAgroindustria).trim(), cleanRegiao);
+          regiaoMap.set(String(cod).trim(), cleanRegiao);
         }
       }
     });

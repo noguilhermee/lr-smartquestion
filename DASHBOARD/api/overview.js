@@ -133,12 +133,12 @@ module.exports = async (req, res) => {
 
     const { getRegiaoMap, sanitizeRegiao } = require('./azurePostgres');
     const [agrosRes, consultoresDB, regiaoMap] = await Promise.all([
-      Promise.resolve(supabase.from('sq_dim_agroindustria').select('nomeAgroindustria').order('nomeAgroindustria', { ascending: true })).catch(() => ({ data: [] })),
-      fetchAll(() => supabase.from('sq_dim_consultor').select('nomeConsultor, formacaoConsultor')).catch(() => []),
+      Promise.resolve(supabase.from('sq_dim_agroindustria').select('nome_agroindustria, nomeAgroindustria')).catch(() => ({ data: [] })),
+      fetchAll(() => supabase.from('sq_dim_consultor').select('nome_consultor, formacao_consultor, nomeConsultor, formacaoConsultor')).catch(() => []),
       getRegiaoMap(supabase, fetchAll).catch(() => new Map())
     ]);
     const agrosDB = agrosRes?.data || [];
-    const agroindustriasOficiais = (agrosDB || []).map(a => a.nomeAgroindustria).filter(Boolean);
+    const agroindustriasOficiais = (agrosDB || []).map(a => a.nome_agroindustria || a.nomeAgroindustria).filter(Boolean);
 
     function normalizeName(str) {
       return String(str || '')
@@ -150,8 +150,10 @@ module.exports = async (req, res) => {
 
     const profissaoMap = new Map();
     (consultoresDB || []).forEach(c => {
-      if (c.nomeConsultor && c.formacaoConsultor) {
-        profissaoMap.set(normalizeName(c.nomeConsultor), String(c.formacaoConsultor).trim());
+      const nome = c.nome_consultor || c.nomeConsultor;
+      const formacao = c.formacao_consultor || c.formacaoConsultor;
+      if (nome && formacao) {
+        profissaoMap.set(normalizeName(nome), String(formacao).trim());
       }
     });
 
