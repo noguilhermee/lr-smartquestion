@@ -152,7 +152,7 @@ module.exports = async (req, res) => {
       if (refMonth) q = q.eq('data_referencia', refMonth);
       else q = q.lte('data_referencia', maxAllowedMonth);
       return q.order('data_referencia', { ascending: false }).order('codigo_lr', { ascending: true });
-    });
+    }).catch(() => []);
 
     let visitasBrutas = await fetchAll(() => {
       let q = supabase
@@ -160,7 +160,7 @@ module.exports = async (req, res) => {
         .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia');
       if (refMonth) q = q.eq('mes_referencia', refMonth);
       return q.order('codigo_lr', { ascending: true });
-    });
+    }).catch(() => []);
 
     if ((!visitasBrutas || visitasBrutas.length === 0) && refMonth) {
       const [anoRef, mesRef] = refMonth.split('-');
@@ -172,7 +172,7 @@ module.exports = async (req, res) => {
         .select('id_atendimento, codigo_lr, nome_consultor, nome_produtor, data_visita')
         .gte('data_visita', dtInicio)
         .lte('data_visita', dtFim)
-        .order('data_visita', { ascending: false }));
+        .order('data_visita', { ascending: false })).catch(() => []);
       if (visitasFallback && visitasFallback.length > 0) {
         visitasBrutas = visitasFallback.map(v => ({
           ...v,

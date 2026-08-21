@@ -124,6 +124,28 @@ class DashboardCharts {
     };
   }
 
+  centerText(text, options = {}) {
+    const color = this.colors();
+    return {
+      id: 'dashboardCenterText',
+      afterDatasetsDraw: (chart) => {
+        if (chart.config.type !== 'doughnut') return;
+        const meta = chart.getDatasetMeta(0);
+        if (!meta || !meta.data || !meta.data[0]) return;
+        const x = meta.data[0].x;
+        const y = meta.data[0].y;
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `800 ${options.fontSize || 12}px Open Sans, Arial, sans-serif`;
+        ctx.fillStyle = options.color || color.ink;
+        ctx.fillText(text, x, y);
+        ctx.restore();
+      }
+    };
+  }
+
   baseScales(extra = {}) {
     const color = this.colors();
     return {
@@ -463,29 +485,33 @@ class DashboardCharts {
     const color = this.colors();
     const values = data.values || [];
     const baseLabels = ['Registros aptos', 'Registros incompletos', 'Registros divergentes'];
+    const centerTitle = id.toLowerCase().includes('annual') ? 'Anual' : 'Mensal';
     this.instances[id] = new Chart(ctx, {
       type: 'doughnut',
-      plugins: [this.valueLabels((value, context) => {
-        const val = Number(value || 0);
-        if (val === 0) return '';
-        const pct = this.formatValue(context.percentage, '%');
-        return `${this.formatValue(val)} (${pct})`;
-      }, { minimumPercentage: 2, fontSize: 10 })],
+      plugins: [
+        this.centerText(centerTitle, { fontSize: 11.5, color: color.ink }),
+        this.valueLabels((value, context) => {
+          const val = Number(value || 0);
+          if (val === 0) return '';
+          const pct = this.formatValue(context.percentage, '%');
+          return `${this.formatValue(val)} (${pct})`;
+        }, { minimumPercentage: 2, fontSize: 9 })
+      ],
       data: {
         labels: baseLabels,
         datasets: [{
           data: values,
           backgroundColor: [color.dark, color.warning, color.danger],
           borderColor: color.surface,
-          borderWidth: 2
+          borderWidth: 3
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: '45%',
-        radius: '85%',
-        layout: { padding: { top: 2, bottom: 2, left: 2, right: 2 } },
+        cutout: '42%',
+        radius: '80%',
+        layout: { padding: { top: 6, bottom: 6, left: 6, right: 6 } },
         plugins: {
           legend: {
             display: false

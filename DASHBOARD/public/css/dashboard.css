@@ -907,8 +907,8 @@ button { color: inherit; }
 .grid-two--main { flex: 1.15; }
 .grid-three--summary { flex: 0.92; }
 .grid-two--visits,
-.grid-two--turnover,
-.grid-two--data { flex: 1.02; }
+.grid-two--turnover { flex: 1.02; }
+.grid-two--data { flex: 1.25; min-height: 190px; }
 .grid-two--tables { flex: 1.06; }
 
 .panel-card {
@@ -1368,13 +1368,14 @@ body.table-resizing * {
 .panel-card--quality {
   display: flex;
   flex-direction: column;
+  padding: 8px 12px 6px;
 }
 
 .quality-content {
   flex: 1;
   display: flex;
   align-items: stretch;
-  gap: 12px;
+  gap: 14px;
   min-height: 0;
   width: 100%;
   height: 100%;
@@ -1384,7 +1385,7 @@ body.table-resizing * {
   flex: 1;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   height: 100%;
 }
@@ -1395,10 +1396,9 @@ body.table-resizing * {
   align-items: stretch;
   min-width: 0;
   height: 100%;
-  padding: 6px 6px 4px;
-  background: var(--surface-soft);
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
+  padding: 0;
+  background: transparent;
+  border: none;
 }
 
 .quality-donut-title {
@@ -1415,20 +1415,19 @@ body.table-resizing * {
   flex: 1;
   width: 100%;
   min-height: 0;
-  height: calc(100% - 18px);
+  min-width: 0;
   position: relative;
 }
 
 .quality-legend-sidebar {
-  flex: 0 0 155px;
+  flex: 0 0 145px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 12px;
-  padding: 10px 12px;
-  background: var(--surface-soft);
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
+  gap: 10px;
+  padding: 4px 6px;
+  background: transparent;
+  border: none;
 }
 
 .quality-legend-sidebar .legend-item {

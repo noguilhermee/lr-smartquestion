@@ -132,11 +132,12 @@ module.exports = async (req, res) => {
     const supabase = getSupabaseClient();
 
     const { getRegiaoMap, sanitizeRegiao } = require('./azurePostgres');
-    const [{ data: agrosDB }, consultoresDB, regiaoMap] = await Promise.all([
-      supabase.from('sq_dim_agroindustria').select('nomeAgroindustria').order('nomeAgroindustria', { ascending: true }),
-      fetchAll(() => supabase.from('sq_dim_consultor').select('nomeConsultor, formacaoConsultor')),
-      getRegiaoMap(supabase, fetchAll)
+    const [agrosRes, consultoresDB, regiaoMap] = await Promise.all([
+      Promise.resolve(supabase.from('sq_dim_agroindustria').select('nomeAgroindustria').order('nomeAgroindustria', { ascending: true })).catch(() => ({ data: [] })),
+      fetchAll(() => supabase.from('sq_dim_consultor').select('nomeConsultor, formacaoConsultor')).catch(() => []),
+      getRegiaoMap(supabase, fetchAll).catch(() => new Map())
     ]);
+    const agrosDB = agrosRes?.data || [];
     const agroindustriasOficiais = (agrosDB || []).map(a => a.nomeAgroindustria).filter(Boolean);
 
     function normalizeName(str) {
@@ -239,17 +240,17 @@ module.exports = async (req, res) => {
         .from('sq_fato_visitas')
         .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia, data_visita')
         .order('mes_referencia', { ascending: false })
-        .order('codigo_lr', { ascending: true })),
+        .order('codigo_lr', { ascending: true })).catch(() => []),
       fetchAll(() => supabase
         .from('sq_base_produtores_ativos')
         .select('codigo_lr, nome_consultor, nome_produtor, projeto, unidade_atendimento, data_referencia')
         .order('data_referencia', { ascending: false })
-        .order('codigo_lr', { ascending: true })),
+        .order('codigo_lr', { ascending: true })).catch(() => []),
       fetchAll(() => supabase
         .from('sq_raw_vinculos')
         .select('codigo_lr, data_associacao')
         .not('data_associacao', 'is', null)
-        .order('data_associacao', { ascending: true }))
+        .order('data_associacao', { ascending: true })).catch(() => [])
     ]);
 
     // Filtros selecionados no frontend

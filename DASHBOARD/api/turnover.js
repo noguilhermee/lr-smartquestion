@@ -151,19 +151,19 @@ module.exports = async (req, res) => {
         .from('sq_fato_movimentacao')
         .select('codigo_lr, nome_produtor, nome_consultor, numero_atendimento, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
         .order('data_movimentacao', { ascending: false })
-        .order('codigo_lr', { ascending: true })),
+        .order('codigo_lr', { ascending: true })).catch(() => []),
       fetchAll(() => supabase
         .from('sq_base_produtores_ativos')
         .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
         .lte('data_referencia', maxAllowedMonth)
         .order('data_referencia', { ascending: false })
-        .order('codigo_lr', { ascending: true })),
+        .order('codigo_lr', { ascending: true })).catch(() => []),
       fetchAll(() => supabase
         .from('sq_raw_inativacoes_produtor')
-        .select('id_atendimento, codigo_lr, nome_produtor, nome_propriedade, projeto, grupo_ponto_atendimento')),
+        .select('id_atendimento, codigo_lr, nome_produtor, nome_propriedade, projeto, grupo_ponto_atendimento')).catch(() => []),
       fetchAll(() => supabase
         .from('sq_raw_vinculos')
-        .select('codigo_lr, nome_produtor, nome_propriedade, projeto, unidade_atendimento'))
+        .select('codigo_lr, nome_produtor, nome_propriedade, projeto, unidade_atendimento')).catch(() => [])
     ]);
 
     const fallbackMetaMap = new Map();
