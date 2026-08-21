@@ -323,6 +323,10 @@ module.exports = async (req, res) => {
       ])
     );
 
+    const elaboreSet = new Set(
+      (elaboreMensalList || []).map(item => String(item.codigo_lr).trim().toUpperCase())
+    );
+
     const produtoresMap = new Map((produtoresFiltrados || []).map(p => [p.codigo_lr, p]));
     const produtoresConsistenciaMap = new Map((produtoresConsistenciaFiltrados || []).map(p => [p.codigo_lr, p]));
     const consistenciaFiltrada = (consistenciaList || []).filter(c => {
@@ -542,7 +546,9 @@ module.exports = async (req, res) => {
         }
 
         const codLrNorm = String(v.codigo_lr || '').trim().toUpperCase();
-        const hasElabore = elaboreMensalMap.has(codLrNorm);
+        const monthKey = String(v.mes_referencia || refMonth || '').slice(0, 7);
+        const elaboreObj = elaboreMensalMap.get(`${codLrNorm}_${monthKey}`);
+        const hasElabore = elaboreObj ? Boolean(elaboreObj.mes_elabore) : elaboreSet.has(codLrNorm);
 
         return ({
           consultor: v.nome_consultor || 'CONSULTOR',

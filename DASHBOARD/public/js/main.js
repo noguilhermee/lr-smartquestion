@@ -94,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (normalized.includes('SEM DADOS') || normalized.includes('NAO CALCULADO') || normalized.includes('PENDENTE')) {
       return false;
     }
-    return normalized.includes('INCONSIST') || normalized.includes('DIVERG');
+    return normalized.includes('INCONSIST') || normalized.includes('DIVERG') || normalized.includes('OUTLIER');
   }
 
   function isStatusConsistente(statusStr) {
@@ -816,9 +816,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const hasDays = row.dias_sem_visita !== null && row.dias_sem_visita !== undefined && row.dias_sem_visita !== '';
       const days = hasDays ? Number(row.dias_sem_visita) : null;
       const isGrave = hasDays && days >= 60;
-      const status = !hasDays ? 'Sem visita no período' : isGrave ? 'Sem visita > 60 dias' : days >= 45 ? 'Sem visita > 45 dias' : 'Sem visita > 30 dias';
-      const rowClass = isGrave ? 'table-row-grave' : 'table-row-pending';
-      const badgeClass = isGrave ? 'badge-danger' : 'badge-warning';
+      const isPending = hasDays && days >= 30;
+      const status = !hasDays ? 'Sem visita no período' :
+                     isGrave ? 'Sem visita > 60 dias' :
+                     days >= 45 ? 'Sem visita > 45 dias' :
+                     days >= 30 ? 'Sem visita > 30 dias' :
+                     days > 0 ? `Sem visita (${days}d)` :
+                     'Vínculo recente (0d)';
+      const rowClass = isGrave ? 'table-row-grave' : isPending ? 'table-row-pending' : '';
+      const badgeClass = isGrave ? 'badge-danger' : isPending ? 'badge-warning' : 'badge-soft';
       const dtAssoc = row.data_associacao || row.data_vinculacao || row.data_referencia || '—';
       return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-center" title="${escapeHtml(dtAssoc)}">${escapeHtml(dtAssoc)}</td><td class="col-center font-tabular">${hasDays ? days : '—'}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(status)}">${escapeHtml(status)}</span></td></tr>`;
     });
@@ -879,7 +885,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const getBadgeClass = (val) => {
         const str = String(val || '').toLowerCase();
         if (str.includes('consistente') && !str.includes('inconsistente')) return 'badge-positive';
-        if (str.includes('inconsistente')) return 'badge-danger';
+        if (str.includes('inconsistente') || str.includes('divergente') || str.includes('outlier')) return 'badge-danger';
         return 'badge-warning';
       };
 

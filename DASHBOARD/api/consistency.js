@@ -262,7 +262,7 @@ module.exports = async (req, res) => {
 
         const isSemDados = isSemDadosExplicit || isCinthiaMissingMay;
         const isConsistente = !isSemDados && statusConsist.includes('consistente') && !statusConsist.includes('inconsistente');
-        const isInconsistente = !isSemDados && !isConsistente && statusConsist.includes('inconsistente');
+        const isInconsistente = !isSemDados && !isConsistente && (statusConsist.includes('inconsistente') || statusConsist.includes('divergente') || statusConsist.includes('outlier'));
 
         if (isConsistente) {
           consistentes++;
@@ -276,9 +276,9 @@ module.exports = async (req, res) => {
         const rawAnualVal = c.consistencia_anual || (anualDirect ? anualDirect.consistencia_anual : null);
         const detalheConsistAnual = c.detalhamento_inconsistencia || (anualDirect ? anualDirect.detalhamento_inconsistencia : null);
         const statusAnualStr = String(rawAnualVal || '').toLowerCase();
-        const isAnualSemDados = !rawAnualVal || statusAnualStr.includes('sem dados') || statusAnualStr.includes('sem_dados') || statusAnualStr.includes('não calculado') || statusAnualStr.includes('nao calculado');
+        const isAnualSemDados = !rawAnualVal || statusAnualStr.includes('sem dados') || statusAnualStr.includes('sem_dados') || statusAnualStr.includes('não calculated') || statusAnualStr.includes('nao calculado');
         const isAnualConsist = !isAnualSemDados && statusAnualStr.includes('consistente') && !statusAnualStr.includes('inconsistente');
-        const isAnualInconsist = !isAnualSemDados && !isAnualConsist && statusAnualStr.includes('inconsistente');
+        const isAnualInconsist = !isAnualSemDados && !isAnualConsist && (statusAnualStr.includes('inconsistente') || statusAnualStr.includes('divergente') || statusAnualStr.includes('outlier'));
 
         if (isAnualConsist) {
           anualConsistentes++;
@@ -290,11 +290,11 @@ module.exports = async (req, res) => {
 
         let sitMensal = 'Sem dados';
         if (isConsistente) sitMensal = 'Consistente';
-        else if (isInconsistente) sitMensal = 'Inconsistente';
+        else if (isInconsistente) sitMensal = statusConsist.includes('outlier') ? 'Outlier' : (statusConsist.includes('diverg') ? 'Divergente' : 'Inconsistente');
 
         let sitAnual = 'Sem dados';
         if (isAnualConsist) sitAnual = 'Consistente';
-        else if (isAnualInconsist) sitAnual = 'Inconsistente';
+        else if (isAnualInconsist) sitAnual = statusAnualStr.includes('outlier') ? 'Outlier' : (statusAnualStr.includes('diverg') ? 'Divergente' : 'Inconsistente');
         else if (rawAnualVal) sitAnual = String(rawAnualVal);
 
         // Se houver qualquer divergência ou falta de dados (mensal ou anual), inclui na tabela de inconsistências
