@@ -7,6 +7,17 @@ Executa o notebook ETL_BI_LR.ipynb salvando diretamente no arquivo original
 from __future__ import annotations
 
 import sys
+import asyncio
+import warnings
+
+if sys.platform == 'win32':
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
+warnings.filterwarnings('ignore', category=RuntimeWarning, module='zmq')
+
+# pyrefly: ignore [missing-attribute]
 sys.stdout.reconfigure(encoding='utf-8')
 import time
 from datetime import datetime
@@ -62,14 +73,14 @@ def executar_notebook(caminho_notebook: Path) -> bool:
 
 def main():
     # 1. Sincronização Pré-ETL das Tabelas de Consistência (Mensal e Anual)
-    try:
-        from FUNCTIONS.atualizar_detalhamento_consistencia import executar_sincronizacao_consistencia
-        print("\n📥 [PRÉ-ETL] Sincronizando relatórios mais recentes de consistência (Elabore)...")
-        sucesso_consistencia = executar_sincronizacao_consistencia(raiz_projeto)
-        if not sucesso_consistencia:
-            print("⚠️ Aviso: Sincronização de consistência retornou avisos ou falhou, prosseguindo com dados existentes.")
-    except Exception as e_cons:
-        print(f"⚠️ Aviso ao sincronizar consistência pré-ETL: {e_cons}")
+    # try:
+    #     from FUNCTIONS.atualizar_detalhamento_consistencia import executar_sincronizacao_consistencia
+    #     print("\n📥 [PRÉ-ETL] Sincronizando relatórios mais recentes de consistência (Elabore)...")
+    #     sucesso_consistencia = executar_sincronizacao_consistencia(raiz_projeto)
+    #     if not sucesso_consistencia:
+    #         print("⚠️ Aviso: Sincronização de consistência retornou avisos ou falhou, prosseguindo com dados existentes.")
+    # except Exception as e_cons:
+    #     print(f"⚠️ Aviso ao sincronizar consistência pré-ETL: {e_cons}")
 
     # 2. Execução do Notebook Principal
     notebook_path = raiz_projeto / "SCRIPTS" / "ETL_BI_LR.ipynb"
@@ -78,7 +89,7 @@ def main():
         sys.exit(1)
 
     sucesso = executar_notebook(notebook_path)
-
+    
     # 3. Pós-ETL: Reconciliação de Movimentação e Ativos
     if sucesso:
         try:

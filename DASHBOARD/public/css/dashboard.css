@@ -1220,12 +1220,13 @@ body.table-resizing * {
 
 /* Larguras de Colunas Otimizadas por Tabela */
 /* Tabela 1: Produtores sem visita */
-#tableSemVisita th:nth-child(1) { width: 23%; }
-#tableSemVisita th:nth-child(2) { width: 11%; }
-#tableSemVisita th:nth-child(3) { width: 26%; }
-#tableSemVisita th:nth-child(4) { width: 14%; }
-#tableSemVisita th:nth-child(5) { width: 11%; }
-#tableSemVisita th:nth-child(6) { width: 15%; }
+#tableSemVisita th:nth-child(1) { width: 17%; }
+#tableSemVisita th:nth-child(2) { width: 8%; }
+#tableSemVisita th:nth-child(3) { width: 18%; }
+#tableSemVisita th:nth-child(4) { width: 12%; }
+#tableSemVisita th:nth-child(5) { width: 12%; }
+#tableSemVisita th:nth-child(6) { width: 10%; }
+#tableSemVisita th:nth-child(7) { width: 23%; }
 
 /* Tabela 2: Produtores visitados */
 #tableVisitados th:nth-child(1) { width: 20%; }

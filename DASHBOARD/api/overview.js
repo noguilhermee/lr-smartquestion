@@ -209,10 +209,17 @@ module.exports = async (req, res) => {
     const visitasListRaw = await fetchAll(() => {
       let q = supabase
         .from('sq_fato_visitas')
+        .select('id, codigo_lr, nome_consultor, nome_produtor, nome_propriedade, data_visita, id_atendimento, projeto, mes_referencia, tipo_visita, valor_pago_produtor, valor_pago_agroindustria');
+      if (visitasMonth) q = q.eq('mes_referencia', visitasMonth);
+      return q.order('data_visita', { ascending: false });
+    }).catch(() => fetchAll(() => {
+      let q = supabase
+        .from('sq_fato_visitas')
         .select('id, codigo_lr, nome_consultor, nome_produtor, nome_propriedade, data_visita, id_atendimento, projeto, mes_referencia');
       if (visitasMonth) q = q.eq('mes_referencia', visitasMonth);
       return q.order('data_visita', { ascending: false });
-    });
+    })).catch(() => []);
+
     let visitasList = (visitasListRaw || []).filter(v => !isTestData(v.nome_consultor, v.projeto));
 
     if (visitasList.length === 0 && visitasMonth) {
@@ -222,10 +229,15 @@ module.exports = async (req, res) => {
       const dtFim = `${anoRef}-${mesRef}-${String(ultimoDiaMes).padStart(2, '0')}`;
       const visitasFallback = await fetchAll(() => supabase
         .from('sq_raw_visitas')
+        .select('id_atendimento, codigo_lr, nome_consultor, nome_produtor, data_visita, tipo_visita, valor_pago_produtor, valor_pago_agroindustria')
+        .gte('data_visita', dtInicio)
+        .lte('data_visita', dtFim)
+        .order('data_visita', { ascending: false })).catch(() => fetchAll(() => supabase
+        .from('sq_raw_visitas')
         .select('id_atendimento, codigo_lr, nome_consultor, nome_produtor, data_visita')
         .gte('data_visita', dtInicio)
         .lte('data_visita', dtFim)
-        .order('data_visita', { ascending: false }));
+        .order('data_visita', { ascending: false }))).catch(() => []);
       if (visitasFallback && visitasFallback.length > 0) {
         visitasList = visitasFallback.map(v => ({
           ...v,
@@ -447,15 +459,16 @@ module.exports = async (req, res) => {
     });
     const ranking = [...rankingMap.entries()].sort((a, b) => b[1] - a[1]);
 
-    // Mapear última data de visita por codigo_lr no histórico
+    // Mapear última data de visita por codigo_lr no histórico completo (chaves normalizadas)
     const ultimaVisitaMap = new Map();
-    (visitasHistFiltradas || []).forEach(v => {
+    (visitasHistoricas || []).forEach(v => {
       if (!v.codigo_lr || !v.data_visita) return;
+      const cod = String(v.codigo_lr).trim().toUpperCase();
       const d = new Date(v.data_visita);
       if (Number.isNaN(d.getTime())) return;
-      const prev = ultimaVisitaMap.get(v.codigo_lr);
+      const prev = ultimaVisitaMap.get(cod);
       if (!prev || d > prev) {
-        ultimaVisitaMap.set(v.codigo_lr, d);
+        ultimaVisitaMap.set(cod, d);
       }
     });
 
@@ -494,8 +507,8 @@ module.exports = async (req, res) => {
     ).map(p => {
         let diasSemVisita = null;
         const codNorm = String(p.codigo_lr || '').trim().toUpperCase();
-        const dataUltimaVisita = ultimaVisitaMap.get(p.codigo_lr) || (codNorm ? ultimaVisitaMap.get(codNorm) : null);
-        const dataAssoc = dataAssociacaoMap.get(p.codigo_lr) || (codNorm ? dataAssociacaoMap.get(codNorm) : null);
+        const dataUltimaVisita = codNorm ? ultimaVisitaMap.get(codNorm) : null;
+        const dataAssoc = codNorm ? dataAssociacaoMap.get(codNorm) : null;
 
         if (dataUltimaVisita) {
           const diffMs = dataCorte.getTime() - dataUltimaVisita.getTime();
@@ -567,7 +580,10 @@ module.exports = async (req, res) => {
           profissao: profissao,
           atendimento: numAtendimento,
           data_visita: formatDate(v.data_visita || v.mes_referencia),
-          elabore_ok: hasElabore
+          elabore_ok: hasElabore,
+          tipo_visita: v.tipo_visita || 'RELATÓRIO DE VISITA LABOR RURAL - LEITE',
+          valor_pago_produtor: Number(v.valor_pago_produtor || 0),
+          valor_pago_agroindustria: Number(v.valor_pago_agroindustria || 0)
         });
       });
 

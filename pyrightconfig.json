@@ -1,0 +1,10 @@
+{
+  "extraPaths": [
+    "C:/ProgramData/anaconda3/Lib/site-packages",
+    "c:/Users/Guilherme/LABOR RURAL/Analytics - Departamento Analytics/POWER_BI/PROJETOS/BI_LABOR_RURAL/PY_SCRIPT",
+    "c:/Users/Guilherme/LABOR RURAL/Analytics - Departamento Analytics/POWER_BI/PROJETOS/BI_LABOR_RURAL/PY_SCRIPT/SCRIPTS"
+  ],
+  "reportMissingImports": "none",
+  "reportMissingModuleSource": "none",
+  "typeCheckingMode": "off"
+}

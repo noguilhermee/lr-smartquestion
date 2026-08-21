@@ -819,6 +819,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const days = hasDays ? Number(row.dias_sem_visita) : null;
       const isGrave = hasDays && days >= 60;
       const isPending = hasDays && days >= 30;
+      const isZero = hasDays && days <= 0;
       const status = !hasDays ? 'Sem visita no período' :
                      isGrave ? 'Sem visita > 60 dias' :
                      days >= 45 ? 'Sem visita > 45 dias' :
@@ -826,7 +827,7 @@ document.addEventListener('DOMContentLoaded', () => {
                      days > 0 ? `Sem visita (${days}d)` :
                      'Vínculo recente (0d)';
       const rowClass = isGrave ? 'table-row-grave' : isPending ? 'table-row-pending' : '';
-      const badgeClass = isGrave ? 'badge-danger' : isPending ? 'badge-warning' : 'badge-soft';
+      const badgeClass = isGrave ? 'badge-danger' : isPending ? 'badge-warning' : (isZero ? 'badge-positive' : 'badge-soft');
       const dtAssoc = row.data_associacao || row.data_vinculacao || row.data_referencia || '—';
       const dtUltimaVisita = row.data_ultima_visita || '—';
       return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-center" title="${escapeHtml(dtAssoc)}">${escapeHtml(dtAssoc)}</td><td class="col-center" title="${escapeHtml(dtUltimaVisita)}">${escapeHtml(dtUltimaVisita)}</td><td class="col-center font-tabular">${hasDays ? days : '—'}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(status)}">${escapeHtml(status)}</span></td></tr>`;
