@@ -515,6 +515,10 @@ module.exports = async (req, res) => {
           ? formatDate(dataAssoc.toISOString().slice(0, 10))
           : formatDate(p.data_referencia);
 
+        const dataUltimaVisitaExibicao = dataUltimaVisita
+          ? formatDate(dataUltimaVisita.toISOString().slice(0, 10))
+          : '—';
+
         return {
           consultor: p.nome_consultor || 'NÃO ATRIBUÍDO',
           codigo_lr: p.codigo_lr || '-',
@@ -527,6 +531,7 @@ module.exports = async (req, res) => {
           mes_referencia: visitasMonth,
           data_associacao: dataExibicao,
           data_vinculacao: dataExibicao,
+          data_ultima_visita: dataUltimaVisitaExibicao,
           dias_sem_visita: diasSemVisita
         };
       });

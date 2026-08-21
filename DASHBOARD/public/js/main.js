@@ -554,7 +554,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function setupTableSorting() {
     const MAPPINGS = {
-      tbodySemVisita: ['consultor', 'codigo_lr', 'produtor', 'data_associacao', 'dias_sem_visita', 'status'],
+      tbodySemVisita: ['consultor', 'codigo_lr', 'produtor', 'data_associacao', 'data_ultima_visita', 'dias_sem_visita', 'status'],
       tbodyVisitados: ['consultor', 'codigo_lr', 'produtor', 'profissao', 'atendimento', 'data_visita', 'elabore_ok'],
       tbodyTurnover: ['atendimento', 'produtor', 'tipo', 'data', 'grupo', 'motivo'],
       tbodyConsultants: ['consultor', 'total_fazendas', 'fazendas_visitadas', 'total_visitas', 'perc_cobertura', 'status'],
@@ -762,6 +762,8 @@ document.addEventListener('DOMContentLoaded', () => {
           rowVal = row.possui_dados === false ? 'não nao' : 'sim';
         } else if (colKey === 'data_associacao' || colKey === 'data_vinculo') {
           rowVal = String(row.data_associacao || row.data_vinculacao || row.data_referencia || '');
+        } else if (colKey === 'data_ultima_visita') {
+          rowVal = String(row.data_ultima_visita || '');
         } else if (colKey === 'grupo') {
           rowVal = String(row.grupo || row.consultor || '');
         } else if (colKey === 'tipo') {
@@ -812,7 +814,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCount('countWithoutVisit', withoutVisit);
     withoutVisit = sortRows(withoutVisit, tableSort.tbodySemVisita, (row, key) => row[key] ?? row.data_associacao ?? row.data_referencia);
     updateTableHeadIcons('tbodySemVisita', tableSort.tbodySemVisita.colKey, tableSort.tbodySemVisita.dir);
-    if (el('tbodySemVisita')) el('tbodySemVisita').innerHTML = rowsOrEmpty(withoutVisit, 6, (row) => {
+    if (el('tbodySemVisita')) el('tbodySemVisita').innerHTML = rowsOrEmpty(withoutVisit, 7, (row) => {
       const hasDays = row.dias_sem_visita !== null && row.dias_sem_visita !== undefined && row.dias_sem_visita !== '';
       const days = hasDays ? Number(row.dias_sem_visita) : null;
       const isGrave = hasDays && days >= 60;
@@ -826,7 +828,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const rowClass = isGrave ? 'table-row-grave' : isPending ? 'table-row-pending' : '';
       const badgeClass = isGrave ? 'badge-danger' : isPending ? 'badge-warning' : 'badge-soft';
       const dtAssoc = row.data_associacao || row.data_vinculacao || row.data_referencia || '—';
-      return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-center" title="${escapeHtml(dtAssoc)}">${escapeHtml(dtAssoc)}</td><td class="col-center font-tabular">${hasDays ? days : '—'}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(status)}">${escapeHtml(status)}</span></td></tr>`;
+      const dtUltimaVisita = row.data_ultima_visita || '—';
+      return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-center" title="${escapeHtml(dtAssoc)}">${escapeHtml(dtAssoc)}</td><td class="col-center" title="${escapeHtml(dtUltimaVisita)}">${escapeHtml(dtUltimaVisita)}</td><td class="col-center font-tabular">${hasDays ? days : '—'}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(status)}">${escapeHtml(status)}</span></td></tr>`;
     });
 
     // Tabela 2: Visitados
@@ -1134,7 +1137,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let data = (overview.tabelas?.sem_visita || []).filter((row) => matches(row, filter, true));
       data = applyColumnFilters(data, 'tableSemVisita');
       return {
-        headers: ['Consultor(a)', 'ID (Código LR)', 'Produtor(a)', 'Propriedade', 'Agroindústria', 'Região', 'Projeto', 'Data Associação', 'Dias s/ Visita', 'Status'],
+        headers: ['Consultor(a)', 'ID (Código LR)', 'Produtor(a)', 'Propriedade', 'Agroindústria', 'Região', 'Projeto', 'Data Associação', 'Última Visita', 'Dias s/ Visita', 'Status'],
         rows: data.map((r) => [
           r.consultor || '—',
           r.codigo_lr || '—',
@@ -1144,6 +1147,7 @@ document.addEventListener('DOMContentLoaded', () => {
           r.regiao || '—',
           r.projeto || '—',
           r.data_associacao || r.data_vinculacao || '—',
+          r.data_ultima_visita || '—',
           r.dias_sem_visita !== null && r.dias_sem_visita !== undefined ? r.dias_sem_visita : '—',
           r.dias_sem_visita >= 60 ? 'Sem visita > 60 dias' : (r.dias_sem_visita >= 45 ? 'Sem visita > 45 dias' : (r.dias_sem_visita >= 30 ? 'Sem visita > 30 dias' : 'Sem visita no período'))
         ])
