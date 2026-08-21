@@ -575,8 +575,8 @@ document.addEventListener('DOMContentLoaded', () => {
         th.classList.add('sortable');
         th.title = `Clique para ordenar por ${th.textContent.trim()}`;
         th.addEventListener('click', (e) => {
-          // Bloqueia ordenação se o usuário estiver redimensionando colunas ou acabou de soltar a divisória
-          if (e.target.closest('.col-resizer') || isTableResizing || (Date.now() - tableResizeEndTime < 350)) {
+          // Bloqueia ordenação se o usuário estiver redimensionando colunas, clicando no botão info ou se acabou de soltar a divisória
+          if (e.target.closest('.col-resizer') || e.target.closest('.kpi-info-btn') || isTableResizing || (Date.now() - tableResizeEndTime < 350)) {
             e.preventDefault();
             e.stopPropagation();
             return;

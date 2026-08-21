@@ -359,7 +359,7 @@ module.exports = async (req, res) => {
       const refMonthStr = String(c.mes_referencia || '').slice(0, 7);
       const isCinthiaMissingMay = (c.codigo_lr === 'LR10245' || String(produtor?.nome_produtor || '').toLowerCase().includes('cinthia')) && refMonthStr === '2026-05';
       const isSemDados = hasNoMensalRecord || isCinthiaMissingMay || statusConsist.includes('sem dados') || statusConsist.includes('não calculado');
-      const possuiDados = Boolean(!isSemDados && isConsistent(statusConsist));
+      const possuiDados = Boolean(!isSemDados);
       const prodName = produtor?.nome_produtor || metaFallback?.nome_produtor || c.codigo_lr || 'PRODUTOR';
 
       return {

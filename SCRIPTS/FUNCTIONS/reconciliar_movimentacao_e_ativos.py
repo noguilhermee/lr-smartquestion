@@ -453,9 +453,23 @@ def executar_reconciliacao():
     mes_ref_dt = cfg_ref.mes_referencia
     mes_ref_str = mes_ref_dt.strftime("%Y-%m-01")
     proximo_mes_str = (mes_ref_dt + pd.DateOffset(months=1)).strftime("%Y-%m-01")
-    meses_reconciliacao = [mes_ref_str, proximo_mes_str]
+    
+    # Reconciliar do início de 2026 até o próximo mês para expurgar inativações antigas remanescentes
+    inicio_2026 = pd.Timestamp("2026-01-01")
+    meses_reconciliacao = [m.strftime("%Y-%m-01") for m in pd.date_range(start=inicio_2026, end=pd.to_datetime(proximo_mes_str), freq="MS")]
 
     for ref_m in meses_reconciliacao:
+        # Expurgar registros remanescentes no Supabase para produtores inativados nesta referência ou anterior
+        ids_expurgar = [c for c, dt_inat in inativacoes_por_codigo.items() if dt_inat <= ref_m]
+        if ids_expurgar:
+            LOTE_DEL = 100
+            for d_idx in range(0, len(ids_expurgar), LOTE_DEL):
+                lote_del = ids_expurgar[d_idx : d_idx + LOTE_DEL]
+                try:
+                    supabase.table("sq_base_produtores_ativos").delete().in_("codigo_lr", lote_del).eq("data_referencia", ref_m).execute()
+                except Exception:
+                    pass
+
         novos_ativos_m = []
         for _, r in df_vinculos_ativos.iterrows():
             c = str(r.get("codigo_lr") or "").strip()

@@ -622,6 +622,25 @@ button { color: inherit; }
   pointer-events: none;
 }
 
+/* Estilo específico para botões de informação nos cabeçalhos de tabelas */
+.data-table th .kpi-info-btn {
+  color: #64748b;
+  margin-left: 2px;
+  width: 15px;
+  height: 15px;
+}
+.data-table th .kpi-info-btn:hover {
+  color: var(--lr-primary-dark, #0f766e);
+  background: rgba(16, 185, 129, 0.15);
+}
+:root[data-theme="dark"] .data-table th .kpi-info-btn {
+  color: #94a3b8;
+}
+:root[data-theme="dark"] .data-table th .kpi-info-btn:hover {
+  color: #6ee7b7;
+  background: rgba(110, 231, 183, 0.18);
+}
+
 /* Cores específicas para botões info em cards Warning e Alert */
 .metric-card--warning .kpi-info-btn,
 .metric-card--pending .kpi-info-btn {
