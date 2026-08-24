@@ -94,6 +94,26 @@ function isTestData(nome_consultor, projeto) {
          String(projeto || '').toUpperCase().includes('ALVOAR ECO');
 }
 
+function ehCadeiaLeite(projeto) {
+  if (!projeto) return true;
+  const p = String(projeto).trim().toUpperCase();
+  const TERMOS_NAO_LEITE = [
+    'MAIS GRAOS', 'MAIS GRÃOS', 'GRAOS', 'GRÃOS',
+    'MIMC', 'M&E', 'CAFE&GESTAO', 'CAFE & GESTAO', 'CAFÉ & GESTÃO',
+    'CAFÉ', 'CAFE', 'CACAU', 'CARGILL', 'NCP', 'OFI', 'PV CARGILL'
+  ];
+  for (const termo of TERMOS_NAO_LEITE) {
+    if (p.includes(termo)) return false;
+  }
+  return true;
+}
+
+function isValidoLeite(nome_consultor, projeto) {
+  if (isTestData(nome_consultor, projeto)) return false;
+  if (!ehCadeiaLeite(projeto)) return false;
+  return true;
+}
+
 function shiftMonthMinus1(monthStr) {
   if (!monthStr) return null;
   const d = new Date(`${String(monthStr).slice(0, 10)}T12:00:00`);
@@ -145,6 +165,7 @@ module.exports = async (req, res) => {
     };
 
     function rowMatches(row) {
+      if (!ehCadeiaLeite(row.projeto || row.agroindustria)) return false;
       if (filters.industry && mapAgroindustria(row.projeto || row.agroindustria) !== filters.industry) return false;
       if (filters.region && getRegiao(row.codigo_lr, row.unidade_atendimento || row.regiao) !== filters.region) return false;
       if (filters.project && String(row.projeto || '') !== filters.project) return false;
@@ -206,7 +227,7 @@ module.exports = async (req, res) => {
       `${String(a.codigo_lr).trim().toUpperCase()}_${String(a.mes_referencia || '').slice(0, 7)}`,
       a
     ]));
-    const produtoresAtivos = (produtoresAtivosBrutos || []).filter(rowMatches);
+    const produtoresAtivos = (produtoresAtivosBrutos || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto)).filter(rowMatches);
     const produtoresMap = new Map((produtoresAtivos || []).map(p => [p.codigo_lr, p]));
 
     const consistenciaHistorica = (consistenciaHistoricaBruta || []).filter(c => {

@@ -903,6 +903,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ─── LÓGICA DE FILTRAGEM MULTIDIRECIONAL ESTILO POWER BI ──────────────
 
+  function ehCadeiaLeite(projeto) {
+    if (!projeto) return true;
+    const p = String(projeto).trim().toUpperCase();
+    const TERMOS_NAO_LEITE = [
+      'MAIS GRAOS', 'MAIS GRÃOS', 'GRAOS', 'GRÃOS',
+      'MIMC', 'M&E', 'CAFE&GESTAO', 'CAFE & GESTAO', 'CAFÉ & GESTÃO',
+      'CAFÉ', 'CAFE', 'CACAU', 'CARGILL', 'NCP', 'OFI', 'PV CARGILL'
+    ];
+    for (const termo of TERMOS_NAO_LEITE) {
+      if (p.includes(termo)) return false;
+    }
+    return true;
+  }
+
   const PROJECT_LABEL_MAP = {
     'ALVOAR ASSIST': 'Alvoar Assist',
     'ALVOAR ECO': 'Alvoar Eco',
@@ -910,14 +924,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'LPA': 'Lpa',
     'REGENERA': 'Regenera',
     'SEMEAR': 'Semear',
-    'M&E CAFE': 'M&E Café',
-    'M&E CACAU': 'M&E Cacau',
-    'PV CARGILL': 'PV Cargill',
-    'MAIS GRAOS': 'Mais Grãos',
     'CFT PIRACANJUBA': 'CFT Piracanjuba',
-    'OFI': 'OFI',
     'CAMPILEITE': 'Campileite',
-    'CAFE & GESTAO': 'Café & Gestão',
     'SENAR MS': 'Senar MS',
     'COPRIL': 'Copril',
     'CFT DANONE 2026': 'CFT Danone 2026',
@@ -959,6 +967,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function addRow(r) {
       if (!r) return;
+      if (!ehCadeiaLeite(r.projeto || r.agroindustria)) return;
       const consultores = sanitizeConsultorList(r.consultor || r.nome_consultor);
       const produtor = String(r.produtor || r.nome_produtor || '').trim();
       const codigoLr = String(r.codigo_lr || '').trim();
@@ -1040,6 +1049,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const curProd = (current.producer || '').toLowerCase();
 
     function matchesActiveExcept(row, fieldKey) {
+      if (!ehCadeiaLeite(row.projeto || row.agroindustria)) return false;
       if (fieldKey !== 'industry' && curInd && row.agroindustria !== curInd) return false;
       if (fieldKey !== 'region' && curReg && row.regiao !== curReg) return false;
       if (fieldKey !== 'project' && curProj && row.projeto !== curProj) return false;
@@ -1054,7 +1064,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (indSelect) {
       const prevVal = indSelect.value;
       const validRows = rows.filter((r) => matchesActiveExcept(r, 'industry'));
-      const available = [...new Set(validRows.map((r) => r.agroindustria).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      const available = [...new Set(validRows.map((r) => r.agroindustria).filter(Boolean).filter(ehCadeiaLeite))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
       indSelect.innerHTML = `<option value="">Todas</option>${available.map((ind) => `<option value="${escapeHtml(ind)}">${escapeHtml(ind)}</option>`).join('')}`;
       if (available.includes(prevVal)) indSelect.value = prevVal;
       else indSelect.value = '';
@@ -1078,7 +1088,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (projSelect) {
       const prevVal = projSelect.value;
       const validRows = rows.filter((r) => matchesActiveExcept(r, 'project'));
-      const availableProjects = [...new Set(validRows.map((r) => r.projeto).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      const availableProjects = [...new Set(validRows.map((r) => r.projeto).filter(Boolean).filter(ehCadeiaLeite))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
       projSelect.innerHTML = `<option value="">Todos</option>${availableProjects.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(formatProjectLabel(p))}</option>`).join('')}`;
       if (availableProjects.includes(prevVal)) projSelect.value = prevVal;
       else projSelect.value = '';

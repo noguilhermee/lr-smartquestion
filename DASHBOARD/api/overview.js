@@ -95,6 +95,28 @@ function isTestData(nome_consultor, projeto) {
          String(projeto || '').toUpperCase().includes('ALVOAR ECO');
 }
 
+/** Verifica se um projeto pertence à cadeia de Leite (descarta Cacau, Café, Grãos, Cargill, OFI, etc.) */
+function ehCadeiaLeite(projeto) {
+  if (!projeto) return true;
+  const p = String(projeto).trim().toUpperCase();
+  const TERMOS_NAO_LEITE = [
+    'MAIS GRAOS', 'MAIS GRÃOS', 'GRAOS', 'GRÃOS',
+    'MIMC', 'M&E', 'CAFE&GESTAO', 'CAFE & GESTAO', 'CAFÉ & GESTÃO',
+    'CAFÉ', 'CAFE', 'CACAU', 'CARGILL', 'NCP', 'OFI', 'PV CARGILL'
+  ];
+  for (const termo of TERMOS_NAO_LEITE) {
+    if (p.includes(termo)) return false;
+  }
+  return true;
+}
+
+/** Retorna true se o registro é válido (não é dado de teste e pertence à cadeia de Leite). */
+function isValidoLeite(nome_consultor, projeto) {
+  if (isTestData(nome_consultor, projeto)) return false;
+  if (!ehCadeiaLeite(projeto)) return false;
+  return true;
+}
+
 /** Subtrai 1 mês de uma string YYYY-MM-DD e retorna YYYY-MM-DD. */
 function shiftMonthMinus1(monthStr) {
   if (!monthStr) return null;
@@ -202,8 +224,8 @@ module.exports = async (req, res) => {
         return q.order('data_referencia', { ascending: false }).order('codigo_lr', { ascending: true });
       })
     ]);
-    const produtoresList = (produtoresListRaw || []).filter(p => !isTestData(p.nome_consultor, p.projeto));
-    const produtoresConsistencia = (produtoresConsistenciaRaw || []).filter(p => !isTestData(p.nome_consultor, p.projeto));
+    const produtoresList = (produtoresListRaw || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto));
+    const produtoresConsistencia = (produtoresConsistenciaRaw || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto));
 
     // 3. Consultar visitas do mês selecionado (ou todas as visitas)
     const visitasListRaw = await fetchAll(() => {
@@ -220,7 +242,7 @@ module.exports = async (req, res) => {
       return q.order('data_visita', { ascending: false });
     })).catch(() => []);
 
-    let visitasList = (visitasListRaw || []).filter(v => !isTestData(v.nome_consultor, v.projeto));
+    let visitasList = (visitasListRaw || []).filter(v => isValidoLeite(v.nome_consultor, v.projeto));
 
     if (visitasList.length === 0 && visitasMonth) {
       const [anoRef, mesRef] = visitasMonth.split('-');
@@ -232,24 +254,26 @@ module.exports = async (req, res) => {
         .select('id_atendimento, codigo_lr, nome_consultor, nome_produtor, data_visita, tipo_visita, valor_pago_produtor, valor_pago_agroindustria')
         .gte('data_visita', dtInicio)
         .lte('data_visita', dtFim)
-        .order('data_visita', { ascending: false })).catch(() => fetchAll(() => supabase
-        .from('sq_raw_visitas')
-        .select('id_atendimento, codigo_lr, nome_consultor, nome_produtor, data_visita')
-        .gte('data_visita', dtInicio)
-        .lte('data_visita', dtFim)
-        .order('data_visita', { ascending: false }))).catch(() => []);
+        .order('data_visita', { ascending: false }))
+        .catch(() => fetchAll(() => supabase
+          .from('sq_raw_visitas')
+          .select('id_atendimento, codigo_lr, nome_consultor, nome_produtor, data_visita')
+          .gte('data_visita', dtInicio)
+          .lte('data_visita', dtFim)
+          .order('data_visita', { ascending: false })))
+        .catch(() => []);
       if (visitasFallback && visitasFallback.length > 0) {
         visitasList = visitasFallback.map(v => ({
           ...v,
           nome_propriedade: 'PROPRIEDADE',
           projeto: 'Leite',
           mes_referencia: visitasMonth
-        }));
+        })).filter(v => isValidoLeite(v.nome_consultor, v.projeto));
       }
     }
 
     // Histórico necessário para os gráficos e datas de associação. Consultas exclusivamente de leitura com ordenação determinística.
-    const [visitasHistoricas, produtoresHistoricos, vinculosSQRaw] = await Promise.all([
+    const [visitasHistoricasRaw, produtoresHistoricosRaw, vinculosSQRaw] = await Promise.all([
       fetchAll(() => supabase
         .from('sq_fato_visitas')
         .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia, data_visita')
@@ -267,6 +291,9 @@ module.exports = async (req, res) => {
         .order('data_associacao', { ascending: true })).catch(() => [])
     ]);
 
+    const visitasHistoricas = (visitasHistoricasRaw || []).filter(v => isValidoLeite(v.nome_consultor, v.projeto));
+    const produtoresHistoricos = (produtoresHistoricosRaw || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto));
+
     // Filtros selecionados no frontend
     const filters = {
       industry: String(req.query?.industry || '').trim(),
@@ -278,6 +305,7 @@ module.exports = async (req, res) => {
     };
 
     function rowMatches(row) {
+      if (!ehCadeiaLeite(row.projeto || row.agroindustria)) return false;
       if (filters.industry && mapAgroindustria(row.projeto || row.agroindustria) !== filters.industry) return false;
       if (filters.region && getRegiao(row.codigo_lr, row.unidade_atendimento || row.regiao) !== filters.region) return false;
       if (filters.project && String(row.projeto || '') !== filters.project) return false;
@@ -638,9 +666,9 @@ module.exports = async (req, res) => {
         values: ranking.map(item => item[1])
       },
       filterOptions: {
-        agroindustrias: [...new Set([...agroindustriasOficiais, ...produtoresList.map(p => mapAgroindustria(p.projeto))])].filter(Boolean).sort(),
+        agroindustrias: [...new Set([...agroindustriasOficiais, ...produtoresList.map(p => mapAgroindustria(p.projeto))])].filter(Boolean).filter(ehCadeiaLeite).sort(),
         regioes: [...new Set([...Array.from(regiaoMap.values()), ...produtoresList.map(p => getRegiao(p.codigo_lr, p.unidade_atendimento))])].filter(Boolean).sort(),
-        projetos: [...new Set([...produtoresList.map(p => p.projeto), ...visitasList.map(v => v.projeto)])].filter(Boolean).sort(),
+        projetos: [...new Set([...produtoresList.map(p => p.projeto), ...visitasList.map(v => v.projeto)])].filter(Boolean).filter(ehCadeiaLeite).sort(),
         status: ['ATIVO', 'INATIVO'],
         meses: todosMesesDisponiveis
       },
