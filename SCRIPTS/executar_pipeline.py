@@ -89,7 +89,7 @@ def main():
         sys.exit(1)
 
     sucesso = executar_notebook(notebook_path)
-
+    
     # 3. Pós-ETL: Reconciliação de Movimentação e Ativos
     if sucesso:
         try:

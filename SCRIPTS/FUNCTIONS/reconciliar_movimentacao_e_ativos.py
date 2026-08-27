@@ -430,12 +430,6 @@ def executar_reconciliacao():
 
     print(f"   -> Mapeados {len(inativacoes_por_codigo)} produtores com inativação confirmada.")
 
-    # Base ativa consolidada a partir de sq_raw_vinculos (Apenas Projetos Oficiais)
-    df_vinculos_ativos = df_vinc_db[df_vinc_db["vinculo_ativo"] == True].copy() if "vinculo_ativo" in df_vinc_db.columns else df_vinc_db.copy()
-    df_vinculos_ativos = df_vinculos_ativos[df_vinculos_ativos["projeto"].isin(PROJETOS_OFICIAIS)]
-    if "unidade_atendimento" in df_vinculos_ativos.columns:
-        df_vinculos_ativos = df_vinculos_ativos[df_vinculos_ativos["unidade_atendimento"] != "UNIDADE GENERICA"]
-
     UF_MAP = {
         'MINAS GERAIS': 'MG', 'BAHIA': 'BA', 'GOIAS': 'GO', 'GOIÁS': 'GO',
         'SAO PAULO': 'SP', 'SÃO PAULO': 'SP', 'ESPIRITO SANTO': 'ES', 'ESPÍRITO SANTO': 'ES',
@@ -449,6 +443,56 @@ def executar_reconciliacao():
         s = str(val).strip().upper()
         if len(s) == 2:
             return s
+        return UF_MAP.get(s, s[:2] if len(s) >= 2 else None)
+
+    # 6.1 Fonte Oficial Direta: LISTA_GERAL_RELATORIO_DE_GRUPO.xlsx
+    arquivo_grupo = bd_path / "LISTA_GERAL_RELATORIO_DE_GRUPO.xlsx"
+    df_grupo_ativos = pd.DataFrame()
+
+    if arquivo_grupo.exists():
+        try:
+            print(f"   📖 Lendo base de status de grupos: {arquivo_grupo.name}...")
+            df_g_raw = pd.read_excel(arquivo_grupo)
+            status_cols = [c for c in df_g_raw.columns if 'status' in str(c).lower() and (df_g_raw[c].dtype == bool or str(c).strip() == 'Status ')]
+            status_col_name = status_cols[0] if status_cols else 'Status '
+
+            tipo_cols = [c for c in df_g_raw.columns if 'tipo ponto' in str(c).lower()]
+            tipo_col_name = tipo_cols[0] if tipo_cols else 'Tipo ponto atendimento'
+
+            cod_cols = [c for c in df_g_raw.columns if 'código' in str(c).lower() or 'codigo' in str(c).lower()]
+            cod_col_name = cod_cols[0] if cod_cols else 'Código'
+
+            nome_cols = [c for c in df_g_raw.columns if str(c).strip() == 'Nome']
+            nome_col_name = nome_cols[0] if nome_cols else 'Nome'
+
+            prop_cols = [c for c in df_g_raw.columns if 'propriedade' in str(c).lower()]
+            prop_col_name = prop_cols[0] if prop_cols else 'Nome da propriedade'
+
+            cid_cols = [c for c in df_g_raw.columns if 'cidade' in str(c).lower()]
+            cid_col_name = cid_cols[0] if cid_cols else 'Cidade'
+
+            uf_cols = [c for c in df_g_raw.columns if 'estado' in str(c).lower()]
+            uf_col_name = uf_cols[0] if uf_cols else 'Estado'
+
+            unid_cols = [c for c in df_g_raw.columns if 'unidade atendimento' in str(c).lower()]
+            unid_col_name = unid_cols[0] if unid_cols else 'Unidade atendimento'
+
+            grupo_cols = [c for c in df_g_raw.columns if 'grupo ponto' in str(c).lower()]
+            grupo_col_name = grupo_cols[0] if grupo_cols else 'Grupo ponto atendimento'
+
+            agro_cols = [c for c in df_g_raw.columns if 'agroindústria' in str(c).lower() or 'agroindustria' in str(c).lower()]
+            agro_col_name = agro_cols[0] if agro_cols else 'Código Agroindústria - Campo personalizado'
+
+            faz_cols = [c for c in df_g_raw.columns if 'fazenda - campo' in str(c).lower()]
+            faz_col_name = faz_cols[0] if faz_cols else 'Código Fazenda - Campo personalizado'
+
+            # Filtrar LEITE e Ativos
+            df_g_leite = df_g_raw[df_g_raw[tipo_col_name].astype(str).str.upper().str.contains('LEITE', na=False)].copy()
+            df_grupo_ativos = df_g_leite[df_g_leite[status_col_name] == True].copy()
+            print(f"   -> {len(df_grupo_ativos)} produtores de LEITE identificados como ATIVOS em {arquivo_grupo.name}.")
+        except Exception as e_grp:
+            print(f"   ⚠️ Aviso ao processar {arquivo_grupo.name}: {e_grp}")
+
     cfg_ref = carregar_config_referencia(raiz_projeto)
     mes_ref_dt = cfg_ref.mes_referencia
     mes_ref_str = mes_ref_dt.strftime("%Y-%m-01")
@@ -457,6 +501,22 @@ def executar_reconciliacao():
     # Reconciliar do início de 2026 até o próximo mês para expurgar inativações antigas remanescentes
     inicio_2026 = pd.Timestamp("2026-01-01")
     meses_reconciliacao = [m.strftime("%Y-%m-01") for m in pd.date_range(start=inicio_2026, end=pd.to_datetime(proximo_mes_str), freq="MS")]
+
+    # Mapeamento auxiliar de vínculos para fallback
+    mapa_vinc_info: Dict[str, dict] = {}
+    if not df_vinc_db.empty:
+        for _, r_v in df_vinc_db.iterrows():
+            c_lr = str(r_v.get("codigo_lr") or "").strip()
+            if c_lr and c_lr not in mapa_vinc_info:
+                mapa_vinc_info[c_lr] = {
+                    "nome_consultor": str(r_v.get("consultor_grupo_atendimento") or r_v.get("grupo_atendimento") or "CONSULTOR").strip(),
+                    "projeto": str(r_v.get("projeto") or "LEITE").strip(),
+                    "unidade_atendimento": str(r_v.get("unidade_atendimento") or "LABOR RURAL").strip(),
+                    "cidade_produtor": str(r_v.get("cidade_produtor") or "").strip() if r_v.get("cidade_produtor") else None,
+                    "estado_produtor": limpar_uf(r_v.get("estado_produtor")),
+                    "codigo_agroindustria": str(r_v.get("codigo_agroindustria") or "").strip() if r_v.get("codigo_agroindustria") else None,
+                    "codigo_fazenda": str(r_v.get("codigo_fazenda") or "").strip() if r_v.get("codigo_fazenda") else None,
+                }
 
     for ref_m in meses_reconciliacao:
         # Expurgar registros remanescentes no Supabase para produtores inativados nesta referência ou anterior
@@ -471,45 +531,95 @@ def executar_reconciliacao():
                     pass
 
         novos_ativos_m = []
-        for _, r in df_vinculos_ativos.iterrows():
-            c = str(r.get("codigo_lr") or "").strip()
-            if not c or (c in inativacoes_por_codigo and inativacoes_por_codigo[c] <= ref_m):
-                continue
-            
-            nome_p = str(r.get("nome_produtor") or "PRODUTOR").strip()[:250]
-            nome_prop = str(r.get("nome_propriedade") or "FAZENDA").strip()[:250]
-            nome_c = str(r.get("consultor_grupo_atendimento") or r.get("grupo_atendimento") or "CONSULTOR").strip()[:250]
-            proj = str(r.get("projeto") or "NÃO INFORMADO").strip()[:100]
-            unid = str(r.get("unidade_atendimento") or "LABOR RURAL").strip()[:100]
-            cid = str(r.get("cidade_produtor") or "").strip()[:100] if r.get("cidade_produtor") else None
-            uf = limpar_uf(r.get("estado_produtor"))
-            cod_agro = str(r.get("codigo_agroindustria") or "").strip()[:50] if r.get("codigo_agroindustria") else None
-            cod_faz = str(r.get("codigo_fazenda") or "").strip()[:50] if r.get("codigo_fazenda") else None
 
-            novos_ativos_m.append({
-                "codigo_lr": c[:50],
-                "nome_produtor": nome_p,
-                "nome_propriedade": nome_prop,
-                "nome_consultor": nome_c,
-                "projeto": proj,
-                "unidade_atendimento": unid,
-                "cidade_produtor": cid,
-                "estado_produtor": uf,
-                "data_referencia": ref_m,
-                "codigo_agroindustria": cod_agro,
-                "codigo_fazenda": cod_faz
-            })
+        # Se temos a base direta de grupos, usamos ela para o snapshot atual
+        if not df_grupo_ativos.empty and ref_m >= mes_ref_str:
+            for _, r in df_grupo_ativos.iterrows():
+                c = str(r[cod_col_name]).strip()
+                if not c or c.lower() == "nan" or (c in inativacoes_por_codigo and inativacoes_por_codigo[c] <= ref_m):
+                    continue
 
-        df_novos_ativos = pd.DataFrame(novos_ativos_m).drop_duplicates(subset=["codigo_lr", "data_referencia"])
+                g_raw = r.get(grupo_col_name) if grupo_col_name in r else None
+                cons_extraido = None
+                proj_extraido = None
+                if pd.notna(g_raw) and str(g_raw).strip():
+                    g_str = str(g_raw).strip()
+                    m_proj = re.search(r'\((.*?)\)', g_str)
+                    proj_extraido = m_proj.group(1).strip().upper() if m_proj else "LEITE"
+                    cons_extraido = re.sub(r'\(.*?\)', '', g_str).strip()
+
+                # Fallback no mapa de vínculos se o grupo estiver vazio
+                info_fb = mapa_vinc_info.get(c, {})
+                nome_c = cons_extraido or info_fb.get("nome_consultor") or "NÃO ATRIBUÍDO"
+                proj = proj_extraido or info_fb.get("projeto") or "LEITE"
+                unid = str(r.get(unid_col_name) or info_fb.get("unidade_atendimento") or "LABOR RURAL").strip()[:100]
+                cid = str(r.get(cid_col_name) or info_fb.get("cidade_produtor") or "").strip()[:100] or None
+                uf = limpar_uf(r.get(uf_col_name)) or info_fb.get("estado_produtor")
+                cod_agro = str(r.get(agro_col_name) or info_fb.get("codigo_agroindustria") or "").strip()[:50] or None
+                cod_faz = str(r.get(faz_col_name) or info_fb.get("codigo_fazenda") or "").strip()[:50] or None
+
+                id_ativo = f"{c}_{ref_m.replace('-', '_')}"
+                novos_ativos_m.append({
+                    "id": id_ativo,
+                    "codigo_produtor": c[:50],
+                    "nome_produtor": str(r[nome_col_name]).strip()[:250],
+                    "nome_propriedade": str(r[prop_col_name]).strip()[:250],
+                    "estado": uf or "NÃO INFORMADO",
+                    "cidade": cid or "NÃO INFORMADA",
+                    "tipo_ponto_atendimento": "LEITE",
+                    "unidade_atendimento": unid,
+                    "grupo_ponto_atendimento": str(r.get(grupo_col_name) or nome_c)[:250],
+                    "codigo_agroindustria": cod_agro,
+                    "codigo_fazenda": cod_faz,
+                    "status": "Ativo",
+                    "mes_referencia": ref_m,
+                    "data_processamento": datetime.now().isoformat()
+                })
+        else:
+            # Fallback histórico a partir de sq_raw_vinculos
+            for _, r in df_vinc_db.iterrows():
+                c = str(r.get("codigo_lr") or "").strip()
+                if not c or (c in inativacoes_por_codigo and inativacoes_por_codigo[c] <= ref_m):
+                    continue
+                
+                nome_p = str(r.get("nome_produtor") or "PRODUTOR").strip()[:250]
+                nome_prop = str(r.get("nome_propriedade") or "FAZENDA").strip()[:250]
+                nome_c = str(r.get("consultor_grupo_atendimento") or r.get("grupo_atendimento") or "CONSULTOR").strip()[:250]
+                unid = str(r.get("unidade_atendimento") or "LABOR RURAL").strip()[:100]
+                cid = str(r.get("cidade_produtor") or "").strip()[:100] if r.get("cidade_produtor") else None
+                uf = limpar_uf(r.get("estado_produtor"))
+                cod_agro = str(r.get("codigo_agroindustria") or "").strip()[:50] if r.get("codigo_agroindustria") else None
+                cod_faz = str(r.get("codigo_fazenda") or "").strip()[:50] if r.get("codigo_fazenda") else None
+
+                id_ativo = f"{c}_{ref_m.replace('-', '_')}"
+                novos_ativos_m.append({
+                    "id": id_ativo,
+                    "codigo_produtor": c[:50],
+                    "nome_produtor": nome_p,
+                    "nome_propriedade": nome_prop,
+                    "estado": uf or "NÃO INFORMADO",
+                    "cidade": cid or "NÃO INFORMADA",
+                    "tipo_ponto_atendimento": "LEITE",
+                    "unidade_atendimento": unid,
+                    "grupo_ponto_atendimento": nome_c,
+                    "codigo_agroindustria": cod_agro,
+                    "codigo_fazenda": cod_faz,
+                    "status": "Ativo",
+                    "mes_referencia": ref_m,
+                    "data_processamento": datetime.now().isoformat()
+                })
+
+        df_novos_ativos = pd.DataFrame(novos_ativos_m).drop_duplicates(subset=["id"])
         print(f"\n   Mês {ref_m}:")
-        print(f"   - Total de produtores ativos consolidados para envio: {len(df_novos_ativos)} ({df_novos_ativos['projeto'].nunique()} projetos)")
+        print(f"   - Total de produtores ativos consolidados para envio: {len(df_novos_ativos)}")
 
         registros_ativos = df_novos_ativos.to_dict(orient="records")
         sucesso_ativos = 0
+        LOTE = 500
         for i in range(0, len(registros_ativos), LOTE):
             lote_at = registros_ativos[i : i + LOTE]
             try:
-                supabase.table("sq_base_produtores_ativos").upsert(lote_at, on_conflict="codigo_lr,data_referencia").execute()
+                supabase.table("sq_base_produtores_ativos").upsert(lote_at, on_conflict="id").execute()
                 sucesso_ativos += len(lote_at)
             except Exception as e:
                 try:
