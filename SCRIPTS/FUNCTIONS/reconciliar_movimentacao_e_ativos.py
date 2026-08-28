@@ -5,9 +5,12 @@ import time
 from datetime import datetime, date
 from pathlib import Path
 from typing import Any, Dict, List, Set
+from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 import yaml
+
+FUSO_SP = ZoneInfo("America/Sao_Paulo")
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -140,7 +143,7 @@ def executar_reconciliacao():
                             "Status": "produtor_ativo",
                         }
                         df_prep_i = df_i.rename(columns={k: v for k, v in mapa_cols.items() if k in df_i.columns})
-                        df_prep_i["data_processamento"] = datetime.now().isoformat()
+                        df_prep_i["data_processamento"] = datetime.now(FUSO_SP).isoformat()
                         
                         # Converter datas
                         if "data_solicitacao" in df_prep_i.columns:
@@ -208,7 +211,7 @@ def executar_reconciliacao():
                     "movimentacao": "Entrada",
                     "motivo_inativacao": None,
                     "outro_motivo": None,
-                    "data_processamento": datetime.now().isoformat(),
+                    "data_processamento": datetime.now(FUSO_SP).isoformat(),
                 })
 
     # Mapeamento dimensional para validação da cadeia produtiva (Leite vs Cacau, Café, Grãos)
@@ -320,7 +323,7 @@ def executar_reconciliacao():
                         "movimentacao": "Entrada",
                         "motivo_inativacao": None,
                         "outro_motivo": tipo_cad,
-                        "data_processamento": datetime.now().isoformat(),
+                        "data_processamento": datetime.now(FUSO_SP).isoformat(),
                     })
             except Exception as e_cad:
                 print(f"   ⚠️ Aviso ao processar {arq_cad.name}: {e_cad}")
@@ -371,7 +374,7 @@ def executar_reconciliacao():
                 "movimentacao": "Saída",
                 "motivo_inativacao": motivo,
                 "outro_motivo": outro,
-                "data_processamento": datetime.now().isoformat(),
+                "data_processamento": datetime.now(FUSO_SP).isoformat(),
             })
             
     df_mov_final = pd.DataFrame(movimentacoes_lista).drop_duplicates(subset=["id_composto"], keep="last")
@@ -405,8 +408,8 @@ def executar_reconciliacao():
         time.sleep(0.2)
     print(f"   ✅ {sucesso_mov} registros de movimentação atualizados no Supabase.")
 
-    # 6. Reconciliar sq_base_produtores_ativos (Restrito aos Projetos Oficiais de Leite)
-    print("\n🌱 6. Reconciliando base ativa mensal em sq_base_produtores_ativos (Leite)...")
+    # 6. Reconciliar sq_base_fazendas_ativas (Restrito aos Projetos Oficiais de Leite)
+    print("\n🌱 6. Reconciliando base ativa mensal em sq_base_fazendas_ativas (Leite)...")
     
     # Identificar todas as inativações com data e código
     # REGRA: De 2026 em diante, usa data_solicitacao; antes disso mantém data_inativacao
@@ -526,7 +529,7 @@ def executar_reconciliacao():
             for d_idx in range(0, len(ids_expurgar), LOTE_DEL):
                 lote_del = ids_expurgar[d_idx : d_idx + LOTE_DEL]
                 try:
-                    supabase.table("sq_base_produtores_ativos").delete().in_("codigo_lr", lote_del).eq("data_referencia", ref_m).execute()
+                    supabase.table("sq_base_fazendas_ativas").delete().in_("codigo_produtor", lote_del).eq("mes_referencia", ref_m).execute()
                 except Exception:
                     pass
 
@@ -573,7 +576,7 @@ def executar_reconciliacao():
                     "codigo_fazenda": cod_faz,
                     "status": "Ativo",
                     "mes_referencia": ref_m,
-                    "data_processamento": datetime.now().isoformat()
+                    "data_processamento": datetime.now(FUSO_SP).isoformat()
                 })
         else:
             # Fallback histórico a partir de sq_raw_vinculos
@@ -606,7 +609,7 @@ def executar_reconciliacao():
                     "codigo_fazenda": cod_faz,
                     "status": "Ativo",
                     "mes_referencia": ref_m,
-                    "data_processamento": datetime.now().isoformat()
+                    "data_processamento": datetime.now(FUSO_SP).isoformat()
                 })
 
         df_novos_ativos = pd.DataFrame(novos_ativos_m).drop_duplicates(subset=["id"])
@@ -619,11 +622,11 @@ def executar_reconciliacao():
         for i in range(0, len(registros_ativos), LOTE):
             lote_at = registros_ativos[i : i + LOTE]
             try:
-                supabase.table("sq_base_produtores_ativos").upsert(lote_at, on_conflict="id").execute()
+                supabase.table("sq_base_fazendas_ativas").upsert(lote_at, on_conflict="id").execute()
                 sucesso_ativos += len(lote_at)
             except Exception as e:
                 try:
-                    supabase.table("sq_base_produtores_ativos").upsert(lote_at).execute()
+                    supabase.table("sq_base_fazendas_ativas").upsert(lote_at).execute()
                     sucesso_ativos += len(lote_at)
                 except Exception as e2:
                     print(f"     ❌ Erro ao enviar lote de ativos {i // LOTE + 1}: {e2}")
