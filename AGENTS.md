@@ -138,8 +138,7 @@ CAMINHO_ARQUIVO = PASTA_SAIDA / f"{DATA_EXPORTACAO}_nome_do_arquivo.ext"
   - **Prefixos de Projetos**: `sq_` (SmartQuestion), `elabore_` (Elabore), `meta_` (Metas), etc.
   - **Camadas Oficiais**:
     - `*_fato_*`: Tabelas fato analíticas agregadas (ex: `sq_fato_visitas`, `sq_fato_consistencia`, `sq_fato_movimentacao`).
-    - `*_dim_*`: Tabelas dimensionais cadastrais (ex: `sq_dim_agroindustria`, `sq_dim_consultor`, `sq_dim_fazenda`).
-    - `*_base_*`: Snapshots periódicos e bases congeladas mês a mês (ex: `sq_base_produtores_ativos`).
+    - `*_base_*`: Snapshots periódicos e bases congeladas mês a mês (ex: `sq_base_fazendas_ativas`, `sq_base_metas_mensal`).
     - `*_raw_*`: Ingestão bruta de relatórios e planilhas operacionais (ex: `sq_raw_visitas`, `sq_raw_vinculos`, `sq_raw_consistencia_mensal`).
   - **Colunas**: Sempre em `snake_case` minúsculo com timestamps `data_processamento` e chaves `id_composto`.
 

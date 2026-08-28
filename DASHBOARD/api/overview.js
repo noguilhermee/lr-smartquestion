@@ -153,7 +153,7 @@ module.exports = async (req, res) => {
 
     const supabase = getSupabaseClient();
 
-    const { getRegiaoMap, sanitizeRegiao } = require('./azurePostgres');
+    const { getRegiaoMap, sanitizeRegiao, getProdutoresAtivos } = require('./azurePostgres');
     const [agrosRes, consultoresDB, regiaoMap] = await Promise.all([
       Promise.resolve(supabase.from('sq_dim_agroindustria').select('nome_agroindustria, nomeAgroindustria')).catch(() => ({ data: [] })),
       fetchAll(() => supabase.from('sq_dim_consultor').select('nome_consultor, formacao_consultor, nomeConsultor, formacaoConsultor')).catch(() => []),
@@ -204,25 +204,12 @@ module.exports = async (req, res) => {
     // Se não selecionou nenhum mês (isAllMonths), traz todas as informações
     const visitasMonth = isAllMonths ? null : requestedMonth;
     const consistencyMonth = isAllMonths ? null : (shiftMonthMinus1(requestedMonth) || requestedMonth);
+    const refMonth = visitasMonth;
 
     // 2. Consultar produtores ativos no mês de visitas e no mês de consistência (ou todo o histórico)
     const [produtoresListRaw, produtoresConsistenciaRaw] = await Promise.all([
-      fetchAll(() => {
-        let q = supabase
-          .from('sq_base_produtores_ativos')
-          .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia');
-        if (visitasMonth) q = q.eq('data_referencia', visitasMonth);
-        else q = q.lte('data_referencia', maxAllowedMonth);
-        return q.order('data_referencia', { ascending: false }).order('codigo_lr', { ascending: true });
-      }),
-      fetchAll(() => {
-        let q = supabase
-          .from('sq_base_produtores_ativos')
-          .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia');
-        if (consistencyMonth) q = q.eq('data_referencia', consistencyMonth);
-        else q = q.lte('data_referencia', maxAllowedMonth);
-        return q.order('data_referencia', { ascending: false }).order('codigo_lr', { ascending: true });
-      })
+      getProdutoresAtivos(supabase, fetchAll, visitasMonth, maxAllowedMonth),
+      getProdutoresAtivos(supabase, fetchAll, consistencyMonth, maxAllowedMonth)
     ]);
     const produtoresList = (produtoresListRaw || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto));
     const produtoresConsistencia = (produtoresConsistenciaRaw || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto));
@@ -279,11 +266,7 @@ module.exports = async (req, res) => {
         .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia, data_visita')
         .order('mes_referencia', { ascending: false })
         .order('codigo_lr', { ascending: true })).catch(() => []),
-      fetchAll(() => supabase
-        .from('sq_base_produtores_ativos')
-        .select('codigo_lr, nome_consultor, nome_produtor, projeto, unidade_atendimento, data_referencia')
-        .order('data_referencia', { ascending: false })
-        .order('codigo_lr', { ascending: true })).catch(() => []),
+      getProdutoresAtivos(supabase, fetchAll, null, maxAllowedMonth),
       fetchAll(() => supabase
         .from('sq_raw_vinculos')
         .select('codigo_lr, data_associacao')

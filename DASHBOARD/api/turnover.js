@@ -120,7 +120,7 @@ module.exports = async (req, res) => {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const supabase = getSupabaseClient();
-    const { getRegiaoMap, sanitizeRegiao } = require('./azurePostgres');
+    const { getRegiaoMap, sanitizeRegiao, getProdutoresAtivos } = require('./azurePostgres');
     const regiaoMap = await getRegiaoMap(supabase, fetchAll);
 
     function getRegiao(codigoLr, fallback) {
@@ -173,12 +173,7 @@ module.exports = async (req, res) => {
         .select('codigo_lr, nome_produtor, nome_consultor, numero_atendimento, data_movimentacao, movimentacao, motivo_inativacao, outro_motivo')
         .order('data_movimentacao', { ascending: false })
         .order('codigo_lr', { ascending: true })).catch(() => []),
-      fetchAll(() => supabase
-        .from('sq_base_produtores_ativos')
-        .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia')
-        .lte('data_referencia', maxAllowedMonth)
-        .order('data_referencia', { ascending: false })
-        .order('codigo_lr', { ascending: true })).catch(() => []),
+      getProdutoresAtivos(supabase, fetchAll, null, maxAllowedMonth),
       fetchAll(() => supabase
         .from('sq_raw_inativacoes_produtor')
         .select('id_atendimento, codigo_lr, nome_produtor, nome_propriedade, projeto, grupo_ponto_atendimento')).catch(() => []),

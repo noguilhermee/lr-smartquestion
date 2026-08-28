@@ -183,4 +183,80 @@ async function getRegiaoMap(supabase, fetchAll) {
   return regiaoMap;
 }
 
-module.exports = { getRegiaoMap, sanitizeRegiao, fixMojibake };
+// ─── Consulta Unificada e Resiliente de Produtores Ativos ───────────────────
+
+async function getProdutoresAtivos(supabase, fetchAll, refMonth = null, maxAllowedMonth = null) {
+  // 1. Tenta sq_base_produtores_ativos
+  try {
+    const rows = await fetchAll(() => {
+      let q = supabase
+        .from('sq_base_produtores_ativos')
+        .select('codigo_lr, nome_produtor, nome_propriedade, nome_consultor, projeto, unidade_atendimento, data_referencia');
+      if (refMonth) q = q.eq('data_referencia', refMonth);
+      else if (maxAllowedMonth) q = q.lte('data_referencia', maxAllowedMonth);
+      return q.order('data_referencia', { ascending: false }).order('codigo_lr', { ascending: true });
+    });
+    if (rows && rows.length > 0) return rows;
+  } catch (e) {
+    // ignora e tenta próxima fonte
+  }
+
+  // 2. Tenta sq_base_fazendas_ativas
+  try {
+    const rows = await fetchAll(() => {
+      let q = supabase
+        .from('sq_base_fazendas_ativas')
+        .select('codigo_produtor, nome_produtor, nome_propriedade, grupo_ponto_atendimento, unidade_atendimento, mes_referencia, tipo_ponto_atendimento, status');
+      if (refMonth) q = q.eq('mes_referencia', refMonth);
+      else if (maxAllowedMonth) q = q.lte('mes_referencia', maxAllowedMonth);
+      return q.order('mes_referencia', { ascending: false }).order('codigo_produtor', { ascending: true });
+    });
+    if (rows && rows.length > 0) {
+      return rows.map(r => {
+        let consultor = r.grupo_ponto_atendimento || '';
+        let projeto = r.tipo_ponto_atendimento || '';
+        const match = String(r.grupo_ponto_atendimento || '').match(/^(.*?)\s*\((.*?)\)$/);
+        if (match) {
+          consultor = match[1].trim();
+          projeto = match[2].trim();
+        }
+        return {
+          codigo_lr: r.codigo_produtor,
+          nome_produtor: r.nome_produtor,
+          nome_propriedade: r.nome_propriedade,
+          nome_consultor: consultor,
+          projeto: projeto || r.tipo_ponto_atendimento,
+          unidade_atendimento: r.unidade_atendimento,
+          data_referencia: r.mes_referencia,
+          status: r.status
+        };
+      });
+    }
+  } catch (e) {
+    // ignora e tenta fallback
+  }
+
+  // 3. Fallback para sq_raw_vinculos
+  try {
+    const rows = await fetchAll(() => {
+      return supabase
+        .from('sq_raw_vinculos')
+        .select('codigo_lr, nome_produtor, nome_propriedade, consultor_grupo_atendimento, grupo_atendimento, projeto, unidade_atendimento, data_associacao, vinculo_ativo')
+        .order('data_associacao', { ascending: false });
+    });
+    return (rows || []).map(r => ({
+      codigo_lr: r.codigo_lr,
+      nome_produtor: r.nome_produtor,
+      nome_propriedade: r.nome_propriedade,
+      nome_consultor: r.consultor_grupo_atendimento || r.grupo_atendimento,
+      projeto: r.projeto,
+      unidade_atendimento: r.unidade_atendimento,
+      data_referencia: r.data_associacao ? r.data_associacao.slice(0, 7) + '-01' : null,
+      status: r.vinculo_ativo ? 'ATIVO' : 'INATIVO'
+    }));
+  } catch (e) {
+    return [];
+  }
+}
+
+module.exports = { getRegiaoMap, sanitizeRegiao, fixMojibake, getProdutoresAtivos };

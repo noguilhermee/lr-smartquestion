@@ -131,7 +131,7 @@ module.exports = async (req, res) => {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const supabase = getSupabaseClient();
-    const { getRegiaoMap, sanitizeRegiao } = require('./azurePostgres');
+    const { getRegiaoMap, sanitizeRegiao, getProdutoresAtivos } = require('./azurePostgres');
     const regiaoMap = await getRegiaoMap(supabase, fetchAll);
 
     function getRegiao(codigoLr, fallback) {
@@ -191,14 +191,7 @@ module.exports = async (req, res) => {
         .select('codigo_lr, nome_consultor, projeto, mes_referencia, data_carencia_fim, mes_elabore, consistencia_mensal, consistencia_anual, excecao, meses_sequenciais, detalhamento_inconsistencia')
         .order('mes_referencia', { ascending: false })
         .order('codigo_lr', { ascending: true })).catch(() => []),
-      fetchAll(() => {
-        let q = supabase
-          .from('sq_base_produtores_ativos')
-          .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia');
-        if (refMonth) q = q.eq('data_referencia', refMonth);
-        else q = q.lte('data_referencia', maxAllowedMonth);
-        return q.order('data_referencia', { ascending: false }).order('codigo_lr', { ascending: true });
-      }).catch(() => []),
+      getProdutoresAtivos(supabase, fetchAll, refMonth, maxAllowedMonth),
       fetchAll(() => supabase
         .from('sq_raw_vinculos')
         .select('codigo_lr, nome_produtor, projeto, unidade_atendimento')).catch(() => []),

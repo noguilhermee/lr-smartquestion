@@ -154,6 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderOverview(data) {
+    if (!data) return;
     const kpi = data.kpis || {};
     const totalActive = Number(kpi.produtores_ativos) || 0;
     const totalVisited = Number(kpi.produtores_visitados) || Math.max(0, totalActive - Number(state.visits?.kpis?.fazendas_nao_visitadas || 0));
@@ -215,6 +216,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderVisits(data) {
+    if (!data) return;
     const kpi = data.kpis || {};
     updateValue('kpiVisitsCoverage', percent(kpi.perc_cobertura_geral || state.overview?.kpis?.perc_visitados));
     updateValue('kpiVisitsTotal', number(kpi.total_visitas || state.overview?.kpis?.total_visitas));
@@ -223,6 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderTurnover(data) {
+    if (!data) return;
     const kpi = data.kpis || {};
     updateValue('kpiTurnEntradas', number(kpi.entradas_mes));
     updateValue('kpiTurnSaidas', number(kpi.saidas_mes));
@@ -235,6 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderConsistency(data) {
+    if (!data) return;
     const kpi = data.kpis || {};
     const values = data.distribuicaoDonut?.values || [];
     const base = Number(kpi.base_analisada) || values.reduce((sum, item) => sum + Number(item || 0), 0);

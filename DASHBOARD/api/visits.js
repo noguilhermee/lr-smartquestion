@@ -122,7 +122,7 @@ module.exports = async (req, res) => {
     const isAllMonths = !/^\d{4}-\d{2}-\d{2}$/.test(requestedMonth);
     const refMonth = isAllMonths ? null : requestedMonth;
 
-    const { getRegiaoMap, sanitizeRegiao } = require('./azurePostgres');
+    const { getRegiaoMap, sanitizeRegiao, getProdutoresAtivos } = require('./azurePostgres');
     const regiaoMap = await getRegiaoMap(supabase, fetchAll);
 
     function getRegiao(codigoLr, fallback) {
@@ -166,14 +166,7 @@ module.exports = async (req, res) => {
       return true;
     }
 
-    const produtoresBrutos = await fetchAll(() => {
-      let q = supabase
-        .from('sq_base_produtores_ativos')
-        .select('codigo_lr, nome_produtor, nome_consultor, projeto, unidade_atendimento, data_referencia');
-      if (refMonth) q = q.eq('data_referencia', refMonth);
-      else q = q.lte('data_referencia', maxAllowedMonth);
-      return q.order('data_referencia', { ascending: false }).order('codigo_lr', { ascending: true });
-    }).catch(() => []);
+    const produtoresBrutos = await getProdutoresAtivos(supabase, fetchAll, refMonth, maxAllowedMonth);
 
     let visitasBrutas = await fetchAll(() => {
       let q = supabase
