@@ -121,25 +121,25 @@ lr-smartquestion/
 ├── .gitignore                      # Regras de exclusão Git
 ├── requirements.txt                # Dependências Python do projeto
 │
-├── DASHBOARD/                      # 📺 Dashboard Web Vercel para TV (HTML/CSS/JS + Node Serverless)
+├── dashboard/                      # 📺 Dashboard Web Vercel para TV (HTML/CSS/JS + Node Serverless)
 │   ├── package.json                # Dependências Node (@supabase/supabase-js)
 │   ├── vercel.json                 # Configurações de rotas e headers da Vercel
 │   ├── start_kiosk.bat             # Atalho Windows para abrir o dashboard em modo Kiosk na TV
 │   ├── public/                     # Frontend estático (HTML, CSS Dark Theme, JS Charts & Carousel)
 │   └── api/                        # Serverless Functions (overview, visits, consistency, turnover)
 │
-├── DB/                             # Banco de Dados local / Arquivos
-│   ├── INPUT/                      # Relatórios brutos exportados do SmartQuestion
-│   └── OUTPUT/                     # Saídas e arquivos gerados
+├── db/                             # Banco de Dados local / Arquivos
+│   ├── input/                      # Relatórios brutos exportados do SmartQuestion
+│   └── output/                     # Saídas e arquivos gerados (processed, figures, html, logs)
 │
-└── SCRIPTS/                        # Scripts e Notebooks do Pipeline ETL
+└── scripts/                        # Scripts e Notebooks do Pipeline ETL
 ```
 
 ---
 
 ## 📺 Dashboard Web na Vercel (TV Kiosk)
 
-O projeto contém uma aplicação web completa na pasta `DASHBOARD/` para projeção síncrona na sala dos consultores (TV 55" Full HD).
+O projeto contém uma aplicação web completa na pasta `dashboard/` para projeção síncrona na sala dos consultores (TV 55" Full HD).
 
 ### 🚀 Como Fazer Deploy na Vercel
 
@@ -150,7 +150,7 @@ O projeto contém uma aplicação web completa na pasta `DASHBOARD/` para proje�
 
 2. **Fazer o Deploy**:
    ```bash
-   cd DASHBOARD
+   cd dashboard
    vercel
    ```
 
@@ -166,7 +166,7 @@ O projeto contém uma aplicação web completa na pasta `DASHBOARD/` para proje�
 
 ### 📺 Como Rodar na TV da Sala (Modo Kiosk)
 
-Dê um duplo clique no arquivo `DASHBOARD/start_kiosk.bat` para abrir o Google Chrome em tela cheia (modo Kiosk) apontando diretamente para a URL do dashboard na Vercel.
+Dê um duplo clique no arquivo `dashboard/start_kiosk.bat` para abrir o Google Chrome em tela cheia (modo Kiosk) apontando diretamente para a URL do dashboard na Vercel.
 
 ---
 
@@ -178,14 +178,14 @@ Dê um duplo clique no arquivo `DASHBOARD/start_kiosk.bat` para abrir o Google C
    ```
 
 2. **Configurar variáveis de ambiente**:
-   Copie `SCRIPTS/CONFIG/.env.example` para `SCRIPTS/CONFIG/.env` e preencha as credenciais do Supabase / SharePoint:
+   Copie `scripts/config/.env.example` para `scripts/config/.env` e preencha as credenciais do Supabase / SharePoint:
    ```env
    SUPABASE_URL=https://xxxx.supabase.co
    SUPABASE_SERVICE_KEY=xxxx
    ```
 
 3. **Ajustar mês de referência**:
-   Edite `SCRIPTS/CONFIG/config.yaml` para definir o mês de referência da análise:
+   Edite `scripts/config/config.yaml` para definir o mês de referência da análise:
    ```yaml
    referencia:
      mes_referencia: "2026-08-01"
@@ -197,10 +197,10 @@ Dê um duplo clique no arquivo `DASHBOARD/start_kiosk.bat` para abrir o Google C
 
 Para executar o pipeline completo sequencialmente:
 ```bash
-python SCRIPTS/executar_pipeline.py
+python scripts/executar_pipeline.py
 ```
 
-Ou execute individualmente cada notebook na pasta `SCRIPTS/`.
+Ou execute individualmente cada notebook na pasta `scripts/`.
 
 ---
 
