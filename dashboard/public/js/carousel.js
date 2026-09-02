@@ -23,7 +23,7 @@ class DashboardCarousel {
     this.startedAt = Date.now();
     this.progressTimer = null;
     this.hoverPaused = false;
-    this.userPaused = false;
+    this.userPaused = options.startPaused !== undefined ? options.startPaused : true;
     this.init();
   }
 
@@ -32,6 +32,7 @@ class DashboardCarousel {
     this.bindEvents();
     const hashPage = Number(window.location.hash.match(/pagina-(\d+)/)?.[1] || 1) - 1;
     this.goTo(Number.isInteger(hashPage) ? hashPage : 0, false);
+    this.updatePauseUI();
     this.startProgress();
   }
 

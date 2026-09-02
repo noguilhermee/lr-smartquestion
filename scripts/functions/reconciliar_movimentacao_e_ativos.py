@@ -574,7 +574,12 @@ def executar_reconciliacao():
         partes_sem_cft = [p for p in partes if "CFT" not in p.upper()]
         if not partes_sem_cft:
             return None
-        return " / ".join(partes_sem_cft)
+        # Remove qualquer conteúdo entre parênteses e espaços extras para ficar apenas o nome limpo sem parênteses
+        partes_limpas = [re.sub(r'\s*\(.*?\)', '', p).strip() for p in partes_sem_cft]
+        partes_limpas = [p for p in partes_limpas if p]
+        if not partes_limpas:
+            return None
+        return " / ".join(partes_limpas)
 
     # Mapeamento oficial de Projeto -> Agroindústria e mapa de regiões
     MAP_PROJETO_AGRO = {

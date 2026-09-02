@@ -61,7 +61,13 @@ const NON_FIELD_CONSULTANTS = new Set([
   'CONTA DE SUPERVISAO',
   'LABOR RURAL (GERAL)',
   'SUPERVISAO',
-  'COORDENACAO'
+  'SUPERVISÃO',
+  'SUPERVISAO AGRICULTURA',
+  'SUPERVISAO PECUARIA',
+  'SUPERVISÃO AGRICULTURA',
+  'SUPERVISÃO PECUÁRIA',
+  'COORDENACAO',
+  'COORDENAÇÃO'
 ]);
 
 function isNonFieldConsultant(name) {
@@ -69,7 +75,9 @@ function isNonFieldConsultant(name) {
   const upper = String(name).trim().toUpperCase();
   if (NON_FIELD_CONSULTANTS.has(upper)) return true;
   if (upper.startsWith('TALITA FONTES')) return true;
-  if (upper.includes('_CONSULTOR') || upper === 'CONTA DE SUPERVISÃO') return true;
+  if (upper.includes('_CONSULTOR') || upper.includes('CONSULTOR_') || upper === 'CONTA DE SUPERVISÃO') return true;
+  if (upper.includes('SUPERVISAO') || upper.includes('SUPERVISÃO')) return true;
+  if (upper.includes('COORDENACAO') || upper.includes('COORDENAÇÃO')) return true;
   return false;
 }
 
@@ -104,7 +112,8 @@ function ehCadeiaLeite(projeto) {
   const TERMOS_NAO_LEITE = [
     'MAIS GRAOS', 'MAIS GRÃOS', 'GRAOS', 'GRÃOS',
     'MIMC', 'M&E', 'CAFE&GESTAO', 'CAFE & GESTAO', 'CAFÉ & GESTÃO',
-    'CAFÉ', 'CAFE', 'CACAU', 'CARGILL', 'NCP', 'OFI', 'PV CARGILL'
+    'CAFÉ', 'CAFE', 'CACAU', 'CARGILL', 'NCP', 'OFI', 'PV CARGILL',
+    'AGRICULTURA'
   ];
   for (const termo of TERMOS_NAO_LEITE) {
     if (p.includes(termo)) return false;
@@ -112,8 +121,17 @@ function ehCadeiaLeite(projeto) {
   return true;
 }
 
-function isValidoLeite(nome_consultor, projeto) {
+function isValidoLeite(nome_consultor, projeto, codigo_lr = null, tipo_ponto_atendimento = null) {
   if (isTestData(nome_consultor, projeto)) return false;
+  if (codigo_lr) {
+    const codUpper = String(codigo_lr).toUpperCase();
+    if (codUpper.includes('_CONSULTOR') || codUpper.includes('CONSULTOR_')) return false;
+  }
+  if (tipo_ponto_atendimento) {
+    const tipoUpper = String(tipo_ponto_atendimento).toUpperCase();
+    if (tipoUpper.includes('SUPERVISAO') || tipoUpper.includes('SUPERVISÃO')) return false;
+  }
+  if (nome_consultor && isNonFieldConsultant(nome_consultor)) return false;
   if (!ehCadeiaLeite(projeto)) return false;
   return true;
 }
@@ -163,7 +181,12 @@ function shiftMonthMinus1(monthStr) {
 function expandRows(rows) {
   const result = [];
   for (const row of (rows || [])) {
-    const consultores = sanitizeConsultorList(row.nome_consultor || row.consultor || row.grupo_ponto_atendimento);
+    const rawName = row.nome_consultor || row.consultor || row.grupo_ponto_atendimento;
+    const codUpper = String(row.codigo_lr || row.codigo_produtor || '').toUpperCase();
+    if (codUpper.includes('_CONSULTOR') || codUpper.includes('CONSULTOR_')) continue;
+    if (rawName && isNonFieldConsultant(rawName)) continue;
+
+    const consultores = sanitizeConsultorList(rawName);
     if (consultores.length === 0) {
       if (!isTestData(row.nome_consultor, row.projeto)) {
         result.push(row);

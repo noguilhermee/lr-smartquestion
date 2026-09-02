@@ -367,22 +367,25 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function mapRegiaoNestle(str) {
-      if (!str) return null;
-      const normalized = str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-      if (normalized.includes('patos') || normalized.includes('ibia') || normalized.includes('9188') || normalized.includes('1215')) {
-        return 'Patos de Minas e Ibiá';
-      }
-      if (normalized.includes('ituiutaba') || normalized.includes('1217') || normalized.includes('triangulo')) {
-        return 'Ituiutaba';
-      }
-      if (normalized.includes('goiania') || normalized.includes('9655')) {
-        return 'Goiânia';
-      }
-      if (normalized.includes('montes claros') || normalized.includes('9264') || normalized.includes('sertao norte')) {
-        return 'Montes Claros';
-      }
-      return null;
+    if (!str) return null;
+    const normalized = str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    if (normalized === 'go' || normalized.includes('goiania') || normalized.includes('9655') || normalized.includes('goias')) {
+      return 'Goiânia';
     }
+    if (normalized === 'mg' || normalized.includes('patos') || normalized.includes('ibia') || normalized.includes('9188') || normalized.includes('1215')) {
+      return 'Patos de Minas e Ibiá';
+    }
+    if (normalized.includes('ituiutaba') || normalized.includes('1217') || normalized.includes('triangulo')) {
+      return 'Ituiutaba';
+    }
+    if (normalized.includes('montes claros') || normalized.includes('9264') || normalized.includes('sertao norte')) {
+      return 'Montes Claros';
+    }
+    if (normalized.includes('aracatuba') || normalized.includes('0460') || normalized === 'sp') {
+      return 'Araçatuba';
+    }
+    return null;
+  }
 
     function isNestleContext(context) {
       if (!context) return false;
@@ -453,7 +456,13 @@ document.addEventListener('DOMContentLoaded', () => {
     'CONTA DE SUPERVISAO',
     'LABOR RURAL (GERAL)',
     'SUPERVISAO',
-    'COORDENACAO'
+    'SUPERVISÃO',
+    'SUPERVISAO AGRICULTURA',
+    'SUPERVISAO PECUARIA',
+    'SUPERVISÃO AGRICULTURA',
+    'SUPERVISÃO PECUÁRIA',
+    'COORDENACAO',
+    'COORDENAÇÃO'
   ]);
 
   function isNonFieldConsultant(name) {
@@ -461,7 +470,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const upper = String(name).trim().toUpperCase();
     if (NON_FIELD_CONSULTANTS.has(upper)) return true;
     if (upper.startsWith('TALITA FONTES')) return true;
-    if (upper.includes('_CONSULTOR') || upper === 'CONTA DE SUPERVISÃO') return true;
+    if (upper.includes('_CONSULTOR') || upper.includes('CONSULTOR_') || upper === 'CONTA DE SUPERVISÃO') return true;
+    if (upper.includes('SUPERVISAO') || upper.includes('SUPERVISÃO')) return true;
+    if (upper.includes('COORDENACAO') || upper.includes('COORDENAÇÃO')) return true;
     return false;
   }
 
@@ -480,7 +491,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function matches(row, filter, ignoreMonth = false) {
+    const codUpper = String(row.codigo_lr || row.codigo_produtor || '').toUpperCase();
+    if (codUpper.includes('_CONSULTOR') || codUpper.includes('CONSULTOR_')) return false;
+
     const rawConsultant = String(row.consultor || row.nome_consultor || '');
+    if (isNonFieldConsultant(rawConsultant)) return false;
+
     const consultores = sanitizeConsultorList(rawConsultant).map((c) => c.toLocaleLowerCase('pt-BR'));
     const filterConsult = (filter.consultant || '').toLocaleLowerCase('pt-BR');
     const consultantMatch = !filterConsult ||
@@ -488,13 +504,17 @@ document.addEventListener('DOMContentLoaded', () => {
       rawConsultant.toLocaleLowerCase('pt-BR').includes(filterConsult);
 
     const producer = String(row.produtor || row.nome_produtor || row.propriedade || '').toLocaleLowerCase('pt-BR');
+    const producerCode = String(row.codigo_lr || row.codigo_produtor || '').toLocaleLowerCase('pt-BR');
+    const filterProd = (filter.producer || '').toLocaleLowerCase('pt-BR');
+    const producerMatch = !filterProd || producer === filterProd || producer.includes(filterProd) || producerCode === filterProd;
+
     const rowRegion = sanitizeRegiao(row.regiao || row.regioes);
     const filterRegion = sanitizeRegiao(filter.region);
     const rowMonth = String(row.mes_referencia || row.data_referencia || '').slice(0, 10);
     const monthMatch = ignoreMonth || !filter.month || !rowMonth || dimensionMatches(rowMonth, filter.month);
 
     return consultantMatch &&
-      (!filter.producer || producer === filter.producer.toLocaleLowerCase('pt-BR')) &&
+      producerMatch &&
       dimensionMatches(row.agroindustria || row.agroindustrias, filter.industry) &&
       (!filterRegion || rowRegion === filterRegion) &&
       dimensionMatches(row.projeto || row.projetos, filter.project) &&
@@ -1135,7 +1155,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const TERMOS_NAO_LEITE = [
       'MAIS GRAOS', 'MAIS GRÃOS', 'GRAOS', 'GRÃOS',
       'MIMC', 'M&E', 'CAFE&GESTAO', 'CAFE & GESTAO', 'CAFÉ & GESTÃO',
-      'CAFÉ', 'CAFE', 'CACAU', 'CARGILL', 'NCP', 'OFI', 'PV CARGILL'
+      'CAFÉ', 'CAFE', 'CACAU', 'CARGILL', 'NCP', 'OFI', 'PV CARGILL',
+      'AGRICULTURA'
     ];
     for (const termo of TERMOS_NAO_LEITE) {
       if (p.includes(termo)) return false;
@@ -1319,9 +1340,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const curStat = current.status;
     const curCons = (current.consultant || '').toLowerCase();
     const curProd = (current.producer || '').toLowerCase();
+    const curMonth = current.month ? String(current.month).slice(0, 7) : '';
 
     function matchesActiveExcept(row, fieldKey) {
       if (!ehCadeiaLeite(row.projeto || row.agroindustria)) return false;
+      if (fieldKey !== 'month' && curMonth && row.mes_referencia && String(row.mes_referencia).slice(0, 7) !== curMonth) return false;
       if (fieldKey !== 'industry' && curInd && row.agroindustria !== curInd) return false;
       if (fieldKey !== 'region' && curReg && row.regiao !== curReg) return false;
       if (fieldKey !== 'project' && curProj && row.projeto !== curProj) return false;

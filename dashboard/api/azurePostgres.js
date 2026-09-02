@@ -90,17 +90,20 @@ function formatSingleRegionName(raw) {
 function mapRegiaoNestle(str) {
   if (!str) return null;
   const normalized = str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-  if (normalized.includes('patos') || normalized.includes('ibia') || normalized.includes('9188') || normalized.includes('1215')) {
+  if (normalized === 'go' || normalized.includes('goiania') || normalized.includes('9655') || normalized.includes('goias')) {
+    return 'Goiânia';
+  }
+  if (normalized === 'mg' || normalized.includes('patos') || normalized.includes('ibia') || normalized.includes('9188') || normalized.includes('1215')) {
     return 'Patos de Minas e Ibiá';
   }
   if (normalized.includes('ituiutaba') || normalized.includes('1217') || normalized.includes('triangulo')) {
     return 'Ituiutaba';
   }
-  if (normalized.includes('goiania') || normalized.includes('9655')) {
-    return 'Goiânia';
-  }
   if (normalized.includes('montes claros') || normalized.includes('9264') || normalized.includes('sertao norte')) {
     return 'Montes Claros';
+  }
+  if (normalized.includes('aracatuba') || normalized.includes('0460') || normalized === 'sp') {
+    return 'Araçatuba';
   }
   return null;
 }
@@ -161,7 +164,57 @@ function sanitizeRegiao(rawRegion, context = null) {
 
 // ─── Consulta ao Banco de Dados ─────────────────────────────────────────────
 
-const { fetchWithCache, sanitizeConsultorList, extractCleanProject } = require('./shared');
+const { fetchWithCache, sanitizeConsultorList, isNonFieldConsultant, extractCleanProject } = require('./shared');
+
+/**
+ * Consulta a tabela canônica sq_dim_regiao do Supabase.
+ * Fornece o catálogo oficial e de-para de regiões por agroindústria.
+ */
+async function getDimRegioesMap(supabase) {
+  return fetchWithCache('SUPABASE_DIM_REGIAO_CANONICAL', async () => {
+    const deParaMap = new Map();
+    const regioesPorAgro = new Map();
+    const todasSet = new Set();
+
+    try {
+      const { data, error } = await supabase
+        .from('sq_dim_regiao')
+        .select('nome_regiao, nome_regiao_formatada, agroindustria, uf, status')
+        .eq('status', 'Ativo');
+
+      if (!error && data) {
+        data.forEach(r => {
+          const raw = String(r.nome_regiao || '').trim();
+          const formatada = String(r.nome_regiao_formatada || raw).trim();
+          const agro = String(r.agroindustria || '').trim();
+
+          if (formatada) {
+            todasSet.add(formatada);
+            if (agro) {
+              if (!regioesPorAgro.has(agro)) regioesPorAgro.set(agro, new Set());
+              regioesPorAgro.get(agro).add(formatada);
+
+              // Chave composta com maior prioridade: agro|regiao
+              deParaMap.set(`${agro.toUpperCase()}|${raw.toUpperCase()}`, formatada);
+            }
+            // Chave simples para fallback se agroindústria não bater
+            if (!deParaMap.has(raw.toUpperCase())) {
+              deParaMap.set(raw.toUpperCase(), formatada);
+            }
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('⚠️ Erro ao consultar sq_dim_regiao no Supabase:', e.message);
+    }
+
+    return {
+      deParaMap,
+      regioesPorAgro,
+      todasRegioesFormatadas: Array.from(todasSet).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    };
+  }, 10 * 60 * 1000);
+}
 
 async function getRegiaoMap(supabase, fetchAll) {
   return fetchWithCache('GLOBAL_REGIAO_MAP', async () => {
@@ -235,24 +288,37 @@ async function getProdutoresAtivos(supabase, fetchAll, refMonth = null, maxAllow
           return q.order('mes_referencia', { ascending: false }).order('codigo_produtor', { ascending: true });
         });
         if (rows && rows.length > 0) {
-          return rows.map(r => {
-            const rawGrupo = r.nome_grupo_ponto_atendimento || r.grupo_ponto_atendimento || '';
-            const cleanProj = r.projeto || extractCleanProject(rawGrupo, r.tipo_ponto_atendimento);
-            const consultores = sanitizeConsultorList(rawGrupo);
-            const consultor = consultores.length > 0 ? consultores.join(' / ') : rawGrupo.replace(/\s*\([^)]+\)\s*$/, '').trim();
-            return {
-              codigo_lr: r.codigo_produtor,
-              nome_produtor: r.nome_produtor,
-              nome_propriedade: r.nome_propriedade,
-              nome_consultor: consultor,
-              projeto: cleanProj || null,
-              agroindustria: r.agroindustria || null,
-              regiao: r.regiao || null,
-              unidade_atendimento: r.unidade_atendimento,
-              data_referencia: r.mes_referencia,
-              status: r.status
-            };
-          });
+          return rows
+            .filter(r => {
+              const cod = String(r.codigo_produtor || '').toUpperCase();
+              if (cod.includes('_CONSULTOR') || cod.includes('CONSULTOR_')) return false;
+              const rawGrupo = (r.nome_grupo_ponto_atendimento || r.grupo_ponto_atendimento || '').toUpperCase();
+              if (rawGrupo.includes('SUPERVISAO') || rawGrupo.includes('SUPERVISÃO') || rawGrupo.includes('AGRICULTURA')) {
+                // se o grupo é supervisão/agricultura e o produtor é conta de consultor, descarta
+                if (!cod.startsWith('LR')) return false;
+              }
+              return true;
+            })
+            .map(r => {
+              const rawGrupo = r.nome_grupo_ponto_atendimento || r.grupo_ponto_atendimento || '';
+              const cleanProj = r.projeto || extractCleanProject(rawGrupo, r.tipo_ponto_atendimento);
+              const consultores = sanitizeConsultorList(rawGrupo);
+              const consultor = consultores.length > 0
+                ? consultores.join(' / ')
+                : (isNonFieldConsultant(rawGrupo) ? 'NÃO ATRIBUÍDO' : rawGrupo.replace(/\s*\([^)]+\)\s*$/, '').trim());
+              return {
+                codigo_lr: r.codigo_produtor,
+                nome_produtor: r.nome_produtor,
+                nome_propriedade: r.nome_propriedade,
+                nome_consultor: consultor,
+                projeto: cleanProj || null,
+                agroindustria: r.agroindustria || null,
+                regiao: r.regiao || null,
+                unidade_atendimento: r.unidade_atendimento,
+                data_referencia: r.mes_referencia,
+                status: r.status
+              };
+            });
         }
       } catch (e) {
         // ignora e tenta próxima fonte
@@ -270,22 +336,30 @@ async function getProdutoresAtivos(supabase, fetchAll, refMonth = null, maxAllow
         return q.order('codigo_produtor', { ascending: true });
       });
       if (rows && rows.length > 0) {
-        return rows.map(r => {
-          const rawGrupo = r.grupo_ponto_atendimento || '';
-          const cleanProj = r.projeto || extractCleanProject(rawGrupo, r.tipo_ponto_atendimento);
-          const consultores = sanitizeConsultorList(rawGrupo);
-          const consultor = consultores.length > 0 ? consultores.join(' / ') : rawGrupo.replace(/\s*\([^)]+\)\s*$/, '').trim();
-          return {
-            codigo_lr: r.codigo_produtor,
-            nome_produtor: r.nome_produtor,
-            nome_propriedade: r.nome_propriedade,
-            nome_consultor: consultor,
-            projeto: cleanProj || null,
-            unidade_atendimento: r.unidade_atendimento,
-            data_referencia: refMonth,
-            status: r.status
-          };
-        });
+        return rows
+          .filter(r => {
+            const cod = String(r.codigo_produtor || '').toUpperCase();
+            if (cod.includes('_CONSULTOR') || cod.includes('CONSULTOR_')) return false;
+            return true;
+          })
+          .map(r => {
+            const rawGrupo = r.grupo_ponto_atendimento || '';
+            const cleanProj = r.projeto || extractCleanProject(rawGrupo, r.tipo_ponto_atendimento);
+            const consultores = sanitizeConsultorList(rawGrupo);
+            const consultor = consultores.length > 0
+              ? consultores.join(' / ')
+              : (isNonFieldConsultant(rawGrupo) ? 'NÃO ATRIBUÍDO' : rawGrupo.replace(/\s*\([^)]+\)\s*$/, '').trim());
+            return {
+              codigo_lr: r.codigo_produtor,
+              nome_produtor: r.nome_produtor,
+              nome_propriedade: r.nome_propriedade,
+              nome_consultor: consultor,
+              projeto: cleanProj || null,
+              unidade_atendimento: r.unidade_atendimento,
+              data_referencia: refMonth,
+              status: r.status
+            };
+          });
       }
     } catch (e) {
       // ignora e tenta fallback
@@ -300,20 +374,37 @@ async function getProdutoresAtivos(supabase, fetchAll, refMonth = null, maxAllow
         if (refMonth) q = q.lte('data_associacao', refMonth);
         return q.order('data_associacao', { ascending: false });
       });
-      return (rows || []).map(r => ({
-        codigo_lr: r.codigo_lr,
-        nome_produtor: r.nome_produtor,
-        nome_propriedade: r.nome_propriedade,
-        nome_consultor: r.consultor_grupo_atendimento || r.grupo_atendimento,
-        projeto: r.projeto,
-        unidade_atendimento: r.unidade_atendimento,
-        data_referencia: refMonth || (r.data_associacao ? r.data_associacao.slice(0, 7) + '-01' : null),
-        status: r.vinculo_ativo ? 'ATIVO' : 'INATIVO'
-      }));
+      return (rows || [])
+        .filter(r => {
+          const cod = String(r.codigo_lr || '').toUpperCase();
+          if (cod.includes('_CONSULTOR') || cod.includes('CONSULTOR_')) return false;
+          const cons = String(r.consultor_grupo_atendimento || r.grupo_atendimento || '').toUpperCase();
+          if (cons.includes('SUPERVISAO') || cons.includes('SUPERVISÃO') || cons.includes('AGRICULTURA')) {
+            if (!cod.startsWith('LR')) return false;
+          }
+          return true;
+        })
+        .map(r => {
+          const rawGrupo = r.consultor_grupo_atendimento || r.grupo_atendimento || '';
+          const consultores = sanitizeConsultorList(rawGrupo);
+          const consultor = consultores.length > 0
+            ? consultores.join(' / ')
+            : (isNonFieldConsultant(rawGrupo) ? 'NÃO ATRIBUÍDO' : rawGrupo);
+          return {
+            codigo_lr: r.codigo_lr,
+            nome_produtor: r.nome_produtor,
+            nome_propriedade: r.nome_propriedade,
+            nome_consultor: consultor,
+            projeto: r.projeto,
+            unidade_atendimento: r.unidade_atendimento,
+            data_referencia: refMonth || (r.data_associacao ? r.data_associacao.slice(0, 7) + '-01' : null),
+            status: r.vinculo_ativo ? 'ATIVO' : 'INATIVO'
+          };
+        });
     } catch (e) {
       return [];
     }
   }, 5 * 60 * 1000);
 }
 
-module.exports = { getRegiaoMap, sanitizeRegiao, fixMojibake, getProdutoresAtivos };
+module.exports = { getRegiaoMap, getDimRegioesMap, sanitizeRegiao, fixMojibake, getProdutoresAtivos };

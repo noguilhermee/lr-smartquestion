@@ -1,10 +1,10 @@
 {
-  "timestamp_inspecao": "2026-09-02T09:07:35.992230-03:00",
-  "timestamp_etl": "2026-09-02T09:07:35.992230-03:00",
-  "ultima_execucao_etl_formatada": "02/09/2026 às 09:07:35",
-  "ultima_leitura_planilhas_formatada": "02/09/2026 às 09:07:35",
-  "arquivo_mais_recente_nome": "260902_LISTA_INATIVACAO.xlsx",
-  "arquivo_mais_recente_data": "02/09/2026 às 04:01",
+  "timestamp_inspecao": "2026-09-02T10:42:34.154465-03:00",
+  "timestamp_etl": "2026-09-02T10:42:34.154465-03:00",
+  "ultima_execucao_etl_formatada": "02/09/2026 às 10:42:34",
+  "ultima_leitura_planilhas_formatada": "02/09/2026 às 10:42:34",
+  "arquivo_mais_recente_nome": "BD_BI_VINCULOS_COMPLETO.xlsx",
+  "arquivo_mais_recente_data": "02/09/2026 às 10:37",
   "total_arquivos": 11,
   "diretorio_origem": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION",
   "consistencia_mensal": {
@@ -51,11 +51,11 @@
       "categoria": "Vínculos e Grupos",
       "icone": "link",
       "descricao": "Relação de fazendas, grupos de atendimento e vínculos técnicos",
-      "data_modificacao": "2026-09-02 02:01:59",
-      "data_modificacao_formatada": "02/09/2026 às 02:01",
-      "tamanho_bytes": 670297,
-      "tamanho_formatado": "654.6 KB",
-      "total_registros": 6215,
+      "data_modificacao": "2026-09-02 10:37:45",
+      "data_modificacao_formatada": "02/09/2026 às 10:37",
+      "tamanho_bytes": 616909,
+      "tamanho_formatado": "602.5 KB",
+      "total_registros": null,
       "caminho": "C:\\Users\\Guilherme\\LABOR RURAL\\Analytics - Departamento Analytics\\POWER_BI\\PROJETOS\\BI_LABOR_RURAL\\BD_SMARTQUESTION\\BD_BI_VINCULOS_COMPLETO.xlsx"
     },
     {

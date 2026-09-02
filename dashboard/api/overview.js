@@ -2,6 +2,7 @@ const { createClient } = require('@supabase/supabase-js');
 const {
   fetchWithCache,
   sanitizeConsultorList,
+  isNonFieldConsultant,
   isTestData,
   ehCadeiaLeite,
   isValidoLeite,
@@ -80,13 +81,17 @@ module.exports = async (req, res) => {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const supabase = getSupabaseClient();
-    const { getRegiaoMap, sanitizeRegiao, getProdutoresAtivos } = require('./azurePostgres');
+    const { getRegiaoMap, getDimRegioesMap, sanitizeRegiao, getProdutoresAtivos } = require('./azurePostgres');
 
     // 1. Metadados e Tabelas Dimensão com Cache
-    const [agrosDB, consultoresDB, regiaoMap] = await Promise.all([
-      fetchWithCache('DIM_AGROINDUSTRIA', async () => {
+    const [agrosDB, consultoresDB, regiaoMap, dimRegioesData] = await Promise.all([
+      fetchWithCache('DIM_AGROINDUSTRIA_CANONICAL', async () => {
         try {
-          const { data } = await supabase.from('sq_dim_agroindustria').select('nome_agroindustria, nomeAgroindustria');
+          const { data } = await supabase
+            .from('sq_dim_agroindustria')
+            .select('nome_agroindustria')
+            .eq('status', 'Ativo')
+            .eq('excluido', 0);
           return data || [];
         } catch (_) {
           return [];
@@ -95,10 +100,11 @@ module.exports = async (req, res) => {
       fetchWithCache('DIM_CONSULTOR', () =>
         fetchAll(() => supabase.from('sq_dim_consultor').select('nome_consultor, formacao_consultor, nomeConsultor, formacaoConsultor')).catch(() => [])
       ),
-      getRegiaoMap(supabase, fetchAll).catch(() => new Map())
+      getRegiaoMap(supabase, fetchAll).catch(() => new Map()),
+      getDimRegioesMap(supabase).catch(() => ({ deParaMap: new Map(), regioesPorAgro: new Map(), todasRegioesFormatadas: [] }))
     ]);
 
-    const agroindustriasOficiais = (agrosDB || []).map(a => a.nome_agroindustria || a.nomeAgroindustria).filter(Boolean);
+    const agroindustriasOficiais = (agrosDB || []).map(a => a.nome_agroindustria).filter(Boolean).filter(ehCadeiaLeite);
 
     const profissaoMap = new Map();
     (consultoresDB || []).forEach(c => {
@@ -109,15 +115,30 @@ module.exports = async (req, res) => {
       }
     });
 
-    function getRegiao(codigoLr, fallback, projeto = null) {
-      let reg = null;
+    function getRegiao(codigoLr, fallback, agroindustria = null, projeto = null) {
+      const agro = agroindustria || mapAgroindustria(projeto);
+      let rawReg = null;
       if (codigoLr && regiaoMap.has(String(codigoLr).trim())) {
-        reg = regiaoMap.get(String(codigoLr).trim());
+        rawReg = regiaoMap.get(String(codigoLr).trim());
       } else if (fallback) {
-        reg = fallback;
+        rawReg = fallback;
       }
-      if (reg) {
-        const clean = sanitizeRegiao(reg, projeto);
+
+      if (rawReg) {
+        const rawTrim = String(rawReg).trim();
+        // 1. Prioridade absoluta: de-para oficial de sq_dim_regiao combinando com agroindústria
+        if (agro) {
+          const agroKey = `${agro.toUpperCase()}|${rawTrim.toUpperCase()}`;
+          if (dimRegioesData.deParaMap && dimRegioesData.deParaMap.has(agroKey)) {
+            return dimRegioesData.deParaMap.get(agroKey);
+          }
+        }
+        // 2. Chave simples de sq_dim_regiao
+        if (dimRegioesData.deParaMap && dimRegioesData.deParaMap.has(rawTrim.toUpperCase())) {
+          return dimRegioesData.deParaMap.get(rawTrim.toUpperCase());
+        }
+        // 3. Sanitização padrão de fallback
+        const clean = sanitizeRegiao(rawReg, projeto);
         if (clean) return clean;
       }
       return 'NÃO INFORMADA';
@@ -140,8 +161,8 @@ module.exports = async (req, res) => {
       getProdutoresAtivos(supabase, fetchAll, visitasMonth, maxAllowedMonth),
       getProdutoresAtivos(supabase, fetchAll, consistencyMonth, maxAllowedMonth)
     ]);
-    const produtoresList = (produtoresListRaw || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto));
-    const produtoresConsistencia = (produtoresConsistenciaRaw || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto));
+    const produtoresList = (produtoresListRaw || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto, p.codigo_lr, p.tipo_ponto_atendimento));
+    const produtoresConsistencia = (produtoresConsistenciaRaw || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto, p.codigo_lr, p.tipo_ponto_atendimento));
 
     // 4. Consultar visitas do mês selecionado com Cache
     const visitasListRaw = await fetchWithCache(`FATO_VISITAS_${visitasMonth || 'ALL'}`, async () => {
@@ -160,7 +181,7 @@ module.exports = async (req, res) => {
       }
     });
 
-    let visitasList = (visitasListRaw || []).filter(v => isValidoLeite(v.nome_consultor, v.projeto));
+    let visitasList = (visitasListRaw || []).filter(v => isValidoLeite(v.nome_consultor, v.projeto, v.codigo_lr));
 
     if (visitasList.length === 0 && visitasMonth) {
       const [anoRef, mesRef] = visitasMonth.split('-');
@@ -181,7 +202,7 @@ module.exports = async (req, res) => {
           nome_propriedade: 'PROPRIEDADE',
           projeto: 'Leite',
           mes_referencia: visitasMonth
-        })).filter(v => isValidoLeite(v.nome_consultor, v.projeto));
+        })).filter(v => isValidoLeite(v.nome_consultor, v.projeto, v.codigo_lr));
       }
     }
 
@@ -203,8 +224,8 @@ module.exports = async (req, res) => {
       )
     ]);
 
-    const visitasHistoricas = (visitasHistoricasRaw || []).filter(v => isValidoLeite(v.nome_consultor, v.projeto));
-    const produtoresHistoricos = (produtoresHistoricosRaw || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto));
+    const visitasHistoricas = (visitasHistoricasRaw || []).filter(v => isValidoLeite(v.nome_consultor, v.projeto, v.codigo_lr));
+    const produtoresHistoricos = (produtoresHistoricosRaw || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto, p.codigo_lr, p.tipo_ponto_atendimento));
 
     // Filtros selecionados no frontend
     const filters = {
@@ -217,9 +238,17 @@ module.exports = async (req, res) => {
     };
 
     function rowMatches(row) {
+      const codUpper = String(row.codigo_lr || row.codigo_produtor || '').toUpperCase();
+      if (codUpper.includes('_CONSULTOR') || codUpper.includes('CONSULTOR_')) return false;
+      const consUpper = String(row.nome_consultor || row.consultor || row.grupo_ponto_atendimento || '').toUpperCase();
+      if (consUpper.includes('SUPERVISAO') || consUpper.includes('SUPERVISÃO') || consUpper.includes('AGRICULTURA')) {
+        if (!codUpper.startsWith('LR')) return false;
+      }
+      if (isNonFieldConsultant(row.nome_consultor || row.consultor)) return false;
       if (!ehCadeiaLeite(row.projeto || row.agroindustria)) return false;
-      if (filters.industry && mapAgroindustria(row.projeto || row.agroindustria) !== filters.industry) return false;
-      if (filters.region && getRegiao(row.codigo_lr, row.unidade_atendimento || row.regiao) !== filters.region) return false;
+      const rowAgro = row.agroindustria || mapAgroindustria(row.projeto);
+      if (filters.industry && rowAgro !== filters.industry) return false;
+      if (filters.region && getRegiao(row.codigo_lr, row.unidade_atendimento || row.regiao, rowAgro, row.projeto) !== filters.region) return false;
       if (filters.project && String(row.projeto || '') !== filters.project) return false;
       if (filters.consultant) {
         const consultorNames = sanitizeConsultorList(row.nome_consultor || row.consultor || row.grupo_ponto_atendimento);
@@ -443,7 +472,7 @@ module.exports = async (req, res) => {
     // Tabela: Produtores sem visita — expande somente consultores válidos de campo
     const semVisita = expandRows(
       produtoresFiltrados.filter(p => !codigosVisitados.has(p.codigo_lr))
-    ).filter(p => p.nome_consultor && p.nome_consultor !== 'NÃO ATRIBUÍDO')
+    ).filter(p => p.nome_consultor && p.nome_consultor !== 'NÃO ATRIBUÍDO' && !isNonFieldConsultant(p.nome_consultor))
      .map(p => {
         let diasSemVisita = null;
         const codNorm = String(p.codigo_lr || '').trim().toUpperCase();
@@ -472,13 +501,14 @@ module.exports = async (req, res) => {
           ? formatDate(dataUltimaVisita.toISOString().slice(0, 10))
           : '—';
 
+        const agro = mapAgroindustria(p.projeto);
         return {
           consultor: p.nome_consultor || 'NÃO ATRIBUÍDO',
           codigo_lr: p.codigo_lr || '-',
           produtor: p.nome_produtor || 'PRODUTOR SEM NOME',
           propriedade: p.nome_propriedade || '-',
-          agroindustria: mapAgroindustria(p.projeto),
-          regiao: getRegiao(p.codigo_lr, p.unidade_atendimento, p.projeto),
+          agroindustria: agro,
+          regiao: getRegiao(p.codigo_lr, p.regiao || p.unidade_atendimento, agro, p.projeto),
           projeto: p.projeto || 'NÃO INFORMADO',
           status: 'ATIVO',
           mes_referencia: visitasMonth,
@@ -507,13 +537,14 @@ module.exports = async (req, res) => {
         const monthKey = String(v.mes_referencia || refMonth || '').slice(0, 7);
         const elaboreObj = elaboreMensalMap.get(`${codLrNorm}_${monthKey}`);
         const hasElabore = elaboreObj ? Boolean(elaboreObj.mes_elabore) : elaboreSet.has(codLrNorm);
+        const agro = mapAgroindustria(v.projeto || produtorAtivo?.projeto);
 
         return ({
           consultor: v.nome_consultor || 'CONSULTOR',
           codigo_lr: v.codigo_lr || '-',
           produtor: v.nome_produtor || 'PRODUTOR',
-          agroindustria: mapAgroindustria(v.projeto || produtorAtivo?.projeto),
-          regiao: getRegiao(v.codigo_lr, produtorAtivo?.unidade_atendimento, v.projeto || produtorAtivo?.projeto),
+          agroindustria: agro,
+          regiao: getRegiao(v.codigo_lr, produtorAtivo?.regiao || produtorAtivo?.unidade_atendimento, agro, v.projeto || produtorAtivo?.projeto),
           projeto: v.projeto || produtorAtivo?.projeto || 'NÃO INFORMADO',
           status: 'ATIVO',
           mes_referencia: v.mes_referencia || refMonth,
@@ -571,24 +602,29 @@ module.exports = async (req, res) => {
         values: ranking.map(item => item[1])
       },
       filterOptions: {
-        agroindustrias: [...new Set([...agroindustriasOficiais, ...produtoresList.map(p => mapAgroindustria(p.projeto))])].filter(Boolean).filter(ehCadeiaLeite).sort(),
-        regioes: [...new Set([...Array.from(regiaoMap.values()), ...produtoresList.map(p => getRegiao(p.codigo_lr, p.unidade_atendimento))])].filter(Boolean).sort(),
+        agroindustrias: agroindustriasOficiais.sort((a, b) => a.localeCompare(b, 'pt-BR')),
+        regioes: (dimRegioesData.todasRegioesFormatadas && dimRegioesData.todasRegioesFormatadas.length > 0)
+          ? dimRegioesData.todasRegioesFormatadas
+          : [...new Set(produtoresList.map(p => getRegiao(p.codigo_lr, p.unidade_atendimento, p.agroindustria, p.projeto)))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'pt-BR')),
         projetos: [...new Set([...produtoresList.map(p => p.projeto), ...visitasList.map(v => v.projeto)])].filter(Boolean).filter(ehCadeiaLeite).sort(),
         consultores: [...new Set(produtoresList.flatMap(p => sanitizeConsultorList(p.nome_consultor)))].filter(Boolean).sort(),
         status: ['ATIVO', 'INATIVO'],
         meses: todosMesesDisponiveis
       },
-      dim_fazendas: (produtoresList || []).map(p => ({
-        codigo_lr: p.codigo_lr,
-        produtor: p.nome_produtor,
-        propriedade: p.nome_propriedade,
-        consultor: p.nome_consultor,
-        projeto: p.projeto,
-        agroindustria: p.agroindustria || mapAgroindustria(p.projeto),
-        regiao: p.regiao || getRegiao(p.codigo_lr, p.unidade_atendimento, p.projeto),
-        mes_referencia: p.data_referencia,
-        status: p.status || 'ATIVO'
-      })),
+      dim_fazendas: (produtoresList || []).map(p => {
+        const agro = p.agroindustria || mapAgroindustria(p.projeto);
+        return {
+          codigo_lr: p.codigo_lr,
+          produtor: p.nome_produtor,
+          propriedade: p.nome_propriedade,
+          consultor: p.nome_consultor,
+          projeto: p.projeto,
+          agroindustria: agro,
+          regiao: getRegiao(p.codigo_lr, p.regiao || p.unidade_atendimento, agro, p.projeto),
+          mes_referencia: p.data_referencia,
+          status: p.status || 'ATIVO'
+        };
+      }),
       tabelas: {
         movimentacao: listaMovimentacao,
         sem_visita: semVisita,

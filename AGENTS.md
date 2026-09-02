@@ -176,4 +176,14 @@ CAMINHO_ARQUIVO = PASTA_SAIDA / f"{DATA_EXPORTACAO}_nome_do_arquivo.ext"
     - `*_raw_*`: Ingestão bruta de relatórios e planilhas operacionais (ex: `sq_raw_visitas`, `sq_raw_vinculos`, `sq_raw_consistencia_mensal`).
   - **Colunas**: Sempre em `snake_case` minúsculo com timestamps `data_processamento` e chaves `id_composto`.
 
+---
+
+## 🛑 12. Execução de Scripts do Projeto (Solicitação Obrigatória ao Usuário)
+- **Regra Absoluta**: O assistente de IA **NUNCA deve executar scripts do projeto de forma autônoma no terminal** (sejam rotinas de pipeline, scripts de carga, reconciliação, migração ou execução de notebooks).
+- **Procedimento Obrigatório**:
+  1. Preparar e editar os códigos necessários no repositório.
+  2. Apresentar o comando exato de execução em bloco de código formatado para o usuário (ex: `python scripts/...` ou `python scripts/executar_pipeline.py`).
+  3. Descrever claramente o objetivo do script e os impactos esperados.
+  4. **Pedir formalmente que o próprio usuário execute o comando em seu terminal**, aguardando o retorno ou logs fornecidos por ele.
+
 
