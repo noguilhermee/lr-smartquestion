@@ -99,14 +99,21 @@ def executar_reconciliacao():
     
     if arquivo_status_consultores.exists():
         try:
-            df_status = pd.read_excel(arquivo_status_consultores)
+            df_status_raw = pd.read_excel(arquivo_status_consultores, header=None)
+            h_idx = 0
+            for r in range(min(10, len(df_status_raw))):
+                vals = [str(x).strip().lower() for x in df_status_raw.iloc[r].dropna().tolist()]
+                if "nome" in vals and "ativo" in vals:
+                    h_idx = r
+                    break
+            df_status = pd.read_excel(arquivo_status_consultores, header=h_idx)
             if "ultimaAtualizacao" in df_status.columns and "Nome" in df_status.columns:
                 df_status_sorted = df_status.sort_values(
                     by="ultimaAtualizacao", ascending=False
                 ).drop_duplicates(subset=["Nome"], keep="first")
                 
                 consultores_inativos = set(
-                    df_status_sorted[df_status_sorted["Ativo"] == "Não"]["Nome"]
+                    df_status_sorted[df_status_sorted["Ativo"].astype(str).str.strip().str.lower().isin(["não", "nao", "false", "0"])]["Nome"]
                     .astype(str)
                     .str.strip()
                     .str.upper()
@@ -686,8 +693,8 @@ def executar_reconciliacao():
     print(f"   -> {len(df_ativas_todas)} fazendas ATIVAS identificadas (todas as cadeias).")
     print(f"   -> {len(df_leite_todos)} fazendas de LEITE identificadas.")
 
-    # ─── 6.1 Enviar Espelho Completo para sq_raw_fazendas ───────────────────
-    print(f"\n📤 6.1 Gravando espelho completo em {tabela_raw}...")
+    # ─── 6.1 Enviar Espelho Completo para sq_raw_fazendas_grupo ────────────
+    print(f"\n📤 6.1 Gravando espelho completo da LISTA_GERAL em {tabela_raw}...")
     try:
         # Expurgar snapshots de meses antigos para manter o espelho estritamente com os registros atuais
         supabase.table(tabela_raw).delete().neq("mes_referencia", mes_ref_str).execute()
@@ -697,22 +704,31 @@ def executar_reconciliacao():
     recs_todos = df_todos.to_dict(orient="records")
     LOTE = 500
     sucesso_raw = 0
+    tabela_destino_raw = tabela_raw
+    # Testar se tabela_destino_raw está disponível no cache
+    try:
+        supabase.table(tabela_destino_raw).select("id").limit(1).execute()
+    except Exception:
+        if tabela_destino_raw != "sq_raw_fazendas":
+            print(f"   ℹ️ {tabela_destino_raw} não disponível no schema cache. Tentando sq_raw_fazendas...")
+            tabela_destino_raw = "sq_raw_fazendas"
+
     for i in range(0, len(recs_todos), LOTE):
         lote = recs_todos[i : i + LOTE]
         try:
-            supabase.table(tabela_raw).upsert(lote, on_conflict="id").execute()
+            supabase.table(tabela_destino_raw).upsert(lote, on_conflict="id").execute()
             sucesso_raw += len(lote)
         except Exception as e_raw:
             try:
-                supabase.table(tabela_raw).upsert(lote).execute()
+                supabase.table(tabela_destino_raw).upsert(lote).execute()
                 sucesso_raw += len(lote)
             except Exception:
                 pass
         time.sleep(0.05)
-    print(f"   ✅ {sucesso_raw} registros gravados em {tabela_raw}.")
+    print(f"   ✅ {sucesso_raw} registros gravados em {tabela_destino_raw}.")
 
-    # Tenta também sq_raw_fazendas_grupo se configurada / existente
-    if tabela_grupo_raw != tabela_raw:
+    # Tenta também sq_raw_fazendas_grupo se configurada com nome distinto e disponível
+    if tabela_grupo_raw != tabela_destino_raw:
         try:
             for i in range(0, len(recs_todos), LOTE):
                 supabase.table(tabela_grupo_raw).upsert(recs_todos[i : i + LOTE], on_conflict="id").execute()
@@ -721,7 +737,7 @@ def executar_reconciliacao():
             pass
 
     # ─── 6.2 Enviar Ativas de Todas as Cadeias para sq_raw_fazendas_grupo_ativas ─
-    print(f"\n📤 6.2 Gravando fazendas ativas (todas as cadeias) em {tabela_grupo_ativas_raw}...")
+    print(f"\n📤 6.2 Gravando fazendas ativas (todas as cadeias) da LISTA_GERAL em {tabela_grupo_ativas_raw}...")
     recs_ativas = df_ativas_todas.to_dict(orient="records")
     sucesso_ativas_raw = 0
     try:
@@ -734,75 +750,135 @@ def executar_reconciliacao():
     except Exception as e_agr:
         print(f"   ℹ️ Tabela {tabela_grupo_ativas_raw} não disponível no schema cache: {e_agr}")
 
-    # ─── 6.3 Reconstrução Histórica Mensal de LEITE em sq_dim_fazendas_ativas ────
+    # ─── 6.3 Reconstrução Histórica Mensal de FAZENDAS ATIVAS em sq_dim_fazendas_ativas ────
+    # NOVA REGRA: A dimensão sq_dim_fazendas_ativas é gerada COM BASE NOS VÍNCULOS (sq_raw_vinculos)
+    # abrangendo TODAS AS CADEIAS PRODUTIVAS (Leite, Cacau, Café, Grãos, etc.), permitindo que o
+    # dashboard filtre a cadeia desejada.
+    # Cruza com:
+    # 1) Inativações de produtores (sq_raw_inativacoes_produtor)
+    # 2) Status dos consultores (BD_STATUS_USUARIO_SQ.xlsx)
+    # 3) Flag vinculo_ativo dos vínculos
+    # 4) Novos cadastros do ano corrente
+
     inicio_2026 = pd.Timestamp("2026-01-01")
     meses_reconciliacao = [m.strftime("%Y-%m-01") for m in pd.date_range(start=inicio_2026, end=pd.to_datetime(proximo_mes_str), freq="MS")]
 
-    print(f"\n📊 6.3 Reconstruindo histórico de LEITE ativo mês a mês em {tabela_ativos} ({meses_reconciliacao[0]} a {meses_reconciliacao[-1]})...")
+    print(f"\n📊 6.3 Reconstruindo histórico de FAZENDAS ATIVAS (todas as cadeias) mês a mês em {tabela_ativos} a partir de sq_raw_vinculos ({meses_reconciliacao[0]} a {meses_reconciliacao[-1]})...")
 
-    # Limpar registros do período de 2026 para recarregar a dim 100% consistente e com as novas colunas
+    # Limpar registros do período de 2026 para recarregar a dim 100% consistente e sem dependência da LISTA_GERAL
     try:
         supabase.table(tabela_ativos).delete().gte("mes_referencia", "2026-01-01").execute()
-    except Exception:
-        pass
+    except Exception as e_del:
+        print(f"   ℹ️ Aviso ao limpar {tabela_ativos}: {e_del}")
+
+    # Buscar base completa de vínculos no Supabase para isolar da LISTA_GERAL
+    res_vinculos_dim = supabase.table("sq_raw_vinculos").select(
+        "codigo_lr, consultor_grupo_atendimento, grupo_atendimento, data_associacao, projeto, "
+        "nome_produtor, nome_propriedade, vinculo_ativo, unidade_atendimento, cidade_produtor, "
+        "estado_produtor, codigo_agroindustria, codigo_fazenda, tipo_ponto_atendimento"
+    ).execute()
+    df_vinculos_base = pd.DataFrame(res_vinculos_dim.data) if res_vinculos_dim.data else pd.DataFrame()
+
+    def normalizar_cadeia(tipo_val, proj_val):
+        t = str(tipo_val or "").strip().upper()
+        p = str(proj_val or "").strip().upper()
+        if "LEITE" in t or any(x in p for x in ["REGENERA", "ALVOAR", "SEMEAR", "CCPR", "LPA", "COPRIL", "CAMPILEITE", "DANONE", "CFT"]):
+            return "LEITE"
+        if "CACAU" in t or any(x in p for x in ["CACAU", "OFI", "MIMC", "CARGILL"]):
+            return "CACAU"
+        if "CAFE" in t or "CAFÉ" in t or "CAFE" in p:
+            return "CAFE"
+        if "GRAOS" in t or "GRÃOS" in t or "GRAOS" in p:
+            return "MAIS GRAOS"
+        if t and t not in ["NONE", "NAN", ""]:
+            return t
+        return "OUTROS"
+
+    if not df_vinculos_base.empty:
+        print(f"   -> {len(df_vinculos_base)} vínculos carregados de sq_raw_vinculos ({df_vinculos_base['codigo_lr'].nunique()} produtores únicos em todas as cadeias).")
+    else:
+        print("   ⚠️ Nenhum vínculo encontrado em sq_raw_vinculos.")
 
     for ref_m in meses_reconciliacao:
         novos_ativos_m = []
 
-        for _, r in df_leite_todos.iterrows():
-            c = str(r["codigo_produtor"]).strip()
-            nome_p = str(r["nome_produtor"]).strip()
+        for _, r in df_vinculos_base.iterrows():
+            c = str(r.get("codigo_lr") or "").strip()
+            nome_p = str(r.get("nome_produtor") or "").strip()
+
+            if not c or c.lower() == "nan":
+                continue
 
             # 0. Se possui flag _INATIVO no código ou nome, NUNCA entra na dim de ativos
             if ("_INATIVO" in c.upper()) or ("(INATIVO)" in nome_p.upper()) or ("_INATIVO" in nome_p.upper()):
                 continue
 
-            # 0.1 Se não possui projeto definido (projeto é None / NULL), NÃO sobe para a dimensão
-            proj_val = r.get("projeto")
-            if not proj_val or str(proj_val).strip().lower() in ["none", "nan", ""]:
+            # 0.1 Se o grupo contém CFT (modalidade operacional, não deve subir para a dimensão analítica), NÃO sobe.
+            grupo_val = str(r.get("grupo_atendimento") or "")
+            proj_val = str(r.get("projeto") or "")
+            if "CFT" in grupo_val.upper() or "CFT" in proj_val.upper():
                 continue
 
-            is_ativo_planilha = (r["status"] == "Ativo")
-
-            # 1. Se o produtor está inativo hoje na planilha E não tem data de inativação:
-            #    ele já era inativo antes de 2026 (não entra)
-            if not is_ativo_planilha and c not in inativacoes_por_codigo:
+            # 0.2 Status do Consultor: Se o consultor responsável pelo atendimento estiver inativo em BD_STATUS_USUARIO_SQ, desconsidera
+            cons_resp = extrair_consultor_individual(r.get("consultor_grupo_atendimento"), r.get("grupo_atendimento"))
+            if cons_resp in consultores_inativos:
                 continue
 
-            # 2. Se o produtor foi inativado em data <= ref_m:
-            #    no mês ref_m ele já estava inativo
+            # 1. Se o vínculo está inativo na base de vínculos e não temos cadastro recente posterior:
+            v_ativo = r.get("vinculo_ativo")
+            dt_assoc = r.get("data_associacao")
+            dt_assoc_p = pd.to_datetime(dt_assoc, errors="coerce")
+            
+            # Se a data de associação do vínculo for posterior ao mês de referência avaliado, ele ainda não existia
+            if pd.notna(dt_assoc_p) and dt_assoc_p.strftime("%Y-%m-01") > ref_m:
+                continue
+
+            # 2. Se o produtor foi inativado em data <= ref_m: no mês ref_m ele já estava inativo
             if c in inativacoes_por_codigo and inativacoes_por_codigo[c] <= ref_m:
                 continue
 
-            # 3. Se o produtor foi cadastrado em data > ref_m:
-            #    no mês ref_m ele ainda não havia entrado
+            # 3. Se vinculo_ativo é False e o produtor já estava inativo na data de corte
+            if v_ativo is False and c in inativacoes_por_codigo:
+                continue
+
+            # 4. Se o produtor foi cadastrado como novo em 2026 em data > ref_m: ainda não havia entrado
             if c in cadastros_por_codigo and cadastros_por_codigo[c] > ref_m:
                 continue
+
+            # Tratamentos dimensionais de projeto, cadeia, agroindústria e região
+            proj_final = proj_val.strip().upper() if proj_val else None
+            cadeia_calc = normalizar_cadeia(r.get("tipo_ponto_atendimento"), proj_final)
+            agro_calc = MAP_PROJETO_AGRO.get(proj_final) or (proj_final if proj_final in ["OFI", "PV CARGILL", "NCP", "MIMC", "CAFE & GESTAO"] else None)
+            uf_val = limpar_uf(r.get("estado_produtor"))
+            reg_calc = formatar_regiao(agro_calc, regiao_map.get(c.upper()), uf_val)
+            nome_prop = str(r.get("nome_propriedade") or "FAZENDA").strip()[:250]
+            cid_val = str(r.get("cidade_produtor") or "").strip()[:100] or "NÃO INFORMADA"
+            unid_val = str(r.get("unidade_atendimento") or "LABOR RURAL").strip()[:100]
 
             id_ativo = f"{c}_{ref_m.replace('-', '_')}"
             novos_ativos_m.append({
                 "id": id_ativo,
                 "codigo_produtor": c[:50],
-                "nome_produtor": str(r["nome_produtor"])[:250],
-                "nome_propriedade": str(r["nome_propriedade"])[:250],
-                "estado": r["estado"] or "NÃO INFORMADO",
-                "cidade": r["cidade"] or "NÃO INFORMADA",
-                "tipo_ponto_atendimento": "LEITE",
-                "unidade_atendimento": str(r["unidade_atendimento"])[:100],
-                "grupo_ponto_atendimento": str(r["grupo_ponto_atendimento"])[:250],
-                "nome_grupo_ponto_atendimento": r.get("nome_grupo_ponto_atendimento"),
-                "projeto": r.get("projeto"),
-                "agroindustria": r.get("agroindustria"),
-                "regiao": r.get("regiao"),
-                "codigo_agroindustria": r["codigo_agroindustria"],
-                "codigo_fazenda": r["codigo_fazenda"],
+                "nome_produtor": nome_p[:250] if nome_p else "PRODUTOR",
+                "nome_propriedade": nome_prop,
+                "estado": uf_val or "NÃO INFORMADO",
+                "cidade": cid_val,
+                "tipo_ponto_atendimento": cadeia_calc,
+                "unidade_atendimento": unid_val,
+                "grupo_ponto_atendimento": grupo_val[:250] if grupo_val else cons_resp,
+                "nome_grupo_ponto_atendimento": extrair_nome_grupo_limpo(grupo_val),
+                "projeto": proj_final,
+                "agroindustria": agro_calc,
+                "regiao": reg_calc,
+                "codigo_agroindustria": r.get("codigo_agroindustria"),
+                "codigo_fazenda": r.get("codigo_fazenda"),
                 "status": "Ativo",
                 "mes_referencia": ref_m,
                 "data_processamento": agora_iso
             })
 
         df_novos_ativos = pd.DataFrame(novos_ativos_m).drop_duplicates(subset=["id"])
-        print(f"   Mês {ref_m}: {len(df_novos_ativos)} produtores de LEITE ativos consolidados.")
+        print(f"   Mês {ref_m}: {len(df_novos_ativos)} fazendas ativas (todas as cadeias) consolidadas a partir dos vínculos.")
 
         registros_ativos = df_novos_ativos.to_dict(orient="records")
         sucesso_ativos = 0
@@ -819,7 +895,7 @@ def executar_reconciliacao():
                     print(f"     ❌ Erro ao enviar lote de ativos {i // LOTE + 1}: {e2}")
             time.sleep(0.05)
 
-        print(f"   ✅ {sucesso_ativos} produtores ativos atualizados para {ref_m}.")
+        print(f"   ✅ {sucesso_ativos} produtores ativos atualizados para {ref_m} em {tabela_ativos}.")
 
     print("\n=================================================================")
     print("   RECONCILIAÇÃO CONCLUÍDA COM SUCESSO!                          ")

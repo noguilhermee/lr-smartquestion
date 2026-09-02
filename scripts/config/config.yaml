@@ -34,7 +34,7 @@ supabase:
     consistencia_anual_staging: "sq_raw_consistencia_anual"
     consistencia_fato: "sq_fato_consistencia"
     movimentacao_fato: "sq_fato_movimentacao"
-    fazendas_raw: "sq_raw_fazendas"
+    fazendas_raw: "sq_raw_fazendas_grupo"
     fazendas_grupo_raw: "sq_raw_fazendas_grupo"
     fazendas_grupo_ativas_raw: "sq_raw_fazendas_grupo_ativas"
     fazendas_ativas_dim: "sq_dim_fazendas_ativas"

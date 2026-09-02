@@ -512,6 +512,166 @@ document.addEventListener('DOMContentLoaded', () => {
     tbodyInconsistencies: { colKey: null, dir: 'asc' }
   };
 
+  // Estado de paginação para cada tabela do dashboard
+  const tablePagination = {
+    tableSemVisita: { page: 1, pageSize: 25 },
+    tableVisitados: { page: 1, pageSize: 25 },
+    tableTurnover: { page: 1, pageSize: 25 },
+    tableConsultants: { page: 1, pageSize: 25 },
+    tableDataProducers: { page: 1, pageSize: 25 },
+    tableInconsistencies: { page: 1, pageSize: 25 }
+  };
+
+  function getPaginatedSlice(tableId, rows) {
+    if (!tablePagination[tableId]) {
+      tablePagination[tableId] = { page: 1, pageSize: 25 };
+    }
+    const conf = tablePagination[tableId];
+    const total = rows.length;
+    if (total === 0) {
+      conf.page = 1;
+      return [];
+    }
+
+    if (conf.pageSize === 0) {
+      // 0 = Exibir todos os registros
+      conf.page = 1;
+      return rows;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(total / conf.pageSize));
+    if (conf.page > totalPages) conf.page = totalPages;
+    if (conf.page < 1) conf.page = 1;
+
+    const start = (conf.page - 1) * conf.pageSize;
+    const end = start + conf.pageSize;
+    return rows.slice(start, end);
+  }
+
+  function getPaginationPagesList(currentPage, totalPages) {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const pages = [];
+    if (currentPage <= 4) {
+      for (let i = 1; i <= 5; i++) pages.push(i);
+      pages.push('...');
+      pages.push(totalPages);
+    } else if (currentPage >= totalPages - 3) {
+      pages.push(1);
+      pages.push('...');
+      for (let i = totalPages - 4; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      pages.push('...');
+      pages.push(currentPage - 1);
+      pages.push(currentPage);
+      pages.push(currentPage + 1);
+      pages.push('...');
+      pages.push(totalPages);
+    }
+    return pages;
+  }
+
+  function renderTablePagination(paginationId, tableId, totalRows) {
+    const container = el(paginationId);
+    if (!container) return;
+    if (!tablePagination[tableId]) {
+      tablePagination[tableId] = { page: 1, pageSize: 25 };
+    }
+    const conf = tablePagination[tableId];
+    const pageSize = conf.pageSize;
+
+    if (totalRows === 0) {
+      container.innerHTML = `
+        <div class="pagination-info"><span>0 registros</span></div>
+      `;
+      return;
+    }
+
+    const isAll = pageSize === 0;
+    const totalPages = isAll ? 1 : Math.max(1, Math.ceil(totalRows / pageSize));
+    const currentPage = isAll ? 1 : Math.min(Math.max(1, conf.page), totalPages);
+    conf.page = currentPage;
+
+    const startIdx = isAll ? 0 : (currentPage - 1) * pageSize;
+    const endIdx = isAll ? totalRows : Math.min(startIdx + pageSize, totalRows);
+
+    const rangeText = isAll
+      ? `Exibindo todos os <strong>${totalRows.toLocaleString('pt-BR')}</strong> registros`
+      : `Exibindo <strong>${(startIdx + 1).toLocaleString('pt-BR')}–${endIdx.toLocaleString('pt-BR')}</strong> de <strong>${totalRows.toLocaleString('pt-BR')}</strong> registros`;
+
+    const pageButtons = isAll || totalPages <= 1 ? '' : getPaginationPagesList(currentPage, totalPages).map((p) => {
+      if (p === '...') {
+        return `<span class="pagination-ellipsis">…</span>`;
+      }
+      const isActive = p === currentPage;
+      return `<button type="button" class="pagination-btn ${isActive ? 'active' : ''}" data-table="${escapeHtml(tableId)}" data-page="${p}" ${isActive ? 'aria-current="page"' : ''} title="Página ${p}">${p}</button>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="pagination-info">
+        <span>${rangeText}</span>
+      </div>
+      <div class="pagination-controls">
+        <div class="pagination-size-wrap">
+          <label for="pageSize_${escapeHtml(tableId)}">Exibir:</label>
+          <select id="pageSize_${escapeHtml(tableId)}" class="pagination-size-select" data-table="${escapeHtml(tableId)}" aria-label="Registros por página">
+            <option value="10" ${pageSize === 10 ? 'selected' : ''}>10</option>
+            <option value="25" ${pageSize === 25 ? 'selected' : ''}>25</option>
+            <option value="50" ${pageSize === 50 ? 'selected' : ''}>50</option>
+            <option value="100" ${pageSize === 100 ? 'selected' : ''}>100</option>
+            <option value="0" ${pageSize === 0 ? 'selected' : ''}>Todos</option>
+          </select>
+        </div>
+        ${totalPages > 1 ? `
+        <div class="pagination-nav" aria-label="Navegação de páginas">
+          <button type="button" class="pagination-btn" data-table="${escapeHtml(tableId)}" data-page="1" ${currentPage <= 1 ? 'disabled' : ''} title="Primeira página" aria-label="Primeira página">«</button>
+          <button type="button" class="pagination-btn" data-table="${escapeHtml(tableId)}" data-page="${currentPage - 1}" ${currentPage <= 1 ? 'disabled' : ''} title="Página anterior" aria-label="Página anterior">‹</button>
+          ${pageButtons}
+          <button type="button" class="pagination-btn" data-table="${escapeHtml(tableId)}" data-page="${currentPage + 1}" ${currentPage >= totalPages ? 'disabled' : ''} title="Próxima página" aria-label="Próxima página">›</button>
+          <button type="button" class="pagination-btn" data-table="${escapeHtml(tableId)}" data-page="${totalPages}" ${currentPage >= totalPages ? 'disabled' : ''} title="Última página" aria-label="Última página">»</button>
+        </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  function setupTablePagination() {
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('.pagination-btn[data-page]');
+      if (!btn || btn.disabled) return;
+      const tableId = btn.dataset.table;
+      const targetPage = Number(btn.dataset.page);
+      if (!tableId || Number.isNaN(targetPage)) return;
+
+      if (tablePagination[tableId]) {
+        tablePagination[tableId].page = targetPage;
+        renderTables();
+        const table = el(tableId);
+        const scroll = table?.closest('.table-scroll');
+        if (scroll) scroll.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    });
+
+    document.addEventListener('change', (e) => {
+      const select = e.target.closest('.pagination-size-select');
+      if (!select) return;
+      const tableId = select.dataset.table;
+      const newSize = Number(select.value);
+      if (!tableId || Number.isNaN(newSize)) return;
+
+      if (tablePagination[tableId]) {
+        tablePagination[tableId].pageSize = newSize;
+        tablePagination[tableId].page = 1;
+        renderTables();
+        const table = el(tableId);
+        const scroll = table?.closest('.table-scroll');
+        if (scroll) scroll.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    });
+  }
+
   let loadingTimeout = null;
 
   function showLoading(message = 'Atualizando dashboard com filtros...') {
@@ -575,19 +735,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  const MAX_VISIBLE_ROWS = 100;
-
   function rowsOrEmpty(rows, columns, mapper) {
     if (!rows || !rows.length) {
       return `<tr><td colspan="${columns}" class="empty-cell">Nenhum registro para os filtros selecionados.</td></tr>`;
     }
-    const visibleRows = rows.slice(0, MAX_VISIBLE_ROWS);
-    const htmlRows = visibleRows.map(mapper).join('');
-    if (rows.length > MAX_VISIBLE_ROWS) {
-      const moreMsg = `Exibindo os primeiros ${MAX_VISIBLE_ROWS} de ${rows.length.toLocaleString('pt-BR')} registros (use os filtros acima ou o botão Exportar para a planilha completa).`;
-      return `${htmlRows}<tr class="table-row-more"><td colspan="${columns}" class="empty-cell" style="padding: 7px 10px; font-size: 10.5px; color: var(--muted); font-style: italic; background: var(--surface-soft); border-top: 1px solid var(--line-soft); text-align: center;">${escapeHtml(moreMsg)}</td></tr>`;
-    }
-    return htmlRows;
+    return rows.map(mapper).join('');
   }
 
   function updateCount(id, rows) {
@@ -855,6 +1007,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!tableId || !col) return;
         if (!tableColFilters[tableId]) tableColFilters[tableId] = {};
         tableColFilters[tableId][col] = e.target.value;
+        if (tablePagination[tableId]) tablePagination[tableId].page = 1;
         renderTables();
       });
       input.addEventListener('click', (e) => e.stopPropagation());
@@ -875,7 +1028,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCount('countWithoutVisit', withoutVisit);
     withoutVisit = sortRows(withoutVisit, tableSort.tbodySemVisita, (row, key) => row[key] ?? row.data_associacao ?? row.data_referencia);
     updateTableHeadIcons('tbodySemVisita', tableSort.tbodySemVisita.colKey, tableSort.tbodySemVisita.dir);
-    if (el('tbodySemVisita')) el('tbodySemVisita').innerHTML = rowsOrEmpty(withoutVisit, 7, (row) => {
+    const pWithoutVisit = getPaginatedSlice('tableSemVisita', withoutVisit);
+    if (el('tbodySemVisita')) el('tbodySemVisita').innerHTML = rowsOrEmpty(pWithoutVisit, 7, (row) => {
       const hasDays = row.dias_sem_visita !== null && row.dias_sem_visita !== undefined && row.dias_sem_visita !== '';
       const days = hasDays ? Number(row.dias_sem_visita) : null;
       const isGrave = hasDays && days >= 60;
@@ -893,6 +1047,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const dtUltimaVisita = row.data_ultima_visita || '—';
       return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-center" title="${escapeHtml(dtAssoc)}">${escapeHtml(dtAssoc)}</td><td class="col-center" title="${escapeHtml(dtUltimaVisita)}">${escapeHtml(dtUltimaVisita)}</td><td class="col-center font-tabular">${hasDays ? days : '—'}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(status)}">${escapeHtml(status)}</span></td></tr>`;
     });
+    renderTablePagination('paginationSemVisita', 'tableSemVisita', withoutVisit.length);
 
     // Tabela 2: Visitados
     let visited = (overview.tabelas?.visitados || []).filter((row) => matches(row, filter, true));
@@ -900,7 +1055,9 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCount('countVisited', visited);
     visited = sortRows(visited, tableSort.tbodyVisitados, (row, key) => row[key]);
     updateTableHeadIcons('tbodyVisitados', tableSort.tbodyVisitados.colKey, tableSort.tbodyVisitados.dir);
-    if (el('tbodyVisitados')) el('tbodyVisitados').innerHTML = rowsOrEmpty(visited, 7, (row) => `<tr><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-left" title="${escapeHtml(row.profissao || '—')}">${escapeHtml(row.profissao || '—')}</td><td class="col-center" title="${escapeHtml(row.atendimento || '—')}">${escapeHtml(row.atendimento || '—')}</td><td class="col-center">${escapeHtml(row.data_visita || '—')}</td><td class="col-center"><span class="badge ${row.elabore_ok === false ? 'badge-danger' : 'badge-positive'}">${row.elabore_ok === false ? 'NÃO' : 'SIM'}</span></td></tr>`);
+    const pVisited = getPaginatedSlice('tableVisitados', visited);
+    if (el('tbodyVisitados')) el('tbodyVisitados').innerHTML = rowsOrEmpty(pVisited, 7, (row) => `<tr><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-left" title="${escapeHtml(row.profissao || '—')}">${escapeHtml(row.profissao || '—')}</td><td class="col-center" title="${escapeHtml(row.atendimento || '—')}">${escapeHtml(row.atendimento || '—')}</td><td class="col-center">${escapeHtml(row.data_visita || '—')}</td><td class="col-center"><span class="badge ${row.elabore_ok === false ? 'badge-danger' : 'badge-positive'}">${row.elabore_ok === false ? 'NÃO' : 'SIM'}</span></td></tr>`);
+    renderTablePagination('paginationVisitados', 'tableVisitados', visited.length);
 
     // Tabela 3: Turnover / Movimentação
     let movements = (turnover.tabelaMovimentacao || []).filter((row) => matches(row, filter, true));
@@ -908,12 +1065,14 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCount('countTurnover', movements);
     movements = sortRows(movements, tableSort.tbodyTurnover, (row, key) => key === 'grupo' ? (row.grupo || row.consultor) : row[key]);
     updateTableHeadIcons('tbodyTurnover', tableSort.tbodyTurnover.colKey, tableSort.tbodyTurnover.dir);
-    if (el('tbodyTurnover')) el('tbodyTurnover').innerHTML = rowsOrEmpty(movements, 6, (row) => {
+    const pMovements = getPaginatedSlice('tableTurnover', movements);
+    if (el('tbodyTurnover')) el('tbodyTurnover').innerHTML = rowsOrEmpty(pMovements, 6, (row) => {
       const isSaida = row.tipo === 'SAÍDA';
       const grp = row.grupo || row.consultor || '—';
       const numAtend = row.atendimento || row.numero_atendimento || '—';
       return `<tr class="${isSaida ? 'table-row-grave' : ''}"><td class="col-center font-tabular"><strong>${escapeHtml(String(numAtend))}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}"><strong>${escapeHtml(row.produtor || '—')}</strong></td><td class="col-center"><span class="badge ${isSaida ? 'badge-danger' : 'badge-positive'}">${escapeHtml(row.tipo)}</span></td><td class="col-center">${escapeHtml(row.data || '—')}</td><td class="col-left" title="${escapeHtml(grp)}">${escapeHtml(grp)}</td><td class="col-left" title="${escapeHtml(row.motivo || '—')}">${escapeHtml(row.motivo || '—')}</td></tr>`;
     });
+    renderTablePagination('paginationTurnover', 'tableTurnover', movements.length);
 
     // Tabela 4: Consultores
     let consultants = (visits.tabelaConsultores || []).filter((row) => matches(row, filter, true));
@@ -921,7 +1080,9 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCount('countConsultants', consultants);
     consultants = sortRows(consultants, tableSort.tbodyConsultants, (row, key) => row[key]);
     updateTableHeadIcons('tbodyConsultants', tableSort.tbodyConsultants.colKey, tableSort.tbodyConsultants.dir);
-    if (el('tbodyConsultants')) el('tbodyConsultants').innerHTML = rowsOrEmpty(consultants, 6, (row) => `<tr><td class="col-left" title="${escapeHtml(row.consultor || '—')}"><strong>${escapeHtml(row.consultor || '—')}</strong></td><td class="col-center font-tabular">${number(row.total_fazendas)}</td><td class="col-center font-tabular">${number(row.fazendas_visitadas)}</td><td class="col-center font-tabular">${number(row.total_visitas)}</td><td class="col-center font-tabular">${percent(row.perc_cobertura)}</td><td class="col-center"><span class="badge badge-positive">ATIVO</span></td></tr>`);
+    const pConsultants = getPaginatedSlice('tableConsultants', consultants);
+    if (el('tbodyConsultants')) el('tbodyConsultants').innerHTML = rowsOrEmpty(pConsultants, 6, (row) => `<tr><td class="col-left" title="${escapeHtml(row.consultor || '—')}"><strong>${escapeHtml(row.consultor || '—')}</strong></td><td class="col-center font-tabular">${number(row.total_fazendas)}</td><td class="col-center font-tabular">${number(row.fazendas_visitadas)}</td><td class="col-center font-tabular">${number(row.total_visitas)}</td><td class="col-center font-tabular">${percent(row.perc_cobertura)}</td><td class="col-center"><span class="badge badge-positive">ATIVO</span></td></tr>`);
+    renderTablePagination('paginationConsultants', 'tableConsultants', consultants.length);
 
     // Tabela 5: Produtores com Dados
     let withData = (consistency.tabelaProdutoresComDados || []).filter((row) => matches(row, filter, true));
@@ -929,11 +1090,13 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCount('countDataProducers', withData);
     withData = sortRows(withData, tableSort.tbodyDataProducers, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
     updateTableHeadIcons('tbodyDataProducers', tableSort.tbodyDataProducers.colKey, tableSort.tbodyDataProducers.dir);
-    if (el('tbodyDataProducers')) el('tbodyDataProducers').innerHTML = rowsOrEmpty(withData, 6, (row) => {
+    const pWithData = getPaginatedSlice('tableDataProducers', withData);
+    if (el('tbodyDataProducers')) el('tbodyDataProducers').innerHTML = rowsOrEmpty(pWithData, 6, (row) => {
       const noData = row.possui_dados === false;
       const prodName = row.produtor || row.codigo_lr || '—';
       return `<tr class="${noData ? 'table-row-grave' : ''}"><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(prodName)}">${escapeHtml(prodName)}</td><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><span class="badge ${noData ? 'badge-danger' : 'badge-positive'}">${noData ? 'NÃO' : 'SIM'}</span></td><td class="col-center">${escapeHtml(row.referencia || '—')}</td><td class="col-center"><span class="badge ${String(row.status).toUpperCase() === 'INATIVO' ? 'badge-danger' : 'badge-positive'}">${escapeHtml(row.status || 'ATIVO')}</span></td></tr>`;
     });
+    renderTablePagination('paginationDataProducers', 'tableDataProducers', withData.length);
 
     // Tabela 6: Inconsistências
     let inconsistencies = (consistency.tabelaInconsistentes || []).filter((row) => matches(row, filter, true));
@@ -941,7 +1104,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCount('countInconsistencies', inconsistencies);
     inconsistencies = sortRows(inconsistencies, tableSort.tbodyInconsistencies, (row, key) => key === 'produtor' ? (row.produtor || row.codigo_lr) : row[key]);
     updateTableHeadIcons('tbodyInconsistencies', tableSort.tbodyInconsistencies.colKey, tableSort.tbodyInconsistencies.dir);
-    if (el('tbodyInconsistencies')) el('tbodyInconsistencies').innerHTML = rowsOrEmpty(inconsistencies, 7, (row, idx) => {
+    const pInconsistencies = getPaginatedSlice('tableInconsistencies', inconsistencies);
+    if (el('tbodyInconsistencies')) el('tbodyInconsistencies').innerHTML = rowsOrEmpty(pInconsistencies, 7, (row, idx) => {
       const isGraveMensal = isStatusInconsistente(row.consistencia_mensal || row.consistencia);
       const isGraveAnual = isStatusInconsistente(row.consistencia_anual);
       const isGrave = isGraveMensal || isGraveAnual;
@@ -960,6 +1124,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(prodName)}"><strong>${escapeHtml(prodName)}</strong></td><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-left" title="${escapeHtml(row.projeto || '—')}">${escapeHtml(row.projeto || '—')}</td><td class="col-center font-tabular">${number(row.meses_sequenciais)}</td><td class="col-center"><span class="badge ${badgeClassMensal}" title="${escapeHtml(row.consistencia_mensal || 'SEM DADOS')}">${escapeHtml(row.consistencia_mensal || 'SEM DADOS')}</span></td><td class="col-center"><span class="badge ${badgeClassAnual}" title="${escapeHtml(row.consistencia_anual || 'SEM DADOS')}">${escapeHtml(row.consistencia_anual || 'SEM DADOS')}</span></td><td class="col-center"><button class="link-button btn-view-details" type="button" onclick="window.openInconsistencyDetail('${escapeHtml(row.codigo_lr || row.produtor)}')">Ver detalhes ›</button></td></tr>`;
     });
+    renderTablePagination('paginationInconsistencies', 'tableInconsistencies', inconsistencies.length);
   }
 
   // ─── LÓGICA DE FILTRAGEM MULTIDIRECIONAL ESTILO POWER BI ──────────────
@@ -1527,6 +1692,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function handleFilterSelectionChange() {
     updateAllCrossFilters();
+    Object.keys(tablePagination).forEach((k) => { tablePagination[k].page = 1; });
     clearTimeout(debounceFilterTimer);
     debounceFilterTimer = setTimeout(() => {
       loadAllData(true);
@@ -2122,6 +2288,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   setupTableSorting();
+  setupTablePagination();
   setupColumnResizers();
   setupColumnFilters();
   setupCustomSelectDropdowns();
