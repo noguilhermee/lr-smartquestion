@@ -456,6 +456,7 @@ def consultar_tabela_supabase(
     tabela: str,
     colunas: str = "*",
     filtros: dict | None = None,
+    filtros_in: dict[str, list] | None = None,
     raiz: Path | str | None = None,
     limite: int | None = None,
 ) -> pd.DataFrame:
@@ -475,6 +476,9 @@ def consultar_tabela_supabase(
         if filtros:
             for col, val in filtros.items():
                 query = query.eq(col, val)
+        if filtros_in:
+            for col, vals in filtros_in.items():
+                query = query.in_(col, vals)
                 
         limite_fim = offset + chunk_size - 1
         if limite is not None and limite_fim >= limite:

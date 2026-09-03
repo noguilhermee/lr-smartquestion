@@ -126,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
     themeToggle?.setAttribute('aria-label', `Ativar modo ${isDark ? 'claro' : 'escuro'}`);
     const label = themeToggle?.querySelector('.theme-toggle-label');
     if (label) label.textContent = `Modo ${isDark ? 'claro' : 'escuro'}`;
-    if (themeMeta) themeMeta.content = isDark ? '#072824' : '#ffffff';
+    if (themeMeta) themeMeta.content = isDark ? '#060E0D' : '#ffffff';
     if (persist) {
       try { localStorage.setItem('lr-dashboard-theme', root.dataset.theme); } catch (_) { /* preferência opcional */ }
     }
@@ -984,8 +984,12 @@ document.addEventListener('DOMContentLoaded', () => {
           if (row.dias_sem_visita !== undefined) {
             const hasDays = row.dias_sem_visita !== null && row.dias_sem_visita !== undefined && row.dias_sem_visita !== '';
             const days = hasDays ? Number(row.dias_sem_visita) : null;
-            const isGrave = hasDays && days >= 60;
-            rowVal = !hasDays ? 'sem visita no período' : isGrave ? 'sem visita > 60 dias' : days >= 45 ? 'sem visita > 45 dias' : 'sem visita > 30 dias';
+            rowVal = !hasDays ? 'sem visita no período' :
+                     isGrave ? 'sem visita > 60 dias' :
+                     days >= 45 ? 'sem visita > 45 dias' :
+                     days >= 30 ? 'sem visita > 30 dias' :
+                     days > 0 ? `sem visita (${days}d)` :
+                     'vínculo recente (0d)';
           } else {
             rowVal = String(row.status || 'ativo');
           }
@@ -1053,7 +1057,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const hasDays = row.dias_sem_visita !== null && row.dias_sem_visita !== undefined && row.dias_sem_visita !== '';
       const days = hasDays ? Number(row.dias_sem_visita) : null;
       const isGrave = hasDays && days >= 60;
-      const isPending = hasDays && days >= 30;
       const isZero = hasDays && days <= 0;
       const status = !hasDays ? 'Sem visita no período' :
                      isGrave ? 'Sem visita > 60 dias' :
@@ -1061,8 +1064,8 @@ document.addEventListener('DOMContentLoaded', () => {
                      days >= 30 ? 'Sem visita > 30 dias' :
                      days > 0 ? `Sem visita (${days}d)` :
                      'Vínculo recente (0d)';
-      const rowClass = isGrave ? 'table-row-grave' : isPending ? 'table-row-pending' : '';
-      const badgeClass = isGrave ? 'badge-danger' : isPending ? 'badge-warning' : (isZero ? 'badge-positive' : 'badge-soft');
+      const rowClass = isGrave ? 'table-row-grave' : (isZero ? '' : 'table-row-pending');
+      const badgeClass = isGrave ? 'badge-danger' : (isZero ? 'badge-positive' : 'badge-warning');
       const dtAssoc = row.data_associacao || row.data_vinculacao || row.data_referencia || '—';
       const dtUltimaVisita = row.data_ultima_visita || '—';
       return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-center" title="${escapeHtml(dtAssoc)}">${escapeHtml(dtAssoc)}</td><td class="col-center" title="${escapeHtml(dtUltimaVisita)}">${escapeHtml(dtUltimaVisita)}</td><td class="col-center font-tabular">${hasDays ? days : '—'}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(status)}">${escapeHtml(status)}</span></td></tr>`;
@@ -2310,6 +2313,161 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function setupPanelFullscreen() {
+    let activeFullscreenPanel = null;
+    const fsBackdrop = el('panelFsBackdrop');
+
+    function openPanelFullscreen(panel) {
+      if (!panel) return;
+      if (activeFullscreenPanel && activeFullscreenPanel !== panel) {
+        closePanelFullscreen();
+      }
+
+      // 1. Criar marcador de posição no local original do DOM
+      const placeholder = document.createElement('div');
+      placeholder.className = 'panel-fs-placeholder';
+      placeholder.style.display = 'none';
+      panel.parentNode.insertBefore(placeholder, panel);
+      panel._fsPlaceholder = placeholder;
+
+      // 2. Mover o painel diretamente para document.body (escapa do transform do carrossel)
+      document.body.appendChild(panel);
+
+      panel.classList.add('is-fullscreen');
+      if (fsBackdrop) {
+        fsBackdrop.removeAttribute('hidden');
+      }
+
+      // 3. Adicionar botão explícito de fechar na parte superior
+      let closeBtn = panel.querySelector('.panel-fullscreen-close-btn');
+      if (!closeBtn) {
+        closeBtn = document.createElement('button');
+        closeBtn.className = 'panel-fullscreen-close-btn';
+        closeBtn.type = 'button';
+        closeBtn.title = 'Fechar tela cheia (Esc)';
+        closeBtn.setAttribute('aria-label', 'Fechar tela cheia');
+        closeBtn.innerHTML = '<span class="material-symbols-rounded">close</span><span>Fechar</span>';
+        closeBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          closePanelFullscreen();
+        });
+        panel.appendChild(closeBtn);
+      }
+
+      const fsBtn = panel.querySelector('.btn-panel-fs');
+      if (fsBtn) {
+        fsBtn.setAttribute('title', 'Sair da tela cheia (Esc)');
+        fsBtn.setAttribute('aria-label', 'Sair do modo tela cheia');
+        const icon = fsBtn.querySelector('.material-symbols-rounded');
+        if (icon) icon.textContent = 'fullscreen_exit';
+      }
+
+      // Pausa carrossel durante a inspeção em tela cheia (S-01)
+      carousel?.pauseForModal?.(true);
+
+      activeFullscreenPanel = panel;
+
+      // Redimensionar gráficos instantaneamente
+      setTimeout(() => {
+        panel.querySelectorAll('canvas').forEach((canvas) => {
+          const chartInstance = charts.instances[canvas.id];
+          if (chartInstance && typeof chartInstance.resize === 'function') {
+            chartInstance.resize();
+            if (typeof chartInstance.update === 'function') {
+              chartInstance.update('none');
+            }
+          }
+        });
+      }, 60);
+    }
+
+    function closePanelFullscreen() {
+      if (!activeFullscreenPanel) return;
+      const panel = activeFullscreenPanel;
+
+      // Remover botão de fechar criado dinamicamente
+      const closeBtn = panel.querySelector('.panel-fullscreen-close-btn');
+      if (closeBtn) {
+        closeBtn.remove();
+      }
+
+      panel.classList.remove('is-fullscreen');
+
+      if (fsBackdrop) {
+        fsBackdrop.setAttribute('hidden', '');
+      }
+
+      const fsBtn = panel.querySelector('.btn-panel-fs');
+      if (fsBtn) {
+        fsBtn.setAttribute('title', 'Tela cheia');
+        fsBtn.setAttribute('aria-label', 'Expandir painel para tela cheia');
+        const icon = fsBtn.querySelector('.material-symbols-rounded');
+        if (icon) icon.textContent = 'fullscreen';
+      }
+
+      // Devolver o painel para a sua posição original no slide
+      if (panel._fsPlaceholder && panel._fsPlaceholder.parentNode) {
+        panel._fsPlaceholder.parentNode.insertBefore(panel, panel._fsPlaceholder);
+        panel._fsPlaceholder.remove();
+        delete panel._fsPlaceholder;
+      }
+
+      // Retoma o carrossel se não estiver pausado pelo usuário
+      carousel?.pauseForModal?.(false);
+
+      activeFullscreenPanel = null;
+
+      // Restaurar dimensões dos gráficos
+      setTimeout(() => {
+        panel.querySelectorAll('canvas').forEach((canvas) => {
+          const chartInstance = charts.instances[canvas.id];
+          if (chartInstance && typeof chartInstance.resize === 'function') {
+            chartInstance.resize();
+            if (typeof chartInstance.update === 'function') {
+              chartInstance.update('none');
+            }
+          }
+        });
+      }, 60);
+    }
+
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('.btn-panel-fs');
+      if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const panel = btn.closest('.panel-card');
+        if (!panel) return;
+        if (panel.classList.contains('is-fullscreen')) {
+          closePanelFullscreen();
+        } else {
+          openPanelFullscreen(panel);
+        }
+        return;
+      }
+
+      if (e.target === fsBackdrop) {
+        closePanelFullscreen();
+      }
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && activeFullscreenPanel) {
+        const detailsModal = el('detailsModal');
+        const provModal = el('provenanceModal');
+        if (detailsModal?.classList.contains('active') || provModal?.classList.contains('active')) {
+          return;
+        }
+        e.preventDefault();
+        closePanelFullscreen();
+      }
+    });
+
+    window.openPanelFullscreen = openPanelFullscreen;
+    window.closePanelFullscreen = closePanelFullscreen;
+  }
+
   setupTableSorting();
   setupTablePagination();
   setupColumnResizers();
@@ -2320,8 +2478,9 @@ document.addEventListener('DOMContentLoaded', () => {
   setupProvenanceModal();
   setupExportButtons();
   setupChartHorizonControls();
+  setupPanelFullscreen();
   loadAllData();
   setInterval(loadAllData, 300000);
 
-  window.dashboard = { carousel, reload: loadAllData };
+  window.dashboard = { carousel, charts, state, reload: loadAllData };
 });

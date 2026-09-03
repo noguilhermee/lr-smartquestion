@@ -23,8 +23,17 @@ class DashboardCarousel {
     this.startedAt = Date.now();
     this.progressTimer = null;
     this.hoverPaused = false;
+    this.modalPaused = false;
     this.userPaused = options.startPaused !== undefined ? options.startPaused : true;
+    window.dashboardCarousel = this;
     this.init();
+  }
+
+  pauseForModal(pause) {
+    this.modalPaused = Boolean(pause);
+    if (!this.modalPaused && !this.userPaused) {
+      this.resetProgress();
+    }
   }
 
   init() {
@@ -106,6 +115,9 @@ class DashboardCarousel {
   }
 
   goTo(index, reset = true) {
+    if (typeof window.closePanelFullscreen === 'function') {
+      window.closePanelFullscreen();
+    }
     const normalized = (index + this.totalSlides) % this.totalSlides;
     this.currentSlide = normalized;
     this.track.style.transform = `translate3d(-${normalized * 100}vw, 0, 0)`;
@@ -133,7 +145,7 @@ class DashboardCarousel {
   startProgress() {
     clearInterval(this.progressTimer);
     this.progressTimer = setInterval(() => {
-      if (this.userPaused || this.hoverPaused) return;
+      if (this.userPaused || this.hoverPaused || this.modalPaused) return;
       const elapsed = Date.now() - this.startedAt;
       const percent = Math.min(100, (elapsed / this.slideDuration) * 100);
       if (this.progressBar) this.progressBar.style.width = `${percent}%`;

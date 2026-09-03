@@ -19,6 +19,7 @@ env/
 # Configurações sensíveis
 .env
 .env*
+!.env.example
 
 # Banco de dados local / arquivos pesados de entrada e saída
 DB/INPUT/*
@@ -45,3 +46,4 @@ dist/
 
 .vercel
 .env*
+!.env.example

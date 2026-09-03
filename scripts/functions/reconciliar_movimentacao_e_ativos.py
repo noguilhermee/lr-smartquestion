@@ -41,6 +41,7 @@ try:
         carregar_config_referencia,
         carregar_env,
         obter_cliente_supabase,
+        consultar_tabela_supabase,
     )
     from functions.metadata_tracker import obter_metadados_planilhas
 except ImportError:
@@ -48,6 +49,7 @@ except ImportError:
         carregar_config_referencia,
         carregar_env,
         obter_cliente_supabase,
+        consultar_tabela_supabase,
     )
     from FUNCTIONS.metadata_tracker import obter_metadados_planilhas
 
@@ -183,9 +185,8 @@ def executar_reconciliacao():
     except Exception as e_inat:
         print(f"   ⚠️ Aviso ao sincronizar inativações recentes: {e_inat}")
 
-    # Buscar inativações já consolidadas no Supabase
-    res_inats = supabase.table("sq_raw_inativacoes_produtor").select("*").execute()
-    df_inats_existentes = pd.DataFrame(res_inats.data) if res_inats.data else pd.DataFrame()
+    # Buscar inativações já consolidadas no Supabase com paginação transparente (P-09)
+    df_inats_existentes = consultar_tabela_supabase("sq_raw_inativacoes_produtor", "*", raiz=raiz_projeto)
     print(f"   -> Total de inativações existentes no banco: {len(df_inats_existentes)}")
 
     # 4. Construir Movimentações Consolidadas (sq_fato_movimentacao)
@@ -195,11 +196,9 @@ def executar_reconciliacao():
 
     movimentacoes_lista = []
 
-    # 4.1 Entradas Pré-2026 (a partir de sq_raw_vinculos para histórico anterior a 2026)
-    res_vinc = supabase.table("sq_raw_vinculos").select(
-        "codigo_lr, consultor_grupo_atendimento, grupo_atendimento, data_associacao, projeto, nome_produtor, nome_propriedade, vinculo_ativo, unidade_atendimento, cidade_produtor, estado_produtor, codigo_agroindustria, codigo_fazenda"
-    ).in_("projeto", PROJETOS_OFICIAIS).execute()
-    df_vinc_db = pd.DataFrame(res_vinc.data) if res_vinc.data else pd.DataFrame()
+    # 4.1 Entradas Pré-2026 (a partir de sq_raw_vinculos com paginação transparente P-09)
+    cols_vinc = "codigo_lr, consultor_grupo_atendimento, grupo_atendimento, data_associacao, projeto, nome_produtor, nome_propriedade, vinculo_ativo, unidade_atendimento, cidade_produtor, estado_produtor, codigo_agroindustria, codigo_fazenda"
+    df_vinc_db = consultar_tabela_supabase("sq_raw_vinculos", cols_vinc, filtros_in={"projeto": PROJETOS_OFICIAIS}, raiz=raiz_projeto)
     
     if not df_vinc_db.empty:
         for _, row in df_vinc_db.iterrows():
@@ -238,18 +237,17 @@ def executar_reconciliacao():
                     "data_processamento": datetime.now(FUSO_SP).isoformat(),
                 })
 
-    # Mapeamento dimensional para validação da cadeia produtiva (Leite vs Cacau, Café, Grãos)
-    res_all_vinc = supabase.table("sq_raw_vinculos").select("codigo_lr, projeto, tipo_ponto_atendimento, nome_produtor").execute()
+    # Mapeamento dimensional para validação da cadeia produtiva com paginação transparente (P-09)
+    df_all_vinc = consultar_tabela_supabase("sq_raw_vinculos", "codigo_lr, projeto, tipo_ponto_atendimento, nome_produtor", raiz=raiz_projeto)
     mapa_lr_tipo: Dict[str, str] = {}
     mapa_lr_proj: Dict[str, str] = {}
     mapa_lr_nome: Dict[str, str] = {}
-    for v in (res_all_vinc.data or []):
+    for _, v in df_all_vinc.iterrows():
         c_lr = str(v.get("codigo_lr") or "").strip()
         if c_lr:
             mapa_lr_tipo[c_lr] = str(v.get("tipo_ponto_atendimento") or "").strip().upper()
             mapa_lr_proj[c_lr] = str(v.get("projeto") or "").strip().upper()
-            if v.get("nome_produtor"):
-                mapa_lr_nome[c_lr] = str(v.get("nome_produtor")).strip()
+            mapa_lr_nome[c_lr] = str(v.get("nome_produtor") or "").strip()
 
     def eh_cadeia_leite(projeto_str: str, codigo_lr: str = "") -> bool:
         proj_upper = (projeto_str or "").strip().upper()
@@ -381,7 +379,7 @@ def executar_reconciliacao():
                 if pd.notna(dt_legado):
                     dt_mov = dt_legado.strftime("%Y-%m-01")
                 else:
-                    dt_mov = "2026-08-01"
+                    dt_mov = config.mes_referencia.strftime("%Y-%m-01")
                 id_comp = f"{cod}_{cons}_{dt_mov}_Saída"
                 
             motivo = row.get("motivo_inativacao")
@@ -703,12 +701,13 @@ def executar_reconciliacao():
     try:
         # Expurgar snapshots de meses antigos para manter o espelho estritamente com os registros atuais
         supabase.table(tabela_raw).delete().neq("mes_referencia", mes_ref_str).execute()
-    except Exception:
-        pass
+    except Exception as e_del_raw:
+        print(f"   ℹ️ Aviso ao expurgar meses anteriores de {tabela_raw}: {e_del_raw}")
 
     recs_todos = df_todos.to_dict(orient="records")
     LOTE = 500
     sucesso_raw = 0
+    erros_raw = 0
     tabela_destino_raw = tabela_raw
     # Testar se tabela_destino_raw está disponível no cache
     try:
@@ -727,10 +726,11 @@ def executar_reconciliacao():
             try:
                 supabase.table(tabela_destino_raw).upsert(lote).execute()
                 sucesso_raw += len(lote)
-            except Exception:
-                pass
+            except Exception as e_raw2:
+                erros_raw += len(lote)
+                print(f"     ❌ Erro ao enviar lote {i // LOTE + 1} para {tabela_destino_raw}: {e_raw2}")
         time.sleep(0.05)
-    print(f"   ✅ {sucesso_raw} registros gravados em {tabela_destino_raw}.")
+    print(f"   ✅ {sucesso_raw} registros gravados em {tabela_destino_raw} (falhas: {erros_raw}).")
 
     # Tenta também sq_raw_fazendas_grupo se configurada com nome distinto e disponível
     if tabela_grupo_raw != tabela_destino_raw:

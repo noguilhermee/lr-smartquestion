@@ -5,8 +5,15 @@ setlocal enabledelayedexpansion
 :: Pipeline Oficial LR-SmartQuestion - Agendador de Tarefas do Windows
 :: ============================================================================
 
-set "PROJETO_DIR=c:\Users\Guilherme\LABOR RURAL\Analytics - Departamento Analytics\POWER_BI\PROJETOS\BI_LABOR_RURAL\bi-gerencial"
-set "PYTHON_EXE=C:\ProgramData\anaconda3\python.exe"
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "PROJETO_DIR=%%~fI"
+
+if exist "C:\ProgramData\anaconda3\python.exe" (
+    set "PYTHON_EXE=C:\ProgramData\anaconda3\python.exe"
+) else (
+    set "PYTHON_EXE=python"
+)
+
 set "SCRIPT_PATH=%PROJETO_DIR%\scripts\executar_pipeline.py"
 set "LOGS_DIR=%PROJETO_DIR%\db\output\logs"
 
