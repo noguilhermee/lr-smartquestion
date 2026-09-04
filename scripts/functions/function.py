@@ -12,10 +12,12 @@ from typing import Iterable, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
-# Tentativa de carregar o módulo excel_format de lr-functions se disponível no ambiente local
-_CAMINHO_EXCEL_FORMAT = Path(
-    r"C:\Users\Guilherme\LABOR RURAL\Analytics - Departamento Analytics\TEMP\GUILHERME\SCRIPTS\projetcs\lr-functions\functions\excel_format.py"
-)
+# Tentativa de carregar o módulo excel_format se disponível no projeto ou ambiente local
+_CAMINHO_EXCEL_FORMAT = Path(__file__).resolve().parent / "excel_format.py"
+if not _CAMINHO_EXCEL_FORMAT.exists():
+    _candidato_lr = Path.cwd().parent / "lr-functions" / "functions" / "excel_format.py"
+    if _candidato_lr.exists():
+        _CAMINHO_EXCEL_FORMAT = _candidato_lr
 
 if _CAMINHO_EXCEL_FORMAT.exists():
     try:

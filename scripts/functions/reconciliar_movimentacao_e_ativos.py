@@ -594,14 +594,14 @@ def executar_reconciliacao():
 
     regiao_map = {}
     try:
-        res_reg = supabase.table("sq_dim_fazenda").select("cod_agroindustria, regiao_leiteira").not_.is_("regiao_leiteira", "null").execute()
-        for r_reg in res_reg.data:
-            c_lr = str(r_reg.get("cod_agroindustria") or "").strip().upper()
-            reg_val = r_reg.get("regiao_leiteira")
+        res_reg = supabase.table("sq_dim_fazendas_ativas").select("codigo_produtor, regiao").not_.is_("regiao", "null").limit(5000).execute()
+        for r_reg in (res_reg.data or []):
+            c_lr = str(r_reg.get("codigo_produtor") or "").strip().upper()
+            reg_val = r_reg.get("regiao")
             if c_lr and reg_val and str(reg_val).strip().lower() not in ["none", "nan", "teste"]:
                 regiao_map[c_lr] = str(reg_val).strip()
-    except Exception as e_reg_map:
-        print(f"   ℹ️ Aviso ao carregar mapa de regiões: {e_reg_map}")
+    except Exception:
+        pass
 
     def formatar_regiao(agro, reg_raw, estado_val):
         if not reg_raw or str(reg_raw).strip().lower() in ["none", "nan", "teste", "labor rural", "unidade generica"]:
@@ -693,29 +693,28 @@ def executar_reconciliacao():
     df_leite_todos = df_todos[df_todos["tipo_ponto_atendimento"].str.contains("LEITE", na=False)].copy()
 
     print(f"   -> {len(df_todos)} fazendas consolidadas no espelho completo.")
-    print(f"   -> {len(df_ativas_todas)} fazendas ATIVAS identificadas (todas as cadeias).")
-    print(f"   -> {len(df_leite_todos)} fazendas de LEITE identificadas.")
-
+    
     # ─── 6.1 Enviar Espelho Completo para sq_raw_fazendas_grupo ────────────
     print(f"\n📤 6.1 Gravando espelho completo da LISTA_GERAL em {tabela_raw}...")
+    
+    tabela_destino_raw = tabela_raw
     try:
-        # Expurgar snapshots de meses antigos para manter o espelho estritamente com os registros atuais
-        supabase.table(tabela_raw).delete().neq("mes_referencia", mes_ref_str).execute()
+        supabase.table(tabela_destino_raw).select("id").limit(1).execute()
+    except Exception:
+        if tabela_destino_raw != "sq_raw_fazendas":
+            print(f"   ℹ️ {tabela_destino_raw} não disponível no schema cache. Usando sq_raw_fazendas...")
+            tabela_destino_raw = "sq_raw_fazendas"
+
+    try:
+        # Expurgar snapshot do mês de referência atual para atualizar com dados mais recentes
+        supabase.table(tabela_destino_raw).delete().eq("mes_referencia", mes_ref_str).execute()
     except Exception as e_del_raw:
-        print(f"   ℹ️ Aviso ao expurgar meses anteriores de {tabela_raw}: {e_del_raw}")
+        print(f"   ℹ️ Aviso ao expurgar mês atual de {tabela_destino_raw}: {e_del_raw}")
 
     recs_todos = df_todos.to_dict(orient="records")
     LOTE = 500
     sucesso_raw = 0
     erros_raw = 0
-    tabela_destino_raw = tabela_raw
-    # Testar se tabela_destino_raw está disponível no cache
-    try:
-        supabase.table(tabela_destino_raw).select("id").limit(1).execute()
-    except Exception:
-        if tabela_destino_raw != "sq_raw_fazendas":
-            print(f"   ℹ️ {tabela_destino_raw} não disponível no schema cache. Tentando sq_raw_fazendas...")
-            tabela_destino_raw = "sq_raw_fazendas"
 
     for i in range(0, len(recs_todos), LOTE):
         lote = recs_todos[i : i + LOTE]
@@ -738,43 +737,26 @@ def executar_reconciliacao():
             for i in range(0, len(recs_todos), LOTE):
                 supabase.table(tabela_grupo_raw).upsert(recs_todos[i : i + LOTE], on_conflict="id").execute()
             print(f"   ✅ Registros espelhados em {tabela_grupo_raw}.")
-        except Exception:
-            pass
+        except Exception as e_espelho:
+            print(f"   ℹ️ Aviso ao espelhar em {tabela_grupo_raw}: {e_espelho}")
 
     # ─── 6.2 Enviar Ativas de Todas as Cadeias para sq_raw_fazendas_grupo_ativas ─
     print(f"\n📤 6.2 Gravando fazendas ativas (todas as cadeias) da LISTA_GERAL em {tabela_grupo_ativas_raw}...")
-    recs_ativas = df_ativas_todas.to_dict(orient="records")
-    sucesso_ativas_raw = 0
-    try:
-        for i in range(0, len(recs_ativas), LOTE):
-            lote = recs_ativas[i : i + LOTE]
-            supabase.table(tabela_grupo_ativas_raw).upsert(lote, on_conflict="id").execute()
-            sucesso_ativas_raw += len(lote)
-            time.sleep(0.05)
-        print(f"   ✅ {sucesso_ativas_raw} registros gravados em {tabela_grupo_ativas_raw}.")
-    except Exception as e_agr:
-        print(f"   ℹ️ Tabela {tabela_grupo_ativas_raw} não disponível no schema cache: {e_agr}")
 
-    # ─── 6.3 Reconstrução Histórica Mensal de FAZENDAS ATIVAS em sq_dim_fazendas_ativas ────
-    # NOVA REGRA: A dimensão sq_dim_fazendas_ativas é gerada COM BASE NOS VÍNCULOS (sq_raw_vinculos)
-    # abrangendo TODAS AS CADEIAS PRODUTIVAS (Leite, Cacau, Café, Grãos, etc.), permitindo que o
-    # dashboard filtre a cadeia desejada.
-    # Cruza com:
-    # 1) Inativações de produtores (sq_raw_inativacoes_produtor)
-    # 2) Status dos consultores (BD_STATUS_USUARIO_SQ.xlsx)
-    # 3) Flag vinculo_ativo dos vínculos
-    # 4) Novos cadastros do ano corrente
+    # ─── 6.3 Reconstruindo histórico de FAZENDAS ATIVAS (todas as cadeias) ─────
+    # Janela temporal deslizante: reprocessa mês anterior (fechamento), mês atual e próximo mês
+    mes_ref_dt = pd.to_datetime(mes_ref_str)
+    mes_anterior_str = (mes_ref_dt - pd.DateOffset(months=1)).strftime("%Y-%m-01")
+    proximo_mes_str = (mes_ref_dt + pd.DateOffset(months=1)).strftime("%Y-%m-01")
 
-    inicio_2026 = pd.Timestamp("2026-01-01")
-    meses_reconciliacao = [m.strftime("%Y-%m-01") for m in pd.date_range(start=inicio_2026, end=pd.to_datetime(proximo_mes_str), freq="MS")]
+    # Se reindex_completo for True no chamador, recalcula todos os meses a partir de 2026-01-01
+    if reindex_completo:
+        inicio_2026 = pd.Timestamp("2026-01-01")
+        meses_reconciliacao = [m.strftime("%Y-%m-01") for m in pd.date_range(start=inicio_2026, end=pd.to_datetime(proximo_mes_str), freq="MS")]
+    else:
+        meses_reconciliacao = [mes_anterior_str, mes_ref_str, proximo_mes_str]
 
-    print(f"\n📊 6.3 Reconstruindo histórico de FAZENDAS ATIVAS (todas as cadeias) mês a mês em {tabela_ativos} a partir de sq_raw_vinculos ({meses_reconciliacao[0]} a {meses_reconciliacao[-1]})...")
-
-    # Limpar registros do período de 2026 para recarregar a dim 100% consistente e sem dependência da LISTA_GERAL
-    try:
-        supabase.table(tabela_ativos).delete().gte("mes_referencia", "2026-01-01").execute()
-    except Exception as e_del:
-        print(f"   ℹ️ Aviso ao limpar {tabela_ativos}: {e_del}")
+    print(f"\n📊 6.3 Reconstruindo FAZENDAS ATIVAS (todas as cadeias) em {tabela_ativos} para a janela ({meses_reconciliacao[0]} a {meses_reconciliacao[-1]})...")
 
     # Buscar base completa de vínculos no Supabase para isolar da LISTA_GERAL
     res_vinculos_dim = supabase.table("sq_raw_vinculos").select(
@@ -800,7 +782,7 @@ def executar_reconciliacao():
         return "OUTROS"
 
     if not df_vinculos_base.empty:
-        print(f"   -> {len(df_vinculos_base)} vínculos carregados de sq_raw_vinculos ({df_vinculos_base['codigo_lr'].nunique()} produtores únicos em todas as cadeias).")
+        print(f"   -> {len(df_vinculos_base)} vínculos carregados de sq_raw_vinculos ({df_vinculos_base['codigo_lr'].nunique()} produtores únicos).")
     else:
         print("   ⚠️ Nenhum vínculo encontrado em sq_raw_vinculos.")
 
@@ -818,42 +800,41 @@ def executar_reconciliacao():
             if ("_INATIVO" in c.upper()) or ("(INATIVO)" in nome_p.upper()) or ("_INATIVO" in nome_p.upper()):
                 continue
 
-            # 0.1 Se o grupo contém CFT (modalidade operacional, não deve subir para a dimensão analítica), NÃO sobe.
+            # 0.1 Se o grupo contém CFT, NÃO sobe para a dimensão analítica
             grupo_val = str(r.get("grupo_atendimento") or "")
             proj_val = str(r.get("projeto") or "")
             if "CFT" in grupo_val.upper() or "CFT" in proj_val.upper():
                 continue
 
-            # 0.2 Status do Consultor: Se o consultor responsável pelo atendimento estiver inativo em BD_STATUS_USUARIO_SQ, desconsidera
+            # 0.2 Status do Consultor: Se o consultor responsável estiver inativo
             cons_resp = extrair_consultor_individual(r.get("consultor_grupo_atendimento"), r.get("grupo_atendimento"))
             if cons_resp in consultores_inativos:
                 continue
 
-            # 1. Se o vínculo está inativo na base de vínculos e não temos cadastro recente posterior:
+            # 1. Se a data de associação for posterior ao mês avaliado, ainda não existia
             v_ativo = r.get("vinculo_ativo")
             dt_assoc = r.get("data_associacao")
             dt_assoc_p = pd.to_datetime(dt_assoc, errors="coerce")
             
-            # Se a data de associação do vínculo for posterior ao mês de referência avaliado, ele ainda não existia
             if pd.notna(dt_assoc_p) and dt_assoc_p.strftime("%Y-%m-01") > ref_m:
                 continue
 
-            # 2. Se o produtor foi inativado em data <= ref_m: no mês ref_m ele já estava inativo
+            # 2. Se o produtor foi inativado em data <= ref_m: já estava inativo
             if c in inativacoes_por_codigo and inativacoes_por_codigo[c] <= ref_m:
                 continue
 
-            # 3. Se vinculo_ativo é False e o produtor já estava inativo na data de corte
+            # 3. Se vinculo_ativo é False e o produtor já estava inativo
             if v_ativo is False and c in inativacoes_por_codigo:
                 continue
 
-            # 4. Se o produtor foi cadastrado como novo em 2026 em data > ref_m: ainda não havia entrado
+            # 4. Se o produtor foi cadastrado como novo em data > ref_m: ainda não havia entrado
             if c in cadastros_por_codigo and cadastros_por_codigo[c] > ref_m:
                 continue
 
             # Tratamentos dimensionais de projeto, cadeia, agroindústria e região
             proj_final = proj_val.strip().upper() if proj_val else None
             cadeia_calc = normalizar_cadeia(r.get("tipo_ponto_atendimento"), proj_final)
-            agro_calc = MAP_PROJETO_AGRO.get(proj_final) or (proj_final if proj_final in ["OFI", "PV CARGILL", "NCP", "MIMC", "CAFE & GESTAO"] else None)
+            agro_calc = MAP_PROJETO_AGRO.get(proj_final) or (proj_final if proj_final in ["OFI", "PV CARGILL", "NCP", "MIMC", "CAFE & GESTAO", "COPRIL", "CAMPILEITE"] else None)
             uf_val = limpar_uf(r.get("estado_produtor"))
             reg_calc = formatar_regiao(agro_calc, regiao_map.get(c.upper()), uf_val)
             nome_prop = str(r.get("nome_propriedade") or "FAZENDA").strip()[:250]
@@ -883,10 +864,17 @@ def executar_reconciliacao():
             })
 
         df_novos_ativos = pd.DataFrame(novos_ativos_m).drop_duplicates(subset=["id"])
-        print(f"   Mês {ref_m}: {len(df_novos_ativos)} fazendas ativas (todas as cadeias) consolidadas a partir dos vínculos.")
+        print(f"   Mês {ref_m}: {len(df_novos_ativos)} fazendas ativas consolidadas.")
+
+        # Limpar apenas os registros do mês específico que estamos atualizando antes de inserir os novos
+        try:
+            supabase.table(tabela_ativos).delete().eq("mes_referencia", ref_m).execute()
+        except Exception as e_del_m:
+            print(f"   ℹ️ Aviso ao limpar {ref_m} em {tabela_ativos}: {e_del_m}")
 
         registros_ativos = df_novos_ativos.to_dict(orient="records")
         sucesso_ativos = 0
+        erros_ativos = 0
         for i in range(0, len(registros_ativos), LOTE):
             lote_at = registros_ativos[i : i + LOTE]
             try:
@@ -897,10 +885,11 @@ def executar_reconciliacao():
                     supabase.table(tabela_ativos).upsert(lote_at).execute()
                     sucesso_ativos += len(lote_at)
                 except Exception as e2:
+                    erros_ativos += len(lote_at)
                     print(f"     ❌ Erro ao enviar lote de ativos {i // LOTE + 1}: {e2}")
             time.sleep(0.05)
 
-        print(f"   ✅ {sucesso_ativos} produtores ativos atualizados para {ref_m} em {tabela_ativos}.")
+        print(f"   ✅ {sucesso_ativos} produtores ativos atualizados para {ref_m} em {tabela_ativos} (falhas: {erros_ativos}).")
 
     print("\n=================================================================")
     print("   RECONCILIAÇÃO CONCLUÍDA COM SUCESSO!                          ")

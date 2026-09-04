@@ -161,13 +161,62 @@ function extractCleanProject(str, fallback = '') {
 
 function mapAgroindustria(projeto) {
   if (!projeto) return 'NÃO INFORMADA';
-  const p = String(projeto).toUpperCase();
+  const p = String(projeto).trim().toUpperCase();
   if (p.includes('ALVOAR')) return 'Alvoar';
   if (p.includes('CCPR')) return 'CCPR';
   if (p.includes('LPA') || p.includes('PORTO ALEGRE')) return 'Laticínios Porto Alegre';
   if (p.includes('REGENERA') || p.includes('NESTLE') || p.includes('NESTLÉ')) return 'Nestlé';
   if (p.includes('SEMEAR') || p.includes('DANONE')) return 'Danone';
+  if (p.includes('COPRIL')) return 'Copril';
+  if (p.includes('CAMPILEITE')) return 'Campileite';
   return projeto;
+}
+
+function getSupabaseClient() {
+  const { createClient } = require('@supabase/supabase-js');
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    throw new Error('Supabase credentials missing in environment variables');
+  }
+  return createClient(url, key);
+}
+
+async function fetchAll(createQuery, pageSize = 1000) {
+  const rows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await createQuery().range(from, from + pageSize - 1);
+    if (error) throw error;
+    if (data && data.length > 0) {
+      rows.push(...data);
+    }
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
+}
+
+function monthLabel(value) {
+  if (!value) return '-';
+  const parsed = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  const month = parsed.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+  return `${month.charAt(0).toUpperCase()}${month.slice(1)}/${String(parsed.getFullYear()).slice(-2)}`;
+}
+
+function formatDate(value) {
+  if (!value) return '-';
+  const parsed = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('pt-BR');
+}
+
+function normalizeName(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 }
 
 function shiftMonthMinus1(monthStr) {
@@ -206,6 +255,11 @@ module.exports = {
   fetchWithCache,
   getCached,
   setCached,
+  getSupabaseClient,
+  fetchAll,
+  monthLabel,
+  formatDate,
+  normalizeName,
   sanitizeConsultorList,
   isNonFieldConsultant,
   isTestData,

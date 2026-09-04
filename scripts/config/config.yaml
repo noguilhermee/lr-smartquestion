@@ -44,7 +44,7 @@ supabase:
     agroindustria_dim: "sq_dim_agroindustria"
     regiao_dim: "sq_dim_regiao"
     consultor_dim: "sq_dim_consultor"
-    fazenda_dim: "sq_dim_fazenda"
+    fazenda_dim: "sq_dim_fazendas_ativas"
 
 # 📄 NOMES E PADRÕES DOS ARQUIVOS DE RELATÓRIO EXCEL
 smartquestion:

@@ -249,21 +249,28 @@ async function getRegiaoMap(supabase, fetchAll) {
       }
     }
 
-    // Fallback para sq_dim_fazenda no Supabase se o Postgres não estiver disponível
+    // Fallback no Supabase se o Postgres não estiver disponível:
+    // Consulta a dimensão canônica sq_dim_fazendas_ativas (que contém codigo_produtor e regiao)
     try {
-      const fazendasDB = await fetchAll(() => supabase.from('sq_dim_fazenda').select('codigo_lr, cod_agroindustria, regiao_leiteira'));
+      const fazendasDB = await fetchAll(() =>
+        supabase
+          .from('sq_dim_fazendas_ativas')
+          .select('codigo_produtor, regiao')
+          .not('regiao', 'is', null)
+      );
       (fazendasDB || []).forEach(f => {
-        const cod = f.codigo_lr || f.cod_agroindustria;
-        const reg = f.regiao_leiteira;
+        const cod = f.codigo_produtor;
+        const reg = f.regiao;
         if (cod && reg) {
           const cleanRegiao = sanitizeRegiao(reg);
           if (cleanRegiao) {
             regiaoMap.set(String(cod).trim(), cleanRegiao);
+            regiaoMap.set(String(cod).trim().toUpperCase(), cleanRegiao);
           }
         }
       });
     } catch (errSupabase) {
-      console.error('Erro no fallback Supabase sq_dim_fazenda:', errSupabase.message);
+      console.warn('⚠️ Erro no fallback Supabase sq_dim_fazendas_ativas:', errSupabase.message);
     }
 
     return regiaoMap;
@@ -282,7 +289,7 @@ async function getProdutoresAtivos(supabase, fetchAll, refMonth = null, maxAllow
           let q = supabase
             .from(tbl)
             .select('codigo_produtor, nome_produtor, nome_propriedade, grupo_ponto_atendimento, nome_grupo_ponto_atendimento, projeto, agroindustria, regiao, unidade_atendimento, mes_referencia, tipo_ponto_atendimento, status')
-            .ilike('tipo_ponto_atendimento', '%LEITE%');
+            .eq('tipo_ponto_atendimento', 'LEITE');
           if (refMonth) q = q.eq('mes_referencia', refMonth);
           else if (maxAllowedMonth) q = q.lte('mes_referencia', maxAllowedMonth);
           return q.order('mes_referencia', { ascending: false }).order('codigo_produtor', { ascending: true });

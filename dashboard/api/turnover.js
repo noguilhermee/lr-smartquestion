@@ -1,59 +1,14 @@
-const { createClient } = require('@supabase/supabase-js');
 const {
+  getSupabaseClient,
+  fetchAll,
   fetchWithCache,
+  monthLabel,
   sanitizeConsultorList,
   isTestData,
   ehCadeiaLeite,
   isValidoLeite,
   mapAgroindustria
 } = require('./shared');
-
-function getSupabaseClient() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
-  if (!url || !key) {
-    throw new Error('Supabase credentials missing in environment variables');
-  }
-  return createClient(url, key);
-}
-
-async function fetchAll(createQuery, pageSize = 1000) {
-  const { data: firstPage, error: err0 } = await createQuery().range(0, pageSize - 1);
-  if (err0) throw err0;
-  const rows = firstPage ? [...firstPage] : [];
-  if (rows.length < pageSize) return rows;
-
-  let from = pageSize;
-  while (true) {
-    const promises = [];
-    for (let i = 0; i < 5; i++) {
-      const pageFrom = from + i * pageSize;
-      promises.push(createQuery().range(pageFrom, pageFrom + pageSize - 1));
-    }
-    const results = await Promise.all(promises);
-    let done = false;
-    for (const res of results) {
-      if (res.error) throw res.error;
-      const page = res.data || [];
-      rows.push(...page);
-      if (page.length < pageSize) {
-        done = true;
-        break;
-      }
-    }
-    if (done) break;
-    from += 5 * pageSize;
-  }
-  return rows;
-}
-
-function monthLabel(value) {
-  if (!value) return '-';
-  const parsed = new Date(`${String(value).slice(0, 10)}T12:00:00`);
-  if (Number.isNaN(parsed.getTime())) return String(value);
-  const month = parsed.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
-  return `${month.charAt(0).toUpperCase()}${month.slice(1)}/${String(parsed.getFullYear()).slice(-2)}`;
-}
 
 module.exports = async (req, res) => {
   try {

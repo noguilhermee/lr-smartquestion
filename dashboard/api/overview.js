@@ -1,6 +1,10 @@
-const { createClient } = require('@supabase/supabase-js');
 const {
+  getSupabaseClient,
+  fetchAll,
   fetchWithCache,
+  monthLabel,
+  formatDate,
+  normalizeName,
   sanitizeConsultorList,
   isNonFieldConsultant,
   isTestData,
@@ -10,67 +14,6 @@ const {
   shiftMonthMinus1,
   expandRows
 } = require('./shared');
-
-function getSupabaseClient() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
-  if (!url || !key) {
-    throw new Error('Supabase credentials missing in environment variables');
-  }
-  return createClient(url, key);
-}
-
-async function fetchAll(createQuery, pageSize = 1000) {
-  const { data: firstPage, error: err0 } = await createQuery().range(0, pageSize - 1);
-  if (err0) throw err0;
-  const rows = firstPage ? [...firstPage] : [];
-  if (rows.length < pageSize) return rows;
-
-  let from = pageSize;
-  while (true) {
-    const promises = [];
-    for (let i = 0; i < 5; i++) {
-      const pageFrom = from + i * pageSize;
-      promises.push(createQuery().range(pageFrom, pageFrom + pageSize - 1));
-    }
-    const results = await Promise.all(promises);
-    let done = false;
-    for (const res of results) {
-      if (res.error) throw res.error;
-      const page = res.data || [];
-      rows.push(...page);
-      if (page.length < pageSize) {
-        done = true;
-        break;
-      }
-    }
-    if (done) break;
-    from += 5 * pageSize;
-  }
-  return rows;
-}
-
-function monthLabel(value) {
-  if (!value) return '-';
-  const parsed = new Date(`${String(value).slice(0, 10)}T12:00:00`);
-  if (Number.isNaN(parsed.getTime())) return String(value);
-  const month = parsed.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
-  return `${month.charAt(0).toUpperCase()}${month.slice(1)}/${String(parsed.getFullYear()).slice(-2)}`;
-}
-
-function formatDate(value) {
-  if (!value) return '-';
-  const parsed = new Date(`${String(value).slice(0, 10)}T12:00:00`);
-  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('pt-BR');
-}
-
-function normalizeName(str) {
-  return String(str || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
 
 module.exports = async (req, res) => {
   try {
@@ -431,15 +374,48 @@ module.exports = async (req, res) => {
     });
     const ranking = [...rankingMap.entries()].sort((a, b) => b[1] - a[1]);
 
+    const hoje = new Date();
+    let dataCorte = hoje;
+    if (visitasMonth) {
+      const parts = String(visitasMonth).slice(0, 10).split('-');
+      if (parts.length === 3) {
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10);
+        const lastDayOfMonth = new Date(year, month, 0, 23, 59, 59);
+        if (lastDayOfMonth < hoje) {
+          dataCorte = lastDayOfMonth;
+        }
+      }
+    }
+
+    const prevMonthStr = shiftMonthMinus1(visitasMonth || maxAllowedMonth);
+    const prevMonthPrefix = prevMonthStr ? prevMonthStr.slice(0, 7) : null;
+
     const ultimaVisitaMap = new Map();
+    const visitaMesAnteriorMap = new Map();
     (visitasHistoricas || []).forEach(v => {
       if (!v.codigo_lr || !v.data_visita) return;
       const cod = String(v.codigo_lr).trim().toUpperCase();
       const d = new Date(v.data_visita);
       if (Number.isNaN(d.getTime())) return;
-      const prev = ultimaVisitaMap.get(cod);
-      if (!prev || d > prev) {
-        ultimaVisitaMap.set(cod, d);
+
+      // 1. Mapear visita do mês anterior
+      if (prevMonthPrefix) {
+        const vMonth = String(v.mes_referencia || v.data_visita).slice(0, 7);
+        if (vMonth === prevMonthPrefix) {
+          const prevMA = visitaMesAnteriorMap.get(cod);
+          if (!prevMA || d > prevMA) {
+            visitaMesAnteriorMap.set(cod, d);
+          }
+        }
+      }
+
+      // 2. Mapear última visita considerando apenas visitas ocorridas ATÉ a data de corte (<= dataCorte)
+      if (d <= dataCorte) {
+        const prev = ultimaVisitaMap.get(cod);
+        if (!prev || d > prev) {
+          ultimaVisitaMap.set(cod, d);
+        }
       }
     });
 
@@ -454,20 +430,6 @@ module.exports = async (req, res) => {
         dataAssociacaoMap.set(cod, d);
       }
     });
-
-    const hoje = new Date();
-    let dataCorte = hoje;
-    if (visitasMonth) {
-      const parts = String(visitasMonth).slice(0, 10).split('-');
-      if (parts.length === 3) {
-        const year = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10);
-        const lastDayOfMonth = new Date(year, month, 0, 23, 59, 59);
-        if (lastDayOfMonth < hoje) {
-          dataCorte = lastDayOfMonth;
-        }
-      }
-    }
 
     // Tabela: Produtores sem visita — expande somente consultores válidos de campo
     const semVisita = expandRows(
@@ -501,6 +463,11 @@ module.exports = async (req, res) => {
           ? formatDate(dataUltimaVisita.toISOString().slice(0, 10))
           : '—';
 
+        const dataVisitaMesAnterior = codNorm ? visitaMesAnteriorMap.get(codNorm) : null;
+        const dataVisitaMesAnteriorExibicao = dataVisitaMesAnterior
+          ? formatDate(dataVisitaMesAnterior.toISOString().slice(0, 10))
+          : '—';
+
         const agro = mapAgroindustria(p.projeto);
         return {
           consultor: p.nome_consultor || 'NÃO ATRIBUÍDO',
@@ -514,6 +481,7 @@ module.exports = async (req, res) => {
           mes_referencia: visitasMonth,
           data_associacao: dataExibicao,
           data_vinculacao: dataExibicao,
+          data_visita_mes_anterior: dataVisitaMesAnteriorExibicao,
           data_ultima_visita: dataUltimaVisitaExibicao,
           dias_sem_visita: diasSemVisita
         };

@@ -787,7 +787,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function setupTableSorting() {
     const MAPPINGS = {
-      tbodySemVisita: ['consultor', 'codigo_lr', 'produtor', 'data_associacao', 'data_ultima_visita', 'dias_sem_visita', 'status'],
+      tbodySemVisita: ['consultor', 'codigo_lr', 'produtor', 'data_associacao', 'data_visita_mes_anterior', 'data_ultima_visita', 'dias_sem_visita', 'status'],
       tbodyVisitados: ['consultor', 'codigo_lr', 'produtor', 'profissao', 'atendimento', 'data_visita', 'elabore_ok'],
       tbodyTurnover: ['atendimento', 'produtor', 'tipo', 'data', 'grupo', 'motivo'],
       tbodyConsultants: ['consultor', 'total_fazendas', 'fazendas_visitadas', 'total_visitas', 'perc_cobertura', 'status'],
@@ -999,6 +999,8 @@ document.addEventListener('DOMContentLoaded', () => {
           rowVal = row.possui_dados === false ? 'não nao' : 'sim';
         } else if (colKey === 'data_associacao' || colKey === 'data_vinculo') {
           rowVal = String(row.data_associacao || row.data_vinculacao || row.data_referencia || '');
+        } else if (colKey === 'data_visita_mes_anterior') {
+          rowVal = String(row.data_visita_mes_anterior || '');
         } else if (colKey === 'data_ultima_visita') {
           rowVal = String(row.data_ultima_visita || '');
         } else if (colKey === 'grupo') {
@@ -1053,7 +1055,7 @@ document.addEventListener('DOMContentLoaded', () => {
     withoutVisit = sortRows(withoutVisit, tableSort.tbodySemVisita, (row, key) => row[key] ?? row.data_associacao ?? row.data_referencia);
     updateTableHeadIcons('tbodySemVisita', tableSort.tbodySemVisita.colKey, tableSort.tbodySemVisita.dir);
     const pWithoutVisit = getPaginatedSlice('tableSemVisita', withoutVisit);
-    if (el('tbodySemVisita')) el('tbodySemVisita').innerHTML = rowsOrEmpty(pWithoutVisit, 7, (row) => {
+    if (el('tbodySemVisita')) el('tbodySemVisita').innerHTML = rowsOrEmpty(pWithoutVisit, 8, (row) => {
       const hasDays = row.dias_sem_visita !== null && row.dias_sem_visita !== undefined && row.dias_sem_visita !== '';
       const days = hasDays ? Number(row.dias_sem_visita) : null;
       const isGrave = hasDays && days >= 60;
@@ -1067,8 +1069,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const rowClass = isGrave ? 'table-row-grave' : (isZero ? '' : 'table-row-pending');
       const badgeClass = isGrave ? 'badge-danger' : (isZero ? 'badge-positive' : 'badge-warning');
       const dtAssoc = row.data_associacao || row.data_vinculacao || row.data_referencia || '—';
+      const dtVisitaMesAnterior = row.data_visita_mes_anterior || '—';
       const dtUltimaVisita = row.data_ultima_visita || '—';
-      return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-center" title="${escapeHtml(dtAssoc)}">${escapeHtml(dtAssoc)}</td><td class="col-center" title="${escapeHtml(dtUltimaVisita)}">${escapeHtml(dtUltimaVisita)}</td><td class="col-center font-tabular">${hasDays ? days : '—'}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(status)}">${escapeHtml(status)}</span></td></tr>`;
+      return `<tr class="${rowClass}"><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(row.produtor || '—')}">${escapeHtml(row.produtor || '—')}</td><td class="col-center" title="${escapeHtml(dtAssoc)}">${escapeHtml(dtAssoc)}</td><td class="col-center" title="${escapeHtml(dtVisitaMesAnterior)}">${escapeHtml(dtVisitaMesAnterior)}</td><td class="col-center" title="${escapeHtml(dtUltimaVisita)}">${escapeHtml(dtUltimaVisita)}</td><td class="col-center font-tabular">${hasDays ? days : '—'}</td><td class="col-center"><span class="badge ${badgeClass}" title="${escapeHtml(status)}">${escapeHtml(status)}</span></td></tr>`;
     });
     renderTablePagination('paginationSemVisita', 'tableSemVisita', withoutVisit.length);
 
@@ -1188,13 +1191,15 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function mapAgroindustria(projeto) {
-    if (!projeto) return '';
+    if (!projeto) return 'NÃO INFORMADA';
     const p = String(projeto).toUpperCase();
     if (p.includes('ALVOAR')) return 'Alvoar';
     if (p.includes('CCPR')) return 'CCPR';
     if (p.includes('LPA') || p.includes('PORTO ALEGRE')) return 'Laticínios Porto Alegre';
     if (p.includes('REGENERA') || p.includes('NESTLE') || p.includes('NESTLÉ')) return 'Nestlé';
     if (p.includes('SEMEAR') || p.includes('DANONE')) return 'Danone';
+    if (p.includes('COPRIL')) return 'Copril';
+    if (p.includes('CAMPILEITE')) return 'Campileite';
     return String(projeto).trim();
   }
 

@@ -154,9 +154,9 @@ CAMINHO_ARQUIVO = PASTA_SAIDA / f"{DATA_EXPORTACAO}_nome_do_arquivo.ext"
 
 ---
 
-## 🔒 9. Acesso ao Supabase (Regra Estrita de Somente Leitura / Read-Only)
-- **Regra Absoluta**: Neste projeto, **NUNCA alterar nada no Supabase** (estritamente proibidas operações de gravação/mutação como `INSERT`, `UPDATE`, `DELETE`, `DROP` ou `ALTER`).
-- **Escopo**: O acesso ao Supabase é **exclusivamente para CONSULTA / LEITURA (`SELECT` / Read-Only)** de tabelas e visões para apoiar a análise e aplicação de regras de negócio.
+## 🔒 9. Acesso ao Supabase (Leitura Estrita para IA / Escrita Controlada via Pipeline ETL)
+- **Escopo do Assistente de IA**: O acesso do assistente de IA ao Supabase é **exclusivamente para CONSULTA / LEITURA (`SELECT` / Read-Only)**. Operações de gravação ou alteração direta via SQL/client pelo assistente são estritamente proibidas.
+- **Escopo do Pipeline ETL**: Os scripts oficiais de pipeline (`reconciliar_movimentacao_e_ativos.py`, `ETL_BI_LR.ipynb`, etc.) possuem autorização para executar operações controladas de gravação/upsert exclusivamente nas tabelas gerenciadas pelo projeto (`sq_*`).
 
 ---
 

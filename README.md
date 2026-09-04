@@ -47,20 +47,20 @@ Os fluxos de projetos específicos extraem relatórios operacionais enviados per
 * **[SMARTQUESTION] Extração Semear**
   * 📄 **Arquivo Gerado:** `LISTA_SEMEAR_VISITA.xlsx`
   * 🐍 **Módulo Python (ETL):** `processar_relatorios_visitas()` e `etl_visitas()` em `ETL_BI_LR.ipynb`
-  * 🗄️ **Tabela Origem Supabase:** `tab_visitas_sq`
-  * 📊 **Destino no BI:** `f_visitas_bi_lr`
+  * 🗄️ **Tabela Origem Supabase:** `sq_raw_visitas`
+  * 📊 **Destino no BI:** `sq_fato_visitas`
 
 * **[SMARTQUESTION] Extração Alvoar**
   * 📄 **Arquivo Gerado:** `LISTA_ALVOAR_VISITA.xlsx`
   * 🐍 **Módulo Python (ETL):** `processar_relatorios_visitas()` e `etl_visitas()` em `ETL_BI_LR.ipynb`
-  * 🗄️ **Tabela Origem Supabase:** `tab_visitas_sq`
-  * 📊 **Destino no BI:** `f_visitas_bi_lr`
+  * 🗄️ **Tabela Origem Supabase:** `sq_raw_visitas`
+  * 📊 **Destino no BI:** `sq_fato_visitas`
 
 * **[SMARTQUESTION] Extração Regenera**
   * 📄 **Arquivo Gerado:** `LISTA_REGENERA_VISITA.xlsx`
   * 🐍 **Módulo Python (ETL):** `processar_relatorios_visitas()` e `etl_visitas()` em `ETL_BI_LR.ipynb`
-  * 🗄️ **Tabela Origem Supabase:** `tab_visitas_sq`
-  * 📊 **Destino no BI:** `f_visitas_bi_lr`
+  * 🗄️ **Tabela Origem Supabase:** `sq_raw_visitas`
+  * 📊 **Destino no BI:** `sq_fato_visitas`
 
 ---
 
@@ -68,29 +68,29 @@ Os fluxos de projetos específicos extraem relatórios operacionais enviados per
 * **[SMARTQUESTION] Extração Visitas (Geral)**
   * 📄 **Arquivo Gerado:** `LISTA_GERAL_VISITAS.xlsx`
   * 🐍 **Módulo Python (ETL):** `etl_visitas()` em `ETL_BI_LR.ipynb`
-  * 🗄️ **Tabela Origem Supabase:** `tab_visitas_sq`
+  * 🗄️ **Tabela Origem Supabase:** `sq_raw_visitas`
 
 * **[SMARTQUESTION] Extração Grupo**
   * 📄 **Arquivo Gerado:** `LISTA_GERAL_RELATORIO_DE_GRUPO.xlsx`
   * 🐍 **Módulo Python (ETL):** Módulo de Grupos em `ETL_BI_LR.ipynb`
-  * 🗄️ **Tabela Supabase:** `tab_visitas_grupo_sq`
+  * 🗄️ **Tabela Supabase:** `sq_raw_fazendas_grupo`
 
 * **[SMARTQUESTION] Extração Vínculos**
   * 📄 **Arquivo Gerado:** `BD_BI_VINCULOS_COMPLETO.xlsx`
   * 🐍 **Módulo Python (ETL):** `etl_vinculos()` em `ETL_BI_LR.ipynb`
-  * 🗄️ **Tabela Supabase:** `tab_vinculos_sq`
-  * 📊 **Tabela Fato Impactada:** Cruza com `f_visitas_bi_lr` e `f_consistente_bi_lr`
+  * 🗄️ **Tabela Supabase:** `sq_raw_vinculos`
+  * 📊 **Tabela Fato Impactada:** Cruza com `sq_fato_visitas` e `sq_fato_consistencia`
 
 * **[SMARTQUESTION] Extração Cadastro**
   * 📄 **Arquivo Gerado:** `*LISTA_CADASTRO.xlsx`
   * 🐍 **Módulo Python (ETL):** Módulo de Cadastro em `ETL_BI_LR.ipynb`
-  * 🗄️ **Tabela Supabase:** `tab_fazenda`
+  * 🗄️ **Tabela Supabase:** `sq_dim_fazendas_ativas`
 
 * **[SMARTQUESTION] Extração Inativação**
   * 📄 **Arquivo Gerado:** `*LISTA_INATIVACAO.xlsx` (ex: `260807_LISTA_INATIVACAO.xlsx` e `BD_INATIVACAO_2023_2025.xlsx`)
   * 🐍 **Módulo Python (ETL):** `etl_inativacao()` e `etl_inativacao_consultor()` em `ETL_BI_LR.ipynb`
-  * 🗄️ **Tabela Supabase:** `tab_inativacoes_sq` e `tab_inativacao_consultor_sq`
-  * 📊 **Tabela Fato Impactada:** `f_movimentacao_produtores_bi_lr` (Turnover / Saídas)
+  * 🗄️ **Tabela Supabase:** `sq_raw_inativacoes_produtor` e `sq_raw_inativacoes_consultor`
+  * 📊 **Tabela Fato Impactada:** `sq_fato_movimentacao` (Turnover / Saídas)
 
 ---
 
@@ -98,16 +98,16 @@ Os fluxos de projetos específicos extraem relatórios operacionais enviados per
 
 | Fluxo Power Automate | Arquivo em `BD_SMARTQUESTION` | Função/Módulo Python | Tabela Supabase |
 | :--- | :--- | :--- | :--- |
-| `Extração LPA` | `LISTA_LPA_VISITA.xlsx` | `processar_relatorios_visitas()` / `etl_visitas()` | `tab_visitas_sq` |
-| `Extração CCPR` | `LISTA_CCPR_VISITA.xlsx` | `processar_relatorios_visitas()` / `etl_visitas()` | `tab_visitas_sq` |
-| `Extração Semear` | `LISTA_SEMEAR_VISITA.xlsx` | `processar_relatorios_visitas()` / `etl_visitas()` | `tab_visitas_sq` |
-| `Extração Alvoar` | `LISTA_ALVOAR_VISITA.xlsx` | `processar_relatorios_visitas()` / `etl_visitas()` | `tab_visitas_sq` |
-| `Extração Regenera` | `LISTA_REGENERA_VISITA.xlsx` | `processar_relatorios_visitas()` / `etl_visitas()` | `tab_visitas_sq` |
-| `Extração Visitas` | `LISTA_GERAL_VISITAS.xlsx` | `etl_visitas()` | `tab_visitas_sq` |
-| `Extração Grupo` | `LISTA_GERAL_RELATORIO_DE_GRUPO.xlsx` | Módulo de Grupos | `tab_visitas_grupo_sq` |
-| `Extração Vínculos` | `BD_BI_VINCULOS_COMPLETO.xlsx` | `etl_vinculos()` | `tab_vinculos_sq` |
-| `Extração Cadastro` | `*LISTA_CADASTRO.xlsx` | Módulo de Cadastro | `tab_fazenda` |
-| `Extração Inativação` | `*LISTA_INATIVACAO.xlsx` | `etl_inativacao()` / `etl_inativacao_consultor()` | `tab_inativacoes_sq` |
+| `Extração LPA` | `LISTA_LPA_VISITA.xlsx` | `processar_relatorios_visitas()` / `etl_visitas()` | `sq_raw_visitas` |
+| `Extração CCPR` | `LISTA_CCPR_VISITA.xlsx` | `processar_relatorios_visitas()` / `etl_visitas()` | `sq_raw_visitas` |
+| `Extração Semear` | `LISTA_SEMEAR_VISITA.xlsx` | `processar_relatorios_visitas()` / `etl_visitas()` | `sq_raw_visitas` |
+| `Extração Alvoar` | `LISTA_ALVOAR_VISITA.xlsx` | `processar_relatorios_visitas()` / `etl_visitas()` | `sq_raw_visitas` |
+| `Extração Regenera` | `LISTA_REGENERA_VISITA.xlsx` | `processar_relatorios_visitas()` / `etl_visitas()` | `sq_raw_visitas` |
+| `Extração Visitas` | `LISTA_GERAL_VISITAS.xlsx` | `etl_visitas()` | `sq_raw_visitas` |
+| `Extração Grupo` | `LISTA_GERAL_RELATORIO_DE_GRUPO.xlsx` | Módulo de Grupos | `sq_raw_fazendas_grupo` |
+| `Extração Vínculos` | `BD_BI_VINCULOS_COMPLETO.xlsx` | `etl_vinculos()` | `sq_raw_vinculos` |
+| `Extração Cadastro` | `*LISTA_CADASTRO.xlsx` | Módulo de Cadastro | `sq_dim_fazendas_ativas` |
+| `Extração Inativação` | `*LISTA_INATIVACAO.xlsx` | `etl_inativacao()` / `etl_inativacao_consultor()` | `sq_raw_inativacoes_produtor` |
 
 ---
 
