@@ -15,10 +15,10 @@ document.addEventListener('DOMContentLoaded', () => {
     rankingDimension: 'producer',
     hasUserChangedMonth: false,
     chartHorizons: {
-      coverage: 12,
-      turnover: 12,
-      portfolio: 12,
-      consistency: 12
+      coverage: 6,
+      turnover: 6,
+      portfolio: 6,
+      consistency: 6
     }
   };
 
@@ -503,10 +503,10 @@ document.addEventListener('DOMContentLoaded', () => {
       consultores.includes(filterConsult) ||
       rawConsultant.toLocaleLowerCase('pt-BR').includes(filterConsult);
 
-    const producer = String(row.produtor || row.nome_produtor || row.propriedade || '').toLocaleLowerCase('pt-BR');
-    const producerCode = String(row.codigo_lr || row.codigo_produtor || '').toLocaleLowerCase('pt-BR');
-    const filterProd = (filter.producer || '').toLocaleLowerCase('pt-BR');
-    const producerMatch = !filterProd || producer === filterProd || producer.includes(filterProd) || producerCode === filterProd;
+    const producer = String(row.produtor || row.nome_produtor || row.propriedade || '').trim().toLocaleLowerCase('pt-BR');
+    const producerCode = String(row.codigo_lr || row.codigo_produtor || '').trim().toLocaleLowerCase('pt-BR');
+    const filterProd = (filter.producer || '').trim().toLocaleLowerCase('pt-BR');
+    const producerMatch = !filterProd || producer === filterProd || producerCode === filterProd;
 
     const rowRegion = sanitizeRegiao(row.regiao || row.regioes);
     const filterRegion = sanitizeRegiao(filter.region);
@@ -1872,6 +1872,25 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     }
   }
+
+  const mobileFilterToggle = el('mobileFilterToggle');
+  const filterShell = el('filterShell');
+  if (mobileFilterToggle && filterShell) {
+    mobileFilterToggle.addEventListener('click', () => {
+      const isExpanded = filterShell.classList.toggle('is-expanded');
+      mobileFilterToggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+    });
+  }
+
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (window.renderAllCharts && state.renderedData) {
+        window.renderAllCharts(state.renderedData);
+      }
+    }, 250);
+  });
 
   // Eventos de filtros com suporte a filtragem cruzada multidirecional estilo Power BI
   ['filterIndustry', 'filterRegion', 'filterProject', 'filterStatus', 'filterConsultant', 'filterProducer']

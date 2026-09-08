@@ -251,6 +251,44 @@ function expandRows(rows) {
   return result;
 }
 
+function isTermoAdesao(tipo) {
+  if (!tipo) return false;
+  const s = String(tipo).toUpperCase();
+  return s.includes('TERMO DE ADESAO') || s.includes('TERMO DE ADESÃO');
+}
+
+function deduplicateAndFilterVisits(visitas) {
+  if (!visitas || !Array.isArray(visitas)) return [];
+
+  const semTermo = visitas.filter(v => !isTermoAdesao(v.tipo_visita));
+  const mapAtendimento = new Map();
+  const semIdAtendimento = [];
+
+  semTermo.forEach(v => {
+    const idAtend = (v.id_atendimento !== null && v.id_atendimento !== undefined && String(v.id_atendimento).trim() !== '')
+      ? String(Math.floor(Number(v.id_atendimento)))
+      : null;
+
+    if (!idAtend || idAtend === '0' || idAtend === 'NaN') {
+      semIdAtendimento.push(v);
+    } else {
+      if (!mapAtendimento.has(idAtend)) {
+        mapAtendimento.set(idAtend, { ...v });
+      } else {
+        const exist = mapAtendimento.get(idAtend);
+        const c1 = sanitizeConsultorList(exist.nome_consultor);
+        const c2 = sanitizeConsultorList(v.nome_consultor);
+        const mergedConsultants = [...new Set([...c1, ...c2])].join(' / ');
+        if (mergedConsultants) {
+          exist.nome_consultor = mergedConsultants;
+        }
+      }
+    }
+  });
+
+  return [...mapAtendimento.values(), ...semIdAtendimento];
+}
+
 module.exports = {
   fetchWithCache,
   getCached,
@@ -268,5 +306,8 @@ module.exports = {
   mapAgroindustria,
   extractCleanProject,
   shiftMonthMinus1,
-  expandRows
+  expandRows,
+  isTermoAdesao,
+  deduplicateAndFilterVisits
 };
+

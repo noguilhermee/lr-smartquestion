@@ -367,19 +367,19 @@ def executar_reconciliacao():
             dt_solic = row.get("data_solicitacao")
             dt_inat = row.get("data_inativacao")
             
+            # Priorizar a Data da Inativação (quando o produtor efetivamente saiu) sobre a Data da Solicitação
+            dt_inat_p = pd.to_datetime(dt_inat, errors="coerce")
             dt_solic_p = pd.to_datetime(dt_solic, errors="coerce")
-            if pd.notna(dt_solic_p) and dt_solic_p >= pd.Timestamp("2026-01-01"):
-                # Filtro de LEITE para 2026 em diante
-                if not eh_cadeia_leite(proj_inat, cod_raw):
-                    continue
-                dt_mov = dt_solic_p.strftime("%Y-%m-01")
+            dt_efetiva = dt_inat_p if pd.notna(dt_inat_p) else dt_solic_p
+
+            if pd.notna(dt_efetiva):
+                if dt_efetiva >= pd.Timestamp("2026-01-01"):
+                    if not eh_cadeia_leite(proj_inat, cod_raw):
+                        continue
+                dt_mov = dt_efetiva.strftime("%Y-%m-01")
                 id_comp = f"INAT_{id_atend}_{dt_mov}_Saída" if id_atend else f"{cod}_{cons}_{dt_mov}_Saída"
             else:
-                dt_legado = pd.to_datetime(dt_inat or dt_solic, errors="coerce")
-                if pd.notna(dt_legado):
-                    dt_mov = dt_legado.strftime("%Y-%m-01")
-                else:
-                    dt_mov = config.mes_referencia.strftime("%Y-%m-01")
+                dt_mov = config.mes_referencia.strftime("%Y-%m-01")
                 id_comp = f"{cod}_{cons}_{dt_mov}_Saída"
                 
             motivo = row.get("motivo_inativacao")
@@ -450,12 +450,10 @@ def executar_reconciliacao():
             dt_solic = row.get("data_solicitacao")
             dt_inat = row.get("data_inativacao")
 
+            dt_inat_p = pd.to_datetime(dt_inat, errors="coerce")
             dt_solic_p = pd.to_datetime(dt_solic, errors="coerce")
-            if pd.notna(dt_solic_p) and dt_solic_p >= pd.Timestamp("2026-01-01"):
-                dt_str = dt_solic_p.strftime("%Y-%m-01")
-            else:
-                dt_legado = pd.to_datetime(dt_inat or dt_solic, errors="coerce")
-                dt_str = dt_legado.strftime("%Y-%m-01") if pd.notna(dt_legado) else None
+            dt_efetiva = dt_inat_p if pd.notna(dt_inat_p) else dt_solic_p
+            dt_str = dt_efetiva.strftime("%Y-%m-01") if pd.notna(dt_efetiva) else None
 
             if c and dt_str:
                 if c not in inativacoes_por_codigo or dt_str < inativacoes_por_codigo[c]:

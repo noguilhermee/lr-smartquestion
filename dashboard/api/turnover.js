@@ -55,8 +55,10 @@ module.exports = async (req, res) => {
         if (!consultorNames.some(c => c && c.toLowerCase() === filters.consultant.toLowerCase())) return false;
       }
       if (filters.producer) {
-        const pName = String(row.nome_produtor || row.produtor || row.codigo_lr || '').toLowerCase();
-        if (!pName.includes(filters.producer.toLowerCase())) return false;
+        const pName = String(row.nome_produtor || row.produtor || '').trim().toLowerCase();
+        const pCode = String(row.codigo_lr || row.codigo_produtor || '').trim().toLowerCase();
+        const target = filters.producer.trim().toLowerCase();
+        if (pName !== target && pCode !== target) return false;
       }
       if (filters.status) {
         const rowStatus = String(row.status || 'ATIVO').toUpperCase();

@@ -6,8 +6,10 @@ const {
   isTestData,
   ehCadeiaLeite,
   isValidoLeite,
-  mapAgroindustria
+  mapAgroindustria,
+  deduplicateAndFilterVisits
 } = require('./shared');
+
 
 module.exports = async (req, res) => {
   try {
@@ -63,8 +65,10 @@ module.exports = async (req, res) => {
         if (!consultorNames.some(c => c && c.toLowerCase() === filters.consultant.toLowerCase())) return false;
       }
       if (filters.producer) {
-        const pName = String(row.nome_produtor || row.produtor || row.codigo_lr || '').toLowerCase();
-        if (!pName.includes(filters.producer.toLowerCase())) return false;
+        const pName = String(row.nome_produtor || row.produtor || '').trim().toLowerCase();
+        const pCode = String(row.codigo_lr || row.codigo_produtor || '').trim().toLowerCase();
+        const target = filters.producer.trim().toLowerCase();
+        if (pName !== target && pCode !== target) return false;
       }
       if (filters.status) {
         const rowStatus = String(row.status || 'ATIVO').toUpperCase();
@@ -80,7 +84,7 @@ module.exports = async (req, res) => {
       fetchAll(() => {
         let q = supabase
           .from('sq_fato_visitas')
-          .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia');
+          .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia, id_atendimento, tipo_visita');
         if (refMonth) q = q.eq('mes_referencia', refMonth);
         return q.order('codigo_lr', { ascending: true });
       }).catch(() => [])
@@ -94,7 +98,7 @@ module.exports = async (req, res) => {
       const visitasFallback = await fetchWithCache(`VISITS_FALLBACK_${dtInicio}_${dtFim}`, () =>
         fetchAll(() => supabase
           .from('sq_raw_visitas')
-          .select('id_atendimento, codigo_lr, nome_consultor, nome_produtor, data_visita')
+          .select('id_atendimento, codigo_lr, nome_consultor, nome_produtor, data_visita, tipo_visita')
           .gte('data_visita', dtInicio)
           .lte('data_visita', dtFim)
           .order('data_visita', { ascending: false })).catch(() => [])
@@ -107,6 +111,9 @@ module.exports = async (req, res) => {
         }));
       }
     }
+
+    visitasBrutas = deduplicateAndFilterVisits(visitasBrutas);
+
 
     const produtoresFiltrados = (produtoresBrutos || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto)).filter(rowMatches);
     const visitasFiltradas = (visitasBrutas || []).filter(v => isValidoLeite(v.nome_consultor, v.projeto)).filter(rowMatches);

@@ -40,6 +40,10 @@
         <span class="live-dot" aria-hidden="true"></span>
         <span id="lastUpdateTag">Sincronização automática</span>
       </div>
+      <button class="mobile-filter-toggle" id="mobileFilterToggle" type="button" aria-expanded="false" aria-label="Alternar barra de filtros">
+        <span class="material-symbols-rounded" aria-hidden="true">tune</span>
+        <span>Filtros</span>
+      </button>
       <button class="carousel-pause-toggle paused" id="carouselPauseToggle" type="button" aria-pressed="true" aria-label="Continuar rotação dos slides">
         <span class="pause-icon" aria-hidden="true">▶</span>
         <span class="pause-toggle-label">Slide fixo</span>
@@ -56,7 +60,7 @@
     </div>
   </header>
 
-  <section class="filter-shell" aria-label="Filtros da análise">
+  <section class="filter-shell" id="filterShell" aria-label="Filtros da análise">
     <label class="filter-control">
       <span>Agroindústria</span>
       <select id="filterIndustry" aria-label="Agroindústria"><option value="">Todas</option></select>
@@ -105,7 +109,7 @@
         </div>
 
         <div class="grid-two grid-two--visits">
-          <article class="panel-card"><div class="panel-heading panel-heading--with-controls"><h2>Evolução mensal da cobertura</h2><div class="panel-heading-actions"><div class="segmented-control chart-horizon-control" data-chart-horizon="coverage" aria-label="Período do gráfico"><button type="button" data-months="1">1M</button><button type="button" data-months="6">6M</button><button class="active" type="button" data-months="12" aria-pressed="true">12M</button><button type="button" data-months="0">Tudo</button></div><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div><div class="chart-box"><canvas id="chartVisitsCoverage"></canvas></div></article>
+          <article class="panel-card"><div class="panel-heading panel-heading--with-controls"><h2>Evolução mensal da cobertura</h2><div class="panel-heading-actions"><div class="segmented-control chart-horizon-control" data-chart-horizon="coverage" aria-label="Período do gráfico"><button type="button" data-months="1">1M</button><button class="active" type="button" data-months="6" aria-pressed="true">6M</button><button type="button" data-months="12">12M</button><button type="button" data-months="0">Tudo</button></div><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div><div class="chart-box"><canvas id="chartVisitsCoverage"></canvas></div></article>
           <article class="panel-card"><div class="panel-heading"><div><h2>Quantidade de visitas</h2><p id="rankingSubtitle">Ranking por produtor</p></div><div class="panel-heading-actions"><div class="segmented-control" aria-label="Dimensão do ranking"><button class="active" type="button" data-ranking="producer" aria-pressed="true">Produtor(a)</button><button type="button" data-ranking="consultant" aria-pressed="false">Consultor(a)</button></div><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div><div class="chart-box chart-box--ranking" id="rankingChartViewport"><div class="ranking-chart-inner" id="rankingChartInner"><canvas id="chartVisitsRanking"></canvas></div></div></article>
         </div>
 
@@ -134,8 +138,8 @@
         </div>
 
         <div class="grid-two grid-two--turnover">
-          <article class="panel-card"><div class="panel-heading panel-heading--with-controls"><h2>Entradas e saídas por mês</h2><div class="panel-heading-actions"><div class="segmented-control chart-horizon-control" data-chart-horizon="turnover" aria-label="Período do gráfico"><button type="button" data-months="1">1M</button><button type="button" data-months="6">6M</button><button class="active" type="button" data-months="12" aria-pressed="true">12M</button><button type="button" data-months="0">Tudo</button></div><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div><div class="chart-box"><canvas id="chartTurnoverHistory"></canvas></div></article>
-          <article class="panel-card"><div class="panel-heading panel-heading--with-controls"><h2>Evolução de produtores ativos</h2><div class="panel-heading-actions"><div class="segmented-control chart-horizon-control" data-chart-horizon="portfolio" aria-label="Período do gráfico"><button type="button" data-months="1">1M</button><button type="button" data-months="6">6M</button><button class="active" type="button" data-months="12" aria-pressed="true">12M</button><button type="button" data-months="0">Tudo</button></div><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div><div class="chart-box"><canvas id="chartPortfolioHistory"></canvas></div></article>
+          <article class="panel-card"><div class="panel-heading panel-heading--with-controls"><h2>Entradas e saídas por mês</h2><div class="panel-heading-actions"><div class="segmented-control chart-horizon-control" data-chart-horizon="turnover" aria-label="Período do gráfico"><button type="button" data-months="1">1M</button><button class="active" type="button" data-months="6" aria-pressed="true">6M</button><button type="button" data-months="12">12M</button><button type="button" data-months="0">Tudo</button></div><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div><div class="chart-box"><canvas id="chartTurnoverHistory"></canvas></div></article>
+          <article class="panel-card"><div class="panel-heading panel-heading--with-controls"><h2>Evolução de produtores ativos</h2><div class="panel-heading-actions"><div class="segmented-control chart-horizon-control" data-chart-horizon="portfolio" aria-label="Período do gráfico"><button type="button" data-months="1">1M</button><button class="active" type="button" data-months="6" aria-pressed="true">6M</button><button type="button" data-months="12">12M</button><button type="button" data-months="0">Tudo</button></div><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div><div class="chart-box"><canvas id="chartPortfolioHistory"></canvas></div></article>
         </div>
 
         <div class="grid-two grid-two--tables">

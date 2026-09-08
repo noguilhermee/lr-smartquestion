@@ -929,9 +929,9 @@ button { color: inherit; }
 .grid-two--main { flex: 1.15; }
 .grid-three--summary { flex: 0.92; }
 .grid-two--visits,
-.grid-two--turnover { flex: 1.02; }
+.grid-two--turnover { flex: 0.82; max-height: 240px; }
 .grid-two--data { flex: 1.25; min-height: 190px; }
-.grid-two--tables { flex: 1.06; }
+.grid-two--tables { flex: 1.45; min-height: 260px; }
 
 .panel-card {
   padding: 12px 14px;
@@ -965,8 +965,8 @@ button { color: inherit; }
 .legend-line { width: 14px; height: 2px; display: inline-block; background: var(--green-950); }
 
 .chart-box { position: relative; flex: 1; min-width: 0; min-height: 0; }
-.chart-box--ranking { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--green-300) transparent; }
-.ranking-chart-inner { position: relative; min-height: 100%; }
+.chart-box--ranking { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--green-300) transparent; padding-bottom: 10px; }
+.ranking-chart-inner { position: relative; min-height: 100%; padding-bottom: 8px; }
 .chart-box--ranking::-webkit-scrollbar { width: 8px; }
 .chart-box--ranking::-webkit-scrollbar-track { background: var(--surface-soft); }
 .chart-box--ranking::-webkit-scrollbar-thumb { border-radius: 8px; background: var(--green-300); }
@@ -1035,11 +1035,11 @@ button { color: inherit; }
   top: 0;
   z-index: 2;
   position: relative;
-  padding: 6px 10px 6px 7px;
+  padding: 4px 6px;
   color: #334155;
   background: #f4f5f7;
   border-bottom: 1px solid #e2e8f0;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 650;
   letter-spacing: 0.01em;
   text-align: left;
@@ -1153,7 +1153,9 @@ body.table-resizing * {
 }
 
 .data-table td {
-  padding: 5.5px 7px;
+  padding: 3.5px 6px;
+  font-size: 10.5px;
+  line-height: 1.15;
   color: var(--ink);
   border-bottom: 1px solid var(--line-soft);
   white-space: nowrap;
@@ -2810,6 +2812,318 @@ body.table-resizing * {
 .panel-card.is-fullscreen .chart-box--quality {
   width: 340px;
   height: 340px;
+}
+
+/* ─── 📱 DESIGN RESPONSIVO - ADAPTAÇÃO PARA AGROINDÚSTRIAS & TELAS MENORES ─── */
+
+.mobile-filter-toggle {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--ink-strong);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+
+.mobile-filter-toggle:hover {
+  background: var(--green-100);
+  border-color: var(--green-400);
+  color: var(--green-400);
+}
+
+:root[data-theme="dark"] .mobile-filter-toggle {
+  background: var(--surface-soft);
+  border-color: var(--line);
+  color: var(--ink-strong);
+}
+
+@media (max-width: 1280px) {
+  :root {
+    --header-h: 74px;
+    --filters-h: 68px;
+    --footer-h: 64px;
+  }
+  .app-header { padding: 8px 18px; }
+  .header-title-box h1 { font-size: 20px; }
+  .filter-shell { padding: 6px 18px; gap: 8px; }
+  .filter-control { height: 48px; padding-inline: 8px; }
+  .filter-control span { font-size: 10px; }
+  .filter-control select { font-size: 12px; }
+  .kpi-grid { height: auto; min-height: 84px; gap: 8px; }
+  .metric-card strong { font-size: 20px; }
+}
+
+@media (max-width: 1024px) {
+  :root {
+    --header-h: 68px;
+    --filters-h: auto;
+    --footer-h: auto;
+  }
+
+  body {
+    overflow-y: auto !important;
+  }
+
+  .carousel-viewport {
+    height: auto !important;
+    min-height: calc(100vh - var(--header-h) - 60px);
+    overflow-y: visible !important;
+  }
+
+  .carousel-track {
+    height: auto !important;
+  }
+
+  .slide {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+    padding: 14px 16px 28px;
+    gap: 22px !important;
+  }
+
+  .kpi-grid {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    height: auto !important;
+    min-height: 0 !important;
+    gap: 12px !important;
+  }
+
+  .metric-card {
+    height: auto !important;
+    padding: 10px 12px !important;
+  }
+
+  .grid-two,
+  .grid-two--visits,
+  .grid-two--turnover,
+  .grid-two--data,
+  .grid-two--tables,
+  .grid-two--main,
+  .grid-three,
+  .grid-three--summary {
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    gap: 22px !important;
+  }
+
+  .grid-two--tables {
+    margin-top: 6px !important;
+  }
+
+  .panel-card {
+    position: relative !important;
+    z-index: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: auto !important;
+    overflow: hidden !important;
+    flex-shrink: 0 !important;
+  }
+
+  .panel-heading {
+    position: relative !important;
+    z-index: 2 !important;
+    width: 100% !important;
+    margin-bottom: 10px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .panel-heading h2 {
+    font-size: 14px !important;
+    line-height: 1.3 !important;
+  }
+
+  .chart-box {
+    position: relative !important;
+    z-index: 1 !important;
+    width: 100% !important;
+    height: 300px !important;
+    min-height: 260px !important;
+    max-height: none !important;
+    flex: 1 1 auto !important;
+    overflow: hidden !important;
+  }
+
+  .chart-box--ranking {
+    height: 360px !important;
+  }
+
+  .table-card {
+    height: auto !important;
+    min-height: 360px !important;
+  }
+
+  .table-scroll {
+    position: relative !important;
+    z-index: 1 !important;
+    width: 100% !important;
+    max-height: 380px !important;
+    overflow-x: auto !important;
+    overflow-y: auto !important;
+  }
+
+  .data-table {
+    min-width: 640px;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .header-title-box {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .header-title-box h1 { font-size: 18px; }
+  .screen-code { font-size: 8px; }
+  .header-title-box p { display: none; }
+
+  .header-actions {
+    gap: 6px;
+  }
+
+  .clock-box,
+  .update-block,
+  .sync-badge {
+    display: none !important;
+  }
+
+  .mobile-filter-toggle {
+    display: inline-flex !important;
+  }
+
+  .filter-shell {
+    display: none;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+    background: var(--surface-soft) !important;
+    border-bottom: 1px solid var(--line) !important;
+  }
+
+  .filter-shell.is-expanded {
+    display: grid !important;
+    animation: filterExpand 200ms ease-out;
+  }
+
+  @keyframes filterExpand {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .metric-card strong {
+    font-size: 18px !important;
+  }
+
+  .metric-label {
+    font-size: 11px !important;
+  }
+
+  .panel-heading {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+  }
+
+  .panel-heading-actions,
+  .panel-actions {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
+
+  .footer-bar {
+    position: relative !important;
+    height: auto !important;
+    padding: 12px 14px !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+  }
+
+  .footer-nav {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .slide {
+    padding: 8px 10px 20px;
+    gap: 12px;
+  }
+
+  .kpi-grid {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 6px !important;
+  }
+
+  .filter-shell {
+    grid-template-columns: 1fr !important;
+  }
+
+  .metric-card {
+    padding: 8px !important;
+  }
+
+  .metric-card strong {
+    font-size: 16px !important;
+  }
+
+  .chart-box {
+    height: 240px !important;
+    min-height: 220px !important;
+  }
+}
+
+/* Otimização para Telas de Notebook 1920x1080 (15") e Monitores Padrão */
+@media (min-width: 1360px) and (max-height: 1080px) {
+  :root {
+    --header-h: 66px;
+    --filters-h: 58px;
+    --footer-h: 56px;
+  }
+  .app-header { padding: 6px 24px; }
+  .header-title-box h1 { font-size: 20px; }
+  .filter-shell { padding: 5px 24px; gap: 8px; }
+  .filter-control { height: 44px; padding-inline: 8px; }
+  .slide { padding: 10px 24px 12px; gap: 8px; }
+  .kpi-grid { height: 74px; min-height: 74px; gap: 10px; }
+  .metric-card { padding: 8px 12px; }
+  .metric-card strong { font-size: 18px; line-height: 20px; }
+  .metric-label { font-size: 10.5px; }
+
+  .grid-two--visits,
+  .grid-two--turnover { flex: 0.82; max-height: 230px; }
+  .grid-two--tables { flex: 1.45; min-height: 270px; }
+
+  .table-card { padding: 7px 10px; }
+  .panel-heading { margin-bottom: 4px; }
+  .panel-heading h2 { font-size: 13px; }
+  .table-pagination { padding-top: 3px; margin-top: 2px; }
 }
 
 

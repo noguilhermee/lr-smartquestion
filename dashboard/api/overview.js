@@ -12,8 +12,10 @@ const {
   isValidoLeite,
   mapAgroindustria,
   shiftMonthMinus1,
-  expandRows
+  expandRows,
+  deduplicateAndFilterVisits
 } = require('./shared');
+
 
 module.exports = async (req, res) => {
   try {
@@ -118,7 +120,7 @@ module.exports = async (req, res) => {
       } catch (e) {
         let q = supabase
           .from('sq_fato_visitas')
-          .select('id, codigo_lr, nome_consultor, nome_produtor, nome_propriedade, data_visita, id_atendimento, projeto, mes_referencia');
+          .select('id, codigo_lr, nome_consultor, nome_produtor, nome_propriedade, data_visita, id_atendimento, projeto, mes_referencia, tipo_visita');
         if (visitasMonth) q = q.eq('mes_referencia', visitasMonth);
         return await fetchAll(() => q.order('data_visita', { ascending: false })).catch(() => []);
       }
@@ -149,12 +151,15 @@ module.exports = async (req, res) => {
       }
     }
 
+    // Deduplicação por id_atendimento e remoção de Termos de Adesão
+    visitasList = deduplicateAndFilterVisits(visitasList);
+
     // 5. Histórico completo com cache
     const [visitasHistoricasRaw, produtoresHistoricosRaw, vinculosSQRaw] = await Promise.all([
       fetchWithCache('HIST_FATO_VISITAS', () =>
         fetchAll(() => supabase
           .from('sq_fato_visitas')
-          .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia, data_visita')
+          .select('codigo_lr, nome_consultor, nome_produtor, projeto, mes_referencia, data_visita, id_atendimento, tipo_visita')
           .order('mes_referencia', { ascending: false })
           .order('codigo_lr', { ascending: true })).catch(() => [])
       ),
@@ -167,7 +172,8 @@ module.exports = async (req, res) => {
       )
     ]);
 
-    const visitasHistoricas = (visitasHistoricasRaw || []).filter(v => isValidoLeite(v.nome_consultor, v.projeto, v.codigo_lr));
+    const visitasHistoricas = deduplicateAndFilterVisits((visitasHistoricasRaw || []).filter(v => isValidoLeite(v.nome_consultor, v.projeto, v.codigo_lr)));
+
     const produtoresHistoricos = (produtoresHistoricosRaw || []).filter(p => isValidoLeite(p.nome_consultor, p.projeto, p.codigo_lr, p.tipo_ponto_atendimento));
 
     // Filtros selecionados no frontend
@@ -198,8 +204,10 @@ module.exports = async (req, res) => {
         if (!consultorNames.some(c => c && c.toLowerCase() === filters.consultant.toLowerCase())) return false;
       }
       if (filters.producer) {
-        const pName = String(row.nome_produtor || row.produtor || row.codigo_lr || '').toLowerCase();
-        if (!pName.includes(filters.producer.toLowerCase())) return false;
+        const pName = String(row.nome_produtor || row.produtor || '').trim().toLowerCase();
+        const pCode = String(row.codigo_lr || row.codigo_produtor || '').trim().toLowerCase();
+        const target = filters.producer.trim().toLowerCase();
+        if (pName !== target && pCode !== target) return false;
       }
       if (filters.status) {
         const rowStatus = String(row.status || 'ATIVO').toUpperCase();
@@ -266,13 +274,19 @@ module.exports = async (req, res) => {
     });
 
     // KPIs
-    const totalAtivos = new Set(produtoresFiltrados.map(p => p.codigo_lr).filter(Boolean)).size || produtoresFiltrados.length;
+    const setCodigosAtivos = new Set(produtoresFiltrados.map(p => p.codigo_lr).filter(Boolean));
+    const totalAtivos = setCodigosAtivos.size || produtoresFiltrados.length;
     const totalVisitas = visitasFiltradas.length;
     const consultoresAtivos = new Set(
       produtoresFiltrados.flatMap(p => sanitizeConsultorList(p.nome_consultor)).filter(Boolean)
     ).size;
 
-    const codigosVisitados = new Set(visitasFiltradas.map(v => v.codigo_lr).filter(Boolean));
+    // Apenas contar produtores visitados que pertencem à carteira ativa do filtro
+    const codigosVisitados = new Set(
+      visitasFiltradas
+        .map(v => v.codigo_lr)
+        .filter(c => c && (setCodigosAtivos.size === 0 || setCodigosAtivos.has(c)))
+    );
     const totalVisitadosUnicos = codigosVisitados.size;
 
     const percVisitados = totalAtivos > 0 ? Math.min(100.0, (totalVisitadosUnicos / totalAtivos) * 100).toFixed(1) : '0.0';
@@ -349,15 +363,27 @@ module.exports = async (req, res) => {
       if (p.codigo_lr) ativosPorMes.get(p.data_referencia).add(p.codigo_lr);
     });
 
+    const fazendasVisitadasNoPortfolio = referencias.map(ref => {
+      const setAtivos = ativosPorMes.get(ref);
+      const setVisitados = visitasPorMes.get(ref)?.produtores;
+      if (!setVisitados || setVisitados.size === 0) return 0;
+      if (!setAtivos || setAtivos.size === 0) return setVisitados.size;
+      let count = 0;
+      for (const cod of setVisitados) {
+        if (setAtivos.has(cod)) count++;
+      }
+      return count;
+    });
+
     const evolucaoMensal = {
       labels: referencias.map(monthLabel),
       fazendasAtivas: referencias.map(ref => ativosPorMes.get(ref)?.size || 0),
-      fazendasVisitadas: referencias.map(ref => visitasPorMes.get(ref)?.produtores.size || 0),
-      percCobertura: referencias.map(ref => {
+      fazendasVisitadas: fazendasVisitadasNoPortfolio,
+      percCobertura: referencias.map((ref, idx) => {
         const ativos = ativosPorMes.get(ref)?.size || 0;
-        const visitados = visitasPorMes.get(ref)?.produtores.size || 0;
+        const visitadosNoPort = fazendasVisitadasNoPortfolio[idx] || 0;
         if (ativos === 0) return 0;
-        const ratio = (visitados / ativos) * 100;
+        const ratio = (visitadosNoPort / ativos) * 100;
         return Number(Math.min(100.0, Math.max(0, ratio)).toFixed(1));
       })
     };
