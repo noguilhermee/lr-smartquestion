@@ -30,7 +30,7 @@
   --shadow-soft: 0 1px 3px rgba(22, 38, 64, 0.06);
   --header-h: 92px;
   --filters-h: 82px;
-  --footer-h: 82px;
+  --footer-h: 84px;
 }
 
 :root[data-theme="dark"] {
@@ -492,7 +492,7 @@ button { color: inherit; }
   width: 100vw;
   min-width: 100vw;
   height: 100%;
-  padding: 14px 28px;
+  padding: 14px 28px 24px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -930,8 +930,8 @@ button { color: inherit; }
 .grid-three--summary { flex: 0.92; }
 .grid-two--visits,
 .grid-two--turnover { flex: 0.82; max-height: 240px; }
-.grid-two--data { flex: 1.25; min-height: 190px; }
-.grid-two--tables { flex: 1.45; min-height: 260px; }
+.grid-two--data { flex: 1.05; min-height: 160px; }
+.grid-two--tables { flex: 1.35; min-height: 210px; }
 
 .panel-card {
   padding: 12px 14px;
@@ -1000,12 +1000,18 @@ button { color: inherit; }
   color: #fff;
 }
 
-.table-card { padding-bottom: 9px; }
+.table-card {
+  padding-bottom: 9px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
 .record-count { color: var(--muted); font-size: 11.2px; font-weight: 650; }
 .table-scroll {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
-  min-height: 0;
+  min-height: 80px;
   overflow-x: hidden;
   overflow-y: auto;
   border: 1px solid var(--line-soft);
@@ -1351,12 +1357,14 @@ body.table-resizing * {
   flex-wrap: wrap;
   gap: 8px;
   padding: 6px 4px 0 4px;
-  margin-top: 4px;
+  margin-top: auto;
   border-top: 1px solid var(--line-soft);
   font-size: 11px;
   color: var(--muted);
   user-select: none;
   flex-shrink: 0;
+  position: relative;
+  z-index: 2;
 }
 
 .pagination-info {
@@ -1537,72 +1545,79 @@ body.table-resizing * {
 .panel-card--quality {
   display: flex;
   flex-direction: column;
-  padding: 6px 12px 6px;
+  padding: 10px 14px 10px;
 }
 
 .panel-card--quality .panel-heading {
-  min-height: 0;
-  margin-bottom: 0;
+  min-height: 28px;
+  margin-bottom: 4px;
+  flex-shrink: 0;
 }
 
 .quality-content {
-  flex: 1;
+  flex: 1 1 0;
   display: flex;
-  align-items: stretch;
-  gap: 14px;
+  align-items: center;
+  gap: 12px;
   min-height: 0;
+  min-width: 0;
   width: 100%;
-  height: 100%;
-  margin-top: -6px;
+  height: calc(100% - 32px);
+  overflow: hidden;
 }
 
 .quality-donuts-wrapper {
-  flex: 1;
+  flex: 1 1 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   min-width: 0;
+  min-height: 0;
   height: 100%;
+  overflow: hidden;
 }
 
 .quality-donut-col {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
+  align-items: center;
+  justify-content: center;
   min-width: 0;
+  min-height: 0;
   height: 100%;
   padding: 0;
   background: transparent;
   border: none;
-}
-
-.quality-donut-title {
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--ink-strong);
-  margin-bottom: 2px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  text-align: center;
+  overflow: hidden;
 }
 
 .quality-donut-col .chart-box--quality {
-  flex: 1;
+  position: relative;
   width: 100%;
+  height: 100%;
+  max-height: 100%;
   min-height: 0;
   min-width: 0;
-  position: relative;
+  flex: 1 1 0;
+}
+
+.quality-donut-col .chart-box--quality canvas {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  display: block;
 }
 
 .quality-legend-sidebar {
-  flex: 0 0 145px;
+  flex: 0 0 135px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 10px;
-  padding: 4px 6px;
+  padding: 0 4px;
   background: transparent;
   border: none;
+  flex-shrink: 0;
 }
 
 .quality-legend-sidebar .legend-item {
@@ -1673,7 +1688,7 @@ body.table-resizing * {
 @keyframes value-pulse { 0% { color: var(--green-400); transform: scale(1.03); } 100% { color: inherit; transform: scale(1); } }
 
 @media (max-width: 1380px) {
-  :root { --header-h: 78px; --filters-h: 72px; --footer-h: 72px; }
+  :root { --header-h: 78px; --filters-h: 72px; --footer-h: 76px; }
   .app-header { padding: 10px 22px 8px; }
   .header-title-box h1 { font-size: 22px; }
   .header-title-box p { font-size: 10px; }
@@ -1690,7 +1705,7 @@ body.table-resizing * {
   .badge { font-size: 9px; padding: 1.5px 4.5px; }
   .link-button { font-size: 10px; }
   .criteria-strip { min-height: 42px; padding-block: 5px; }
-  .footer-logo img { width: 108px; height: 39px; }
+  .footer-logo img { width: 114px; height: 42px; }
   .current-slide-title { margin-bottom: 5px; font-size: 11px; }
   .page-dot { width: 26px; height: 26px; }
   .page-dot.active { width: 26px; height: 26px; }
@@ -1705,7 +1720,7 @@ body.table-resizing * {
 }
 
 @media (max-height: 760px) {
-  :root { --header-h: 68px; --filters-h: 64px; --footer-h: 66px; }
+  :root { --header-h: 68px; --filters-h: 64px; --footer-h: 74px; }
   .app-header { padding-block: 7px 5px; }
   .header-title-box h1 { font-size: 19px; }
   .screen-code { font-size: 8px; }
@@ -1716,7 +1731,7 @@ body.table-resizing * {
   .clock-box { min-width: 96px; font-size: 16px; }
   .filter-shell { padding-block: 6px; }
   .filter-control { height: 46px; padding-block: 5px; }
-  .slide { padding-block: 8px; gap: 7px; }
+  .slide { padding: 8px 20px 18px; gap: 7px; }
   .kpi-grid { height: 82px; min-height: 82px; }
   .panel-heading { margin-bottom: 2px; }
   .panel-heading h2 { font-size: 12px; }
@@ -1732,8 +1747,8 @@ body.table-resizing * {
   .criteria-icon { width: 25px; height: 25px; }
   .footer-logo img { height: 36px; }
   .current-slide-title { min-height: 15px; margin-bottom: 3px; font-size: 10px; }
-  .page-dot { width: 23px; height: 23px; }
-  .page-dot.active { width: 48px; }
+  .page-dot { width: 23px; height: 23px; aspect-ratio: 1 / 1; border-radius: 50%; }
+  .page-dot.active { width: 23px; height: 23px; aspect-ratio: 1 / 1; border-radius: 50%; }
 }
 
 /* Modal de Detalhes da Inconsistência (Estilo Elabore) */
@@ -3056,17 +3071,61 @@ body.table-resizing * {
     justify-content: space-between !important;
   }
 
-  .footer-bar {
+  .app-footer {
     position: relative !important;
     height: auto !important;
-    padding: 12px 14px !important;
+    padding: 10px 14px 14px !important;
+    display: flex !important;
     flex-direction: column !important;
-    gap: 10px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    text-align: center !important;
   }
 
-  .footer-nav {
+  .carousel-navigation {
     width: 100% !important;
+    min-width: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
     justify-content: center !important;
+  }
+
+  .current-slide-title {
+    font-size: 11.5px !important;
+    margin-bottom: 6px !important;
+    text-align: center !important;
+    width: 100% !important;
+  }
+
+  .carousel-controls {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 10px !important;
+    width: 100% !important;
+  }
+
+  .page-dot,
+  .page-dot.active {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    min-height: 28px !important;
+    max-width: 28px !important;
+    max-height: 28px !important;
+    border-radius: 50% !important;
+    aspect-ratio: 1 / 1 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0 !important;
+  }
+
+  .footer-logo,
+  .footer-brand {
+    display: none !important;
   }
 }
 
@@ -3104,13 +3163,14 @@ body.table-resizing * {
   :root {
     --header-h: 66px;
     --filters-h: 58px;
-    --footer-h: 56px;
+    --footer-h: 72px;
   }
   .app-header { padding: 6px 24px; }
   .header-title-box h1 { font-size: 20px; }
   .filter-shell { padding: 5px 24px; gap: 8px; }
   .filter-control { height: 44px; padding-inline: 8px; }
-  .slide { padding: 10px 24px 12px; gap: 8px; }
+  .carousel-viewport { overflow-y: auto; scrollbar-width: thin; }
+  .slide { padding: 10px 24px 28px; gap: 8px; overflow-y: auto; scrollbar-width: thin; }
   .kpi-grid { height: 74px; min-height: 74px; gap: 10px; }
   .metric-card { padding: 8px 12px; }
   .metric-card strong { font-size: 18px; line-height: 20px; }
@@ -3118,12 +3178,14 @@ body.table-resizing * {
 
   .grid-two--visits,
   .grid-two--turnover { flex: 0.82; max-height: 230px; }
-  .grid-two--tables { flex: 1.45; min-height: 270px; }
+  .grid-two--data { flex: 1.05; min-height: 160px; }
+  .grid-two--tables { flex: 1.35; min-height: 220px; }
 
-  .table-card { padding: 7px 10px; }
+  .table-card { padding: 7px 10px; display: flex; flex-direction: column; }
+  .table-scroll { flex: 1 1 0; min-height: 80px; }
+  .table-pagination { flex-shrink: 0; margin-top: auto; padding-top: 4px; }
   .panel-heading { margin-bottom: 4px; }
   .panel-heading h2 { font-size: 13px; }
-  .table-pagination { padding-top: 3px; margin-top: 2px; }
 }
 
 
