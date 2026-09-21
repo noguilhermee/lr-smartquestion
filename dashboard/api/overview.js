@@ -252,24 +252,24 @@ module.exports = async (req, res) => {
         if (!visitasMonth) {
           return await fetchAll(() => supabase
             .from('sq_fato_consistencia')
-            .select('codigo_lr, consistencia_mensal, consistencia_anual, mes_elabore, mes_referencia')
+            .select('codigo_lr, consistencia_mensal, consistencia_anual, mes_elabore, mes_referencia, detalhamento_inconsistencia')
             .order('mes_referencia', { ascending: false })
             .order('codigo_lr', { ascending: true })).catch(() => []);
         }
-        // mes_elabore e mes_referencia são timestamptz — .or() com string falha; usar dois .eq() separados
         const [byElab, byRef] = await Promise.all([
           fetchAll(() => supabase
             .from('sq_fato_consistencia')
-            .select('codigo_lr, consistencia_mensal, consistencia_anual, mes_elabore, mes_referencia')
+            .select('codigo_lr, consistencia_mensal, consistencia_anual, mes_elabore, mes_referencia, detalhamento_inconsistencia')
             .eq('mes_elabore', visitasMonth)).catch(() => []),
           fetchAll(() => supabase
             .from('sq_fato_consistencia')
-            .select('codigo_lr, consistencia_mensal, consistencia_anual, mes_elabore, mes_referencia')
+            .select('codigo_lr, consistencia_mensal, consistencia_anual, mes_elabore, mes_referencia, detalhamento_inconsistencia')
             .eq('mes_referencia', visitasMonth)).catch(() => [])
         ]);
         const seen = new Set();
         return [...byElab, ...byRef].filter(r => {
-          const k = `${r.codigo_lr}_${String(r.mes_referencia || '').slice(0, 7)}`;
+          const mKey = r.mes_referencia || r.mes_elabore;
+          const k = `${r.codigo_lr}_${mKey ? String(mKey).slice(0, 7) : ''}`;
           if (seen.has(k)) return false;
           seen.add(k);
           return true;
@@ -279,22 +279,23 @@ module.exports = async (req, res) => {
         if (!visitasMonth) {
           return await fetchAll(() => supabase
             .from('sq_raw_consistencia_mensal')
-            .select('codigo_lr, mes_elabore, consistencia_mensal, mes_referencia')
+            .select('codigo_lr, mes_elabore, consistencia_mensal, mes_referencia, detalhamento_inconsistencia')
             .order('mes_referencia', { ascending: false })).catch(() => []);
         }
         const [byElab, byRef] = await Promise.all([
           fetchAll(() => supabase
             .from('sq_raw_consistencia_mensal')
-            .select('codigo_lr, mes_elabore, consistencia_mensal, mes_referencia')
+            .select('codigo_lr, mes_elabore, consistencia_mensal, mes_referencia, detalhamento_inconsistencia')
             .eq('mes_elabore', visitasMonth)).catch(() => []),
           fetchAll(() => supabase
             .from('sq_raw_consistencia_mensal')
-            .select('codigo_lr, mes_elabore, consistencia_mensal, mes_referencia')
+            .select('codigo_lr, mes_elabore, consistencia_mensal, mes_referencia, detalhamento_inconsistencia')
             .eq('mes_referencia', visitasMonth)).catch(() => [])
         ]);
         const seen = new Set();
         return [...byElab, ...byRef].filter(r => {
-          const k = `${r.codigo_lr}_${String(r.mes_referencia || '').slice(0, 7)}`;
+          const mKey = r.mes_referencia || r.mes_elabore;
+          const k = `${r.codigo_lr}_${mKey ? String(mKey).slice(0, 7) : ''}`;
           if (seen.has(k)) return false;
           seen.add(k);
           return true;
@@ -303,18 +304,36 @@ module.exports = async (req, res) => {
       fetchWithCache('RAW_INATIVACOES_PRODUTOR_OVERVIEW', () =>
         fetchAll(() => supabase
           .from('sq_raw_inativacoes_produtor')
-          .select('codigo_lr')).catch(() => [])
+          .select('codigo_lr, data_inativacao, mes_inativacao')).catch(() => [])
       ),
       getElaboreCadastradosSet(supabase, fetchAll).catch(() => new Set())
     ]);
 
     const inativacoesSet = new Set();
+    const inativacoesDateMap = new Map();
     (inativacoesList || []).forEach(i => {
-      if (i.codigo_lr) inativacoesSet.add(String(i.codigo_lr).trim().toUpperCase());
+      if (i.codigo_lr) {
+        const cod = String(i.codigo_lr).trim().toUpperCase();
+        inativacoesSet.add(cod);
+        const dt = i.data_inativacao || i.mes_inativacao;
+        if (dt) {
+          const mKey = String(dt).slice(0, 7);
+          const prev = inativacoesDateMap.get(cod);
+          if (!prev || mKey < prev) inativacoesDateMap.set(cod, mKey);
+        }
+      }
     });
     (movimentacoes || []).forEach(m => {
       const isSaida = String(m.movimentacao || '').toLowerCase().includes('sa') || Boolean(m.motivo_inativacao);
-      if (isSaida && m.codigo_lr) inativacoesSet.add(String(m.codigo_lr).trim().toUpperCase());
+      if (isSaida && m.codigo_lr) {
+        const cod = String(m.codigo_lr).trim().toUpperCase();
+        inativacoesSet.add(cod);
+        if (m.data_movimentacao) {
+          const mKey = String(m.data_movimentacao).slice(0, 7);
+          const prev = inativacoesDateMap.get(cod);
+          if (!prev || mKey < prev) inativacoesDateMap.set(cod, mKey);
+        }
+      }
     });
 
     function toMonthKey(str) {
@@ -425,6 +444,20 @@ module.exports = async (req, res) => {
     }
 
     const produtoresMap = new Map((produtoresFiltrados || []).map(p => [p.codigo_lr, p]));
+    (vinculosSQRaw || []).forEach(v => {
+      if (!v.codigo_lr) return;
+      const cod = String(v.codigo_lr).trim().toUpperCase();
+      if (!produtoresMap.has(cod)) {
+        produtoresMap.set(cod, {
+          codigo_lr: v.codigo_lr,
+          nome_produtor: v.nome_produtor,
+          nome_consultor: v.consultor_grupo_atendimento || v.grupo_atendimento || 'CONSULTOR',
+          projeto: v.projeto || null,
+          unidade_atendimento: v.unidade_atendimento,
+          status: 'ATIVO'
+        });
+      }
+    });
     const produtoresConsistenciaMap = new Map((produtoresConsistenciaFiltrados || []).map(p => [p.codigo_lr, p]));
     const consistenciaFiltrada = (consistenciaList || []).filter(c => {
       const p = produtoresConsistenciaMap.get(c.codigo_lr);
@@ -746,7 +779,10 @@ module.exports = async (req, res) => {
         const monthKey = toMonthKey(v.mes_referencia || v.data_visita || refMonth);
         const elaboreObj = elaboreMensalMap.get(`${codLrNorm}_${monthKey}`) || elaboreMensalMap.get(codLrNorm);
         
-        const isInactiveVisit = inativacoesSet.has(codLrNorm) || !produtorAtivo || String(v.status || produtorAtivo?.status || '').trim().toUpperCase().includes('INATIV');
+        const isExplicitInactive = String(v.status || produtorAtivo?.status || '').trim().toUpperCase().includes('INATIV');
+        const inatDateStr = inativacoesDateMap.get(codLrNorm);
+        const isInactivatedBeforeVisit = Boolean(inatDateStr && toMonthKey(inatDateStr) <= monthKey && !produtorAtivo);
+        const isInactiveVisit = isExplicitInactive || isInactivatedBeforeVisit;
 
         const isCadastradoElabore = 
           cadastradosElaboreSet.has(codLrNorm) || 

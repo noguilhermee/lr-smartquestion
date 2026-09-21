@@ -182,9 +182,9 @@ module.exports = async (req, res) => {
     const produtoresMap = new Map((produtoresAtivos || []).map(p => [p.codigo_lr, p]));
 
     const consistenciaHistorica = (consistenciaHistoricaBruta || []).filter(c => {
-      if (!produtoresMap.has(c.codigo_lr)) return false;
+      if (!c.codigo_lr) return false;
       const p = produtoresMap.get(c.codigo_lr) || fallbackMetaMap.get(c.codigo_lr);
-      return rowMatches({ ...c, unidade_atendimento: p?.unidade_atendimento, nome_produtor: p?.nome_produtor });
+      return rowMatches({ ...c, unidade_atendimento: p?.unidade_atendimento, nome_produtor: p?.nome_produtor || c.nome_produtor, nome_consultor: p?.nome_consultor || c.nome_consultor });
     });
 
     const refMonthStr = refMonth ? String(refMonth).slice(0, 7) : null;

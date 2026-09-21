@@ -41,6 +41,90 @@ ALLOWED_COLS_FATO_VISITAS = [
     'tipo_visita'
 ]
 
+def _limpar_id_atendimento(val: Any) -> str:
+    """Higieniza ID de atendimento removendo sufixo .0, espaços e caracteres nulos/invisíveis."""
+    if pd.isna(val) or val is None:
+        return ""
+    s = str(val).strip().replace('\xa0', '')
+    if s.endswith('.0'):
+        s = s[:-2]
+    return s
+
+def _limpar_codigo_lr(val: Any) -> str:
+    """Higieniza código LR padronizando em maiúsculas e sem caracteres invisíveis."""
+    if pd.isna(val) or val is None:
+        return ""
+    return str(val).strip().replace('\xa0', '').upper()
+
+def gerar_log_auditoria_reconciliacao(
+    df_lista_geral: pd.DataFrame,
+    f_visitas: pd.DataFrame,
+    raiz_projeto: Path,
+    dict_dt_inativacao: Optional[Dict[str, Any]] = None,
+    codigos_inativos_sem_vinculo: Optional[set] = None
+) -> Path:
+    """Gera planilha auditável detalhada em db/output/logs/ indicando o status exato de cada visita da LISTA_GERAL_VISITAS.xlsx."""
+    pasta_logs = raiz_projeto / "db" / "output" / "logs"
+    if not pasta_logs.exists():
+        pasta_logs = raiz_projeto / "DB" / "OUTPUT" / "LOGS"
+    pasta_logs.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y_%m_%d_%H%M%S")
+    caminho_log = pasta_logs / f"{timestamp}_reconciliacao_visitas_detalhada.xlsx"
+
+    ids_fato = set(f_visitas['id_atendimento'].dropna().astype(str).apply(_limpar_id_atendimento))
+
+    df_audit = df_lista_geral.copy()
+    df_audit['id_clean'] = df_audit['Código do atendimento'].apply(_limpar_id_atendimento)
+    df_audit['codigo_lr_clean'] = df_audit['Código do(a) produtor(a)'].apply(_limpar_codigo_lr)
+    df_audit['data_visita_dt'] = pd.to_datetime(df_audit['Data da visita'], errors='coerce')
+
+    def _classificar_visita(row):
+        id_c = row['id_clean']
+        if id_c in ids_fato:
+            return 'MANTIDA_FATO', 'Visita Técnica mantida na sq_fato_visitas'
+        
+        tipo_str = str(row.get('Tipo de visita', '')).strip().upper()
+        proj_str = str(row.get('Projeto', '')).strip().upper()
+        cons_str = str(row.get('Consultor(a)', '')).strip().upper()
+
+        if 'CFT' in tipo_str or ('CFT' in proj_str and not any(k in proj_str for k in ['ALVOAR','CCPR','LPA','REGENERA','SEMEAR','COPRIL','CAMPILEITE','NESTLE','EDUCAMPO'])):
+            return 'EXCLUIDA_CFT', 'Formulário ou Projeto exclusivo de CFT (expurgado da cadeia de Leite)'
+        
+        if any(admin_kw in tipo_str for admin_kw in ['INATIVAÇÃO', 'INATIVACAO', 'CADASTRO', 'TERMO DE ADESAO', 'PERFIL LEITE PADRAO']):
+            return 'EXCLUIDA_ADMINISTRATIVO', 'Formulário administrativo de cadastro, inativação ou adesão (não-técnico)'
+
+        cd = row['codigo_lr_clean']
+        if codigos_inativos_sem_vinculo and cd in codigos_inativos_sem_vinculo:
+            dt_inat = dict_dt_inativacao.get(cd) if dict_dt_inativacao else None
+            dt_vis = row['data_visita_dt']
+            if pd.notna(dt_inat) and pd.notna(dt_vis) and dt_vis > dt_inat:
+                return 'EXCLUIDA_INATIVACAO_POSTERIOR', f'Visita efetuada após data de inativação do produtor ({dt_inat.strftime("%Y-%m-%d") if pd.notna(dt_inat) else "sem data"})'
+
+        if cons_str == 'TALITA FONTES':
+            return 'EXCLUIDA_CONSULTOR', 'Consultor Talita Fontes (excluído por regra de negócio)'
+
+        return 'EXCLUIDA_FORA_WHITELIST', 'Tipo de visita fora da Whitelist oficial de Leite'
+
+    res_audit = df_audit.apply(_classificar_visita, axis=1)
+    df_audit['status_reconciliacao'] = [r[0] for r in res_audit]
+    df_audit['motivo_detalhado'] = [r[1] for r in res_audit]
+
+    cols_export = [
+        'Código do atendimento', 'Código do(a) produtor(a)', 'Produtor(a)',
+        'Consultor(a)', 'Data da visita', 'Tipo de visita', 'Projeto',
+        'status_reconciliacao', 'motivo_detalhado'
+    ]
+    cols_existentes = [c for c in cols_export if c in df_audit.columns]
+
+    with pd.ExcelWriter(caminho_log, engine='openpyxl') as writer:
+        df_audit[cols_existentes].to_excel(writer, sheet_name='Detalhamento', index=False)
+        summary = df_audit.groupby(['status_reconciliacao', 'Tipo de visita']).size().reset_index(name='quantidade')
+        summary.to_excel(writer, sheet_name='Resumo_Por_Status', index=False)
+
+    print(f"   📄 Log de auditoria detalhado salvo em: {caminho_log}")
+    return caminho_log
+
 def obter_cliente_supabase(raiz_projeto: Optional[Path] = None) -> Client:
     """Inicializa o cliente Supabase com credenciais das variáveis de ambiente."""
     if raiz_projeto is None:
@@ -471,6 +555,25 @@ def executar_etl_fato_visitas(
     print(f"🎉 CARGA DA TABELA {tabela_fato} FINALIZADA COM SUCESSO!")
     print(f"📊 Total de registros gravados: {total_inserido}")
     print("==================================================================")
+
+    try:
+        raiz_base = raiz_projeto or Path(__file__).resolve().parent.parent.parent
+        dir_bd_sq = (raiz_base / 'DB' / 'INPUT' / 'BD_SMARTQUESTION')
+        if not dir_bd_sq.exists():
+            dir_bd_sq = Path(r'c:\Users\Guilherme\LABOR RURAL\Analytics - Departamento Analytics\POWER_BI\PROJETOS\BI_LABOR_RURAL\BD_SMARTQUESTION')
+        arq_lista_geral = dir_bd_sq / 'LISTA_GERAL_VISITAS.xlsx'
+        if arq_lista_geral.exists():
+            print("\n📊 ETAPA 8: Gerando log de auditoria e reconciliação detalhada de visitas...")
+            df_lista_geral = ler_excel_seguro(arq_lista_geral, sheet_name='BD')
+            gerar_log_auditoria_reconciliacao(
+                df_lista_geral=df_lista_geral,
+                f_visitas=f_visitas,
+                raiz_projeto=raiz_base,
+                dict_dt_inativacao=dict_dt_inativacao,
+                codigos_inativos_sem_vinculo=codigos_inativos_sem_vinculo
+            )
+    except Exception as e_audit:
+        print(f"   ℹ️ Aviso ao gerar log de auditoria de reconciliação: {e_audit}")
 
     return f_visitas
 
