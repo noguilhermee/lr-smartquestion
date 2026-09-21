@@ -93,7 +93,7 @@ def gerar_log_auditoria_reconciliacao(
         
         if any(admin_kw in tipo_str for admin_kw in ['INATIVAÇÃO', 'INATIVACAO', 'CADASTRO', 'TERMO DE ADESAO', 'PERFIL LEITE PADRAO']):
             return 'EXCLUIDA_ADMINISTRATIVO', 'Formulário administrativo de cadastro, inativação ou adesão (não-técnico)'
-
+        
         cd = row['codigo_lr_clean']
         if codigos_inativos_sem_vinculo and cd in codigos_inativos_sem_vinculo:
             dt_inat = dict_dt_inativacao.get(cd) if dict_dt_inativacao else None

@@ -444,20 +444,6 @@ module.exports = async (req, res) => {
     }
 
     const produtoresMap = new Map((produtoresFiltrados || []).map(p => [p.codigo_lr, p]));
-    (vinculosSQRaw || []).forEach(v => {
-      if (!v.codigo_lr) return;
-      const cod = String(v.codigo_lr).trim().toUpperCase();
-      if (!produtoresMap.has(cod)) {
-        produtoresMap.set(cod, {
-          codigo_lr: v.codigo_lr,
-          nome_produtor: v.nome_produtor,
-          nome_consultor: v.consultor_grupo_atendimento || v.grupo_atendimento || 'CONSULTOR',
-          projeto: v.projeto || null,
-          unidade_atendimento: v.unidade_atendimento,
-          status: 'ATIVO'
-        });
-      }
-    });
     const produtoresConsistenciaMap = new Map((produtoresConsistenciaFiltrados || []).map(p => [p.codigo_lr, p]));
     const consistenciaFiltrada = (consistenciaList || []).filter(c => {
       const p = produtoresConsistenciaMap.get(c.codigo_lr);
@@ -781,8 +767,18 @@ module.exports = async (req, res) => {
         
         const isExplicitInactive = String(v.status || produtorAtivo?.status || '').trim().toUpperCase().includes('INATIV');
         const inatDateStr = inativacoesDateMap.get(codLrNorm);
-        const isInactivatedBeforeVisit = Boolean(inatDateStr && toMonthKey(inatDateStr) <= monthKey && !produtorAtivo);
-        const isInactiveVisit = isExplicitInactive || isInactivatedBeforeVisit;
+        let isInactiveVisit = isExplicitInactive;
+
+        if (!isInactiveVisit && inativacoesSet.has(codLrNorm)) {
+          if (inatDateStr) {
+            const inatMonthKey = toMonthKey(inatDateStr);
+            if (inatMonthKey && monthKey >= inatMonthKey) {
+              isInactiveVisit = true;
+            }
+          } else if (!produtoresMap.has(codLrNorm)) {
+            isInactiveVisit = true;
+          }
+        }
 
         const isCadastradoElabore = 
           cadastradosElaboreSet.has(codLrNorm) || 
