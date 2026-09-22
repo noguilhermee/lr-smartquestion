@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 """
+NOTA: a carga em sq_fato_visitas feita aqui é superseded por
+scripts/functions/camada_consumo.py, que reconstrói a tabela fato inteira a
+partir de sq_raw_visitas a cada execução do pipeline. Este script continua
+válido apenas para popular sq_raw_visitas em uma carga pontual/histórica.
+
 Script: carregar_historico_visitas_2022_2025.py
 Objetivo: Ingerir exclusivamente o histórico de visitas do arquivo
           BD_SMARTQUESTION/BACKUPS/VISITAS/LISTA_GERAL_VISITAS_2022_2025.xlsx (42.776 registros)

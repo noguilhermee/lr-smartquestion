@@ -68,6 +68,24 @@ def extrair_consultor_individual(consultor_str: str, grupo_str: str = "") -> str
     if limpo:
         partes = [p.strip().upper() for p in limpo.split("/") if p.strip()]
         if partes:
+            ans = partes[0]
+            if ans in ["MARIO BARBOSA FILHO", "MARIO BARBOSA"]:
+                return "MARIO BARBOSA ROSA FILHO"
+            return ans
+        ans = limpo.upper()
+        if ans in ["MARIO BARBOSA FILHO", "MARIO BARBOSA"]:
+            return "MARIO BARBOSA ROSA FILHO"
+        return ans
+    return "NÃO ATRIBUÍDO"
+        
+    texto_upper = texto.upper().strip()
+    if "CELIO ROBERTO OLIVEIRA" in texto_upper or "SUELY DE JESUS OLIVEIRA" in texto_upper:
+        return "LAC CONSULTORIA"
+        
+    limpo = re.sub(r"\(.*?\)", "", texto).strip()
+    if limpo:
+        partes = [p.strip().upper() for p in limpo.split("/") if p.strip()]
+        if partes:
             return partes[0]
         return limpo.upper()
     return "NÃO ATRIBUÍDO"
@@ -538,6 +556,48 @@ def executar_reconciliacao(reindex_completo: bool = False):
 
     print(f"   -> Mapeados {len(cadastros_por_codigo)} produtores com novo cadastro em 2026.")
 
+    # Linha do tempo de Entradas/Saídas por produtor: permite saber o estado do vínculo em CADA
+    # mês de referência, em vez de aplicar a última movimentação conhecida a todo o histórico.
+    # Sem isso, uma saída em agosto removia o produtor também de janeiro a julho.
+    movs_por_codigo: Dict[str, list] = {}
+    if not df_mov_final.empty:
+        for _, row in df_mov_final.iterrows():
+            c = str(row.get("codigo_lr") or "").strip()
+            dt_mv = pd.to_datetime(row.get("data_movimentacao"), errors="coerce")
+            tipo_mv = str(row.get("movimentacao") or "").strip().upper()
+            if not c or pd.isna(dt_mv) or not tipo_mv:
+                continue
+            movs_por_codigo.setdefault(c, []).append((dt_mv.strftime("%Y-%m-01"), tipo_mv))
+    for c_mv in movs_por_codigo:
+        # Ordem estável: por mês e, dentro do mesmo mês, Entrada antes de Saída
+        movs_por_codigo[c_mv].sort(key=lambda t: (t[0], 0 if t[1].startswith("ENTRADA") else 1))
+
+    def vinculo_encerrado_em(codigo: str, mes: str) -> bool:
+        """True se a última movimentação até `mes` (inclusive) for uma Saída.
+
+        Respeita reentradas: produtor que saiu em 2024 e voltou em 2025 continua ativo.
+        Convenção de negócio confirmada com a carteira: entrada no mês M já conta em M e
+        saída no mês M já não conta em M.
+        """
+        historico = movs_por_codigo.get(codigo)
+        if not historico:
+            return False
+        ultimo = None
+        for mes_mv, tipo_mv in historico:
+            if mes_mv <= mes:
+                ultimo = tipo_mv
+            else:
+                break
+        return ultimo is not None and ultimo.startswith("SAÍDA")
+
+    def vinculo_ainda_nao_iniciado_em(codigo: str, mes: str) -> bool:
+        """True se a primeira Entrada registrada do produtor for posterior a `mes`."""
+        historico = movs_por_codigo.get(codigo)
+        if not historico:
+            return False
+        entradas = [m for m, t in historico if t.startswith("ENTRADA")]
+        return bool(entradas) and min(entradas) > mes
+
     UF_MAP = {
         'MINAS GERAIS': 'MG', 'BAHIA': 'BA', 'GOIAS': 'GO', 'GOIÁS': 'GO',
         'SAO PAULO': 'SP', 'SÃO PAULO': 'SP', 'ESPIRITO SANTO': 'ES', 'ESPÍRITO SANTO': 'ES',
@@ -983,9 +1043,12 @@ def executar_reconciliacao(reindex_completo: bool = False):
     codigos_com_visita = set()
     codigos_com_visita_por_mes = {}
     try:
+        # ATENÇÃO: sq_raw_visitas NÃO possui coluna mes_referencia; o mês é derivado de data_visita.
+        # Pedir mes_referencia fazia o PostgREST devolver 400 (42703) e o except abaixo zerava
+        # silenciosamente codigos_com_visita/codigos_com_visita_por_mes em toda execução.
         df_vis_cods = consultar_tabela_supabase(
             "sq_raw_visitas",
-            "codigo_lr, mes_referencia, data_visita",
+            "codigo_lr, data_visita",
             raiz=raiz_projeto
         )
         if not df_vis_cods.empty:
@@ -993,7 +1056,7 @@ def executar_reconciliacao(reindex_completo: bool = False):
                 codigos_com_visita = set(df_vis_cods["codigo_lr"].dropna().astype(str).str.strip().str.upper())
             for _, rv in df_vis_cods.iterrows():
                 c_vis = str(rv.get("codigo_lr") or "").strip().upper()
-                dt_vis = rv.get("mes_referencia") or rv.get("data_visita")
+                dt_vis = rv.get("data_visita")
                 if c_vis and pd.notna(dt_vis):
                     m_vis = pd.to_datetime(dt_vis, errors="coerce")
                     if pd.notna(m_vis):
@@ -1006,12 +1069,41 @@ def executar_reconciliacao(reindex_completo: bool = False):
         print(f"   ⚠️ Aviso ao carregar visitas para validação CFT: {e_v_cods}")
 
     # ── VÍNCULOS E GRUPOS UNIFICADOS: Combinar LISTA_GERAL (df_todos) + sq_raw_vinculos (df_vinculos_base)
+    def _grupo_valido(valor) -> bool:
+        """Um grupo só é aproveitável se não for vazio/NaN e não for o placeholder NÃO ATRIBUÍDO."""
+        v = str(valor or "").strip().upper()
+        if not v or v in ("NAN", "NONE"):
+            return False
+        return "NÃO ATRIBUÍDO" not in v and "NAO ATRIBUIDO" not in v
+
+    # sq_raw_vinculos pode ter mais de uma linha por produtor (vínculo antigo encerrado + vínculo vigente).
+    # Priorizar o vínculo ativo e, em empate, a data_associacao mais recente — pegar a última linha
+    # iterada fazia o ETL herdar data_associacao de época (ex.: 1970-01-01) e grupo desatualizado.
     vinc_dict = {}
     if not df_vinculos_base.empty:
         for _, r_v in df_vinculos_base.iterrows():
             c_v = str(r_v.get("codigo_lr") or "").strip().upper()
-            if c_v:
-                vinc_dict[c_v] = r_v.to_dict()
+            if not c_v:
+                continue
+            novo = r_v.to_dict()
+            atual = vinc_dict.get(c_v)
+            if atual is None:
+                vinc_dict[c_v] = novo
+                continue
+            rank_novo = (
+                1 if novo.get("vinculo_ativo") is True else 0,
+                1 if _grupo_valido(novo.get("grupo_atendimento")) else 0,
+                pd.to_datetime(novo.get("data_associacao"), errors="coerce"),
+            )
+            rank_atual = (
+                1 if atual.get("vinculo_ativo") is True else 0,
+                1 if _grupo_valido(atual.get("grupo_atendimento")) else 0,
+                pd.to_datetime(atual.get("data_associacao"), errors="coerce"),
+            )
+            dt_novo = rank_novo[2] if pd.notna(rank_novo[2]) else pd.Timestamp.min
+            dt_atual = rank_atual[2] if pd.notna(rank_atual[2]) else pd.Timestamp.min
+            if (rank_novo[0], rank_novo[1], dt_novo) > (rank_atual[0], rank_atual[1], dt_atual):
+                vinc_dict[c_v] = novo
 
     candidatos_list = []
     # 1. Fazendas ativas da LISTA_GERAL_RELATORIO_DE_GRUPO (fonte primária e oficial)
@@ -1019,9 +1111,8 @@ def executar_reconciliacao(reindex_completo: bool = False):
         c_prod = str(r_g.get("codigo_produtor") or "").strip()
         if not c_prod or c_prod.lower() == "nan":
             continue
-        st_g = str(r_g.get("status") or "").strip().lower()
-        if st_g != "ativo":
-            continue
+        # Incluir todos os produtores da LISTA_GERAL (mesmo inativos atuais), pois a inativação
+        # é tratada temporante por ref_m via inativacoes_por_codigo no loop mensal abaixo.
         v_info = vinc_dict.get(c_prod.upper(), {})
         candidatos_list.append({
             "codigo_lr": c_prod,
@@ -1031,8 +1122,19 @@ def executar_reconciliacao(reindex_completo: bool = False):
             "cidade_produtor": r_g.get("cidade") or v_info.get("cidade_produtor"),
             "tipo_ponto_atendimento": r_g.get("tipo_ponto_atendimento") or v_info.get("tipo_ponto_atendimento"),
             "unidade_atendimento": r_g.get("unidade_atendimento") or v_info.get("unidade_atendimento"),
-            "grupo_atendimento": r_g.get("grupo_ponto_atendimento") or v_info.get("grupo_atendimento"),
-            "consultor_grupo_atendimento": r_g.get("nome_grupo_ponto_atendimento") or v_info.get("consultor_grupo_atendimento"),
+            # "NÃO ATRIBUÍDO" é placeholder, não atribuição: quando o produtor sai da carteira ele
+            # volta para esse estado na LISTA_GERAL atual e, sendo string truthy, vencia o `or` e
+            # apagava o consultor em TODOS os meses do histórico (remoção retroativa da carteira).
+            "grupo_atendimento": (
+                r_g.get("grupo_ponto_atendimento")
+                if _grupo_valido(r_g.get("grupo_ponto_atendimento"))
+                else (v_info.get("grupo_atendimento") or r_g.get("grupo_ponto_atendimento"))
+            ),
+            "consultor_grupo_atendimento": (
+                r_g.get("nome_grupo_ponto_atendimento")
+                if _grupo_valido(r_g.get("nome_grupo_ponto_atendimento"))
+                else (v_info.get("consultor_grupo_atendimento") or r_g.get("nome_grupo_ponto_atendimento"))
+            ),
             "projeto": r_g.get("projeto") or v_info.get("projeto"),
             "codigo_agroindustria": r_g.get("codigo_agroindustria") or v_info.get("codigo_agroindustria"),
             "codigo_fazenda": r_g.get("codigo_fazenda") or v_info.get("codigo_fazenda"),
@@ -1083,24 +1185,41 @@ def executar_reconciliacao(reindex_completo: bool = False):
             # Priorizar grupo completo da LISTA_GERAL_RELATORIO_DE_GRUPO, exceto se estiver como NÃO ATRIBUÍDO
             grupo_val = str(r.get("grupo_atendimento") or "")
             grp_lg, grp_limp_lg = mapa_grupos_lista_geral.get(c.upper(), (None, None))
-            if grp_lg and "NÃO ATRIBUÍDO" not in grp_lg.upper() and "NAO ATRIBUIDO" not in grp_lg.upper():
+            if _grupo_valido(grp_lg):
                 grupo_efetivo = grp_lg
                 nome_grupo_efetivo = grp_limp_lg if grp_limp_lg else extrair_nome_grupo_limpo(grupo_efetivo)
-            else:
+            elif _grupo_valido(grupo_val):
                 grupo_efetivo = grupo_val
                 nome_grupo_efetivo = extrair_nome_grupo_limpo(grupo_efetivo)
+            else:
+                # Último recurso: recuperar o vínculo histórico em sq_raw_vinculos para não perder
+                # a atribuição de consultor nos meses em que o produtor ainda estava na carteira.
+                grupo_hist = vinc_dict.get(c.upper(), {}).get("grupo_atendimento")
+                grupo_efetivo = grupo_hist if _grupo_valido(grupo_hist) else grupo_val
+                nome_grupo_efetivo = extrair_nome_grupo_limpo(grupo_efetivo)
+
+            tem_visita_no_mes = c.upper() in codigos_com_visita_por_mes.get(ref_m, set())
 
             # 0.1 Se a fazenda for PURAMENTE CFT ou de grupo exclusivo CFT, NUNCA entra na dimensão de ativos
             proj_val = str(r.get("projeto") or "")
-            if eh_puramente_cft(grupo_efetivo, proj_val, nome_grupo_efetivo):
+            if not tem_visita_no_mes and eh_puramente_cft(grupo_efetivo, proj_val, nome_grupo_efetivo):
                 continue
 
             # 0.2 Status do Consultor: Se todos os consultores do grupo estiverem inativos
             cons_resp = extrair_consultor_individual(r.get("consultor_grupo_atendimento"), grupo_efetivo)
             consultores_do_grupo = [p.strip().upper() for p in re.sub(r"\(.*?\)", "", grupo_efetivo).split("/") if p.strip()]
-            if consultores_do_grupo and all(cg in consultores_inativos for cg in consultores_do_grupo):
+            if not tem_visita_no_mes:
+                if consultores_do_grupo and all(cg in consultores_inativos for cg in consultores_do_grupo):
+                    continue
+                elif not consultores_do_grupo and cons_resp in consultores_inativos:
+                    continue
+
+            # 0.3 Movimentação oficial (sq_fato_movimentacao) manda no recorte temporal do vínculo.
+            # Vale mesmo havendo visita no mês: Entrada e Saída são eventos datados e auditados,
+            # e a convenção é que a saída do mês M já não compõe a carteira de M.
+            if vinculo_encerrado_em(c, ref_m):
                 continue
-            elif not consultores_do_grupo and cons_resp in consultores_inativos:
+            if vinculo_ainda_nao_iniciado_em(c, ref_m):
                 continue
 
             # 1. Se a data de associação for posterior ao mês avaliado, verificar se houve visita no mês avaliado
@@ -1108,22 +1227,25 @@ def executar_reconciliacao(reindex_completo: bool = False):
             dt_assoc_p = pd.to_datetime(dt_assoc, errors="coerce")
 
             if pd.notna(dt_assoc_p) and dt_assoc_p.strftime("%Y-%m-01") > ref_m:
-                if c.upper() not in codigos_com_visita_por_mes.get(ref_m, set()):
+                if not tem_visita_no_mes:
                     continue
 
-            # 2. REGRA PRINCIPAL: Usar BD_BI_VINCULOS_COMPLETO.xlsx como fonte de verdade.
-            is_ativo_excel = c.upper() in codigos_ativos_excel
-            if not is_ativo_excel and c in inativacoes_por_codigo and inativacoes_por_codigo[c] <= ref_m:
-                continue
+            # 2. Se o produtor possui visita técnica no mês, sua atividade no mês é incontestável.
+            if not tem_visita_no_mes:
+                # 2a. BD_BI_VINCULOS_COMPLETO.xlsx: Se inativo e com data de inativação <= ref_m
+                is_ativo_excel = c.upper() in codigos_ativos_excel
+                if not is_ativo_excel and c in inativacoes_por_codigo and inativacoes_por_codigo[c] <= ref_m:
+                    continue
 
-            # 3. Se vinculo_ativo é False no Supabase e o produtor já estava inativo em data <= ref_m
-            v_ativo = r.get("vinculo_ativo")
-            if v_ativo is False and c in inativacoes_por_codigo and inativacoes_por_codigo[c] <= ref_m:
-                continue
+                # 3. Se vinculo_ativo é False no Supabase e o produtor já estava inativo em data <= ref_m
+                v_ativo = r.get("vinculo_ativo")
+                if v_ativo is False and c in inativacoes_por_codigo and inativacoes_por_codigo[c] <= ref_m:
+                    continue
 
-            # 4. Se o produtor foi cadastrado como novo em data > ref_m: ainda não havia entrado
-            if c in cadastros_por_codigo and cadastros_por_codigo[c] > ref_m:
-                continue
+                # 4. Cadastro novo posterior ao mês avaliado — já coberto pela regra 0.3
+                # (vinculo_ainda_nao_iniciado_em), mantido para produtores sem linha do tempo completa.
+                if c in cadastros_por_codigo and cadastros_por_codigo[c] > ref_m:
+                    continue
 
             # Tratamentos dimensionais de projeto, cadeia, agroindústria e região
             proj_final = proj_val.strip().upper() if proj_val else None

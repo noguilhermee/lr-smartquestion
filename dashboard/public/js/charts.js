@@ -532,6 +532,193 @@ class DashboardCharts {
     });
   }
 
+  renderTop5CostsPie(id, data = []) {
+    this.destroy(id);
+    const canvas = document.getElementById(id);
+    if (!canvas) return;
+
+    const color = this.colors();
+    const labels = data.map(d => d.item || 'Outro');
+    const values = data.map(d => Number(d.valor || 0));
+    const palette = [color.dark, color.green, color.medium, color.mint, color.light];
+
+    this.instances[id] = new Chart(canvas.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: palette,
+          borderColor: color.surface,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '55%',
+        plugins: {
+          legend: { display: true, position: 'right', labels: { boxWidth: 12, font: { size: 11 } } },
+          tooltip: {
+            ...this.tooltip(),
+            callbacks: {
+              label: (context) => {
+                const val = context.raw || 0;
+                const total = (context.dataset.data || []).reduce((a, b) => a + Number(b || 0), 0);
+                const pct = total > 0 ? ((val / total) * 100).toFixed(1).replace('.', ',') : '0,0';
+                return ` ${context.label}: R$ ${val.toLocaleString('pt-BR')} (${pct}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  renderVolumeEvolution(id, data = []) {
+    this.destroy(id);
+    const canvas = document.getElementById(id);
+    if (!canvas) return;
+
+    const color = this.colors();
+    const labels = data.map(d => d.mes_label || d.mes);
+    const volumes = data.map(d => Number(d.volume || 0));
+    const variacoes = data.map(d => Number(d.variacao_percentual || 0));
+
+    this.instances[id] = new Chart(canvas.getContext('2d'), {
+      data: {
+        labels,
+        datasets: [
+          {
+            type: 'bar',
+            label: 'Volume (L/mês)',
+            data: volumes,
+            backgroundColor: color.green,
+            borderRadius: 4,
+            yAxisID: 'y'
+          },
+          {
+            type: 'line',
+            label: 'Variação %',
+            data: variacoes,
+            borderColor: color.warning,
+            backgroundColor: color.warning,
+            borderWidth: 2,
+            pointRadius: 4,
+            yAxisID: 'y1'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, position: 'top', labels: { boxWidth: 12 } },
+          tooltip: this.tooltip()
+        },
+        scales: {
+          x: { grid: { display: false } },
+          y: {
+            type: 'linear',
+            position: 'left',
+            grid: { color: color.grid },
+            ticks: { callback: v => `${(v / 1000).toFixed(0)}k L` }
+          },
+          y1: {
+            type: 'linear',
+            position: 'right',
+            grid: { display: false },
+            ticks: { callback: v => `${v}%` }
+          }
+        }
+      }
+    });
+  }
+
+  renderCadastroDonut(id, data = []) {
+    this.destroy(id);
+    const canvas = document.getElementById(id);
+    if (!canvas) return;
+
+    const color = this.colors();
+    const labels = data.map(d => d.categoria);
+    const values = data.map(d => Number(d.count || 0));
+
+    this.instances[id] = new Chart(canvas.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: [color.light, color.medium, color.dark],
+          borderColor: color.surface,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '55%',
+        plugins: {
+          legend: { display: true, position: 'right', labels: { boxWidth: 12, font: { size: 11 } } },
+          tooltip: {
+            ...this.tooltip(),
+            callbacks: {
+              label: (context) => {
+                const val = context.raw || 0;
+                const total = (context.dataset.data || []).reduce((a, b) => a + Number(b || 0), 0);
+                const pct = total > 0 ? ((val / total) * 100).toFixed(1).replace('.', ',') : '0,0';
+                return ` ${context.label}: ${val} fazendas (${pct}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  renderMbRankingHorizontal(id, data = []) {
+    this.destroy(id);
+    const canvas = document.getElementById(id);
+    if (!canvas) return;
+
+    const color = this.colors();
+    const labels = data.map(d => d.produtor || d.codigo_lr);
+    const values = data.map(d => Number(d.margem_bruta_por_litro || 0));
+    const bgColors = values.map(v => v >= 0 ? color.green : color.danger);
+
+    this.instances[id] = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Margem Bruta (R$/L)',
+          data: values,
+          backgroundColor: bgColors,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            ...this.tooltip(),
+            callbacks: {
+              label: context => ` MB/L: R$ ${Number(context.raw || 0).toFixed(2)} / Litro`
+            }
+          }
+        },
+        scales: {
+          x: { grid: { color: color.grid }, ticks: { callback: v => `R$ ${v}` } },
+          y: { grid: { display: false } }
+        }
+      }
+    });
+  }
+
   applyTheme() {
     Object.entries(this.instances).forEach(([id, chart]) => {
       if (!chart) return;
@@ -559,3 +746,4 @@ class DashboardCharts {
 }
 
 window.DashboardCharts = DashboardCharts;
+

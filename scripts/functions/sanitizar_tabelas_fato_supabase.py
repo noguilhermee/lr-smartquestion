@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """
+DEPRECATED: superseded por scripts/functions/camada_consumo.py
+(sincronizar_tabela), que já sincroniza sq_fato_visitas/sq_fato_consistencia/
+sq_fato_movimentacao com a origem a cada publicação, removendo chaves
+obsoletas. Mantido apenas como referência histórica (AGENTS.md regra 4);
+executar_pipeline.py não o chama mais.
+
 Script Oficial de Sanitização e Reconciliação das Tabelas Fato no Supabase
 Projeto: BI Labor Rural / SmartQuestion (lr-analytics-db)
 

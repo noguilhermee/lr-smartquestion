@@ -1,13 +1,21 @@
 # -*- coding: utf-8 -*-
 """
 Script: carregar_historico_visitas.py
-Objetivo: Ingerir a base estática congelada de visitas (2023 até 2026/1 - data <= 2026-06-30)
-          a partir dos arquivos particionados em BD_SMARTQUESTION/BACKUPS/VISITAS/
-          nas tabelas sq_raw_visitas e sq_fato_visitas do Supabase.
+Objetivo: Carregar a camada raw de visitas (sq_raw_visitas) a partir das exportações
+          LISTA_GERAL do SmartQuestion, em duas etapas com o mesmo layout (aba 'BD'):
 
-Prioridade de Deduplicação e UPSERT:
-  1º Lugar: id_atendimento (ID oficial do atendimento no SmartQuestion)
-  2º Lugar: id_composto (Hash SHA-256 fallback para registros sem id_atendimento)
+  1. Base estática congelada  -> BD_SMARTQUESTION/BACKUPS/VISITAS/<visitas_historico_arquivos>
+                                 somente data_visita <= referencia.data_corte_estatica_visitas
+  2. Base dinâmica            -> BD_SMARTQUESTION/LISTA_GERAL_VISITAS.xlsx
+                                 somente data_visita >= referencia.data_inicial_fato_visitas
+
+Grava apenas a raw (upsert por id_composto = sha256("ATEND_<id_atendimento>")). As colunas
+exclusivas dos relatórios por projeto (valores pagos, id_farm, dados zootécnicos) são
+preservadas, pois o upsert só atualiza as colunas enviadas. A fato de visitas é publicada
+depois por camada_consumo.py.
+
+Ao final confere se todos os atendimentos dos arquivos estão no Supabase e falha se faltar
+algum — a raw precisa espelhar os arquivos por completo.
 
 Uso:
   python scripts/functions/carregar_historico_visitas.py
@@ -16,16 +24,12 @@ from __future__ import annotations
 
 import hashlib
 import math
-import os
-import re
 import sys
-import unicodedata
 from datetime import datetime
 from pathlib import Path
+
 import pandas as pd
 import yaml
-from dotenv import load_dotenv
-from supabase import create_client
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -33,266 +37,314 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
-
-def detectar_raiz(caminho_base: Path | None = None) -> Path:
-    """Localiza a raiz do projeto de forma robusta."""
-    caminho_atual = (caminho_base or Path(__file__).resolve()).parent
-    for candidato in [caminho_atual, *caminho_atual.parents]:
-        if (candidato / "scripts").is_dir() and ((candidato / "db").is_dir() or (candidato / "dashboard").is_dir()):
-            return candidato
-        if (candidato / "SCRIPTS").is_dir() and (candidato / "DB").is_dir():
-            return candidato
-    return caminho_atual
-
-
-raiz_projeto = detectar_raiz()
-for p in [
-    raiz_projeto,
-    raiz_projeto / "scripts",
-    raiz_projeto / "scripts" / "functions",
-    raiz_projeto / "SCRIPTS",
-    raiz_projeto / "SCRIPTS" / "FUNCTIONS",
-]:
+caminho_atual = Path(__file__).resolve()
+for candidato in [caminho_atual, *caminho_atual.parents]:
+    if (candidato / "scripts").is_dir() and ((candidato / "db").is_dir() or (candidato / "dashboard").is_dir()):
+        raiz_projeto = candidato
+        break
+else:
+    raiz_projeto = caminho_atual.parents[2]
+for p in [raiz_projeto, raiz_projeto / "scripts", raiz_projeto / "scripts" / "functions"]:
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+from functions.function import carregar_env, obter_cliente_supabase  # noqa: E402
+from functions import regras_negocio as rn  # noqa: E402
+
+TABELA_RAW = "sq_raw_visitas"
+LOTE = 1000
+
+MAPA_COLUNAS = {
+    "Código do atendimento": "id_atendimento",
+    "Código do(a) produtor(a)": "codigo_lr",
+    "Produtor(a)": "nome_produtor",
+    "Propriedade:": "nome_propriedade",
+    "Propriedade": "nome_propriedade",
+    "Consultor(a)": "nome_consultor",
+    "Data da visita": "data_visita",
+    "Tipo de visita": "tipo_visita",
+    "Projeto": "projeto",
+}
+CAMPOS_ZOOTECNICOS = [
+    "area_pecuaria_ha", "mdo_dias_homem", "producao_l_dia", "ccs_mensal", "cpp_mensal",
+    "gordura_mensal", "proteina_mensal", "vacas_lactacao", "vacas_secas",
+    "bezerras_aleitamento", "bezerros_aleitamento", "novilhas", "reprodutores",
+    "receptoras", "rebanho_total",
+]
+COLUNAS_RAW = ["id_composto", "id_atendimento", "codigo_lr", "nome_produtor", "nome_propriedade", "nome_consultor",
+               "data_visita", "tipo_visita", "projeto", "id_farm", "valor_pago_produtor",
+               "valor_pago_agroindustria", *CAMPOS_ZOOTECNICOS, "origem_dados", "data_processamento"]
+
+COLUNAS_INTEIRAS = {
+    "id_atendimento", "vacas_lactacao", "vacas_secas", "bezerras_aleitamento",
+    "bezerros_aleitamento", "novilhas", "reprodutores", "receptoras", "rebanho_total",
+}
+
+# Relatórios específicos por agroindústria: cada um usa um formulário próprio do SmartQuestion
+# (fora do padrão de aba "BD" da LISTA_GERAL_VISITAS.xlsx) e traz valor_pago_produtor/
+# valor_pago_agroindustria/id_farm reais da visita, que a LISTA_GERAL não tem. Por isso têm
+# prioridade: quando o mesmo id_atendimento existe nos dois, o registro do relatório específico
+# substitui o da LISTA_GERAL por inteiro. Mapeamento por posição de coluna (0-indexado) porque os
+# cabeçalhos desses arquivos têm espaços/quebras de linha inconsistentes entre exportações.
+RELATORIOS_ESPECIFICOS = {
+    "LISTA_ALVOAR_VISITA.xlsx": dict(
+        sheet="INF_GERAIS", header_row=2,  # cabeçalho na linha 3 do Excel
+        projeto="ALVOAR", tipo_visita="ALVOAR ASSIST",
+        colunas={"nome_produtor": 0, "codigo_lr": 1, "nome_propriedade": 2, "nome_consultor": 3,
+                 "id_atendimento": 4, "data_visita": 6,
+                 "area_pecuaria_ha": 8, "mdo_dias_homem": 9, "producao_l_dia": 10,
+                 "ccs_mensal": 11, "cpp_mensal": 12, "gordura_mensal": 13, "proteina_mensal": 14,
+                 "vacas_lactacao": 17, "vacas_secas": 18, "bezerras_aleitamento": 19,
+                 "bezerros_aleitamento": 20, "novilhas": 21, "reprodutores": 22, "receptoras": 23,
+                 "rebanho_total": 24,
+                 "valor_pago_produtor": 31, "valor_pago_agroindustria": 32},
+    ),
+    "LISTA_LPA_VISITA.xlsx": dict(
+        # Mesmo layout do ALVOAR (o próprio arquivo exportado traz o cabeçalho "...VISITA ALVOAR"
+        # por erro de template no SmartQuestion — vale confirmar com quem exporta).
+        sheet="INF_GERAIS", header_row=2,
+        projeto="LPA", tipo_visita="RELATORIO DE VISITA LPA",
+        colunas={"nome_produtor": 0, "codigo_lr": 1, "nome_propriedade": 2, "nome_consultor": 3,
+                 "id_atendimento": 4, "data_visita": 6,
+                 "area_pecuaria_ha": 8, "mdo_dias_homem": 9, "producao_l_dia": 10,
+                 "ccs_mensal": 11, "cpp_mensal": 12, "gordura_mensal": 13, "proteina_mensal": 14,
+                 "vacas_lactacao": 17, "vacas_secas": 18, "bezerras_aleitamento": 19,
+                 "bezerros_aleitamento": 20, "novilhas": 21, "reprodutores": 22, "receptoras": 23,
+                 "rebanho_total": 24,
+                 "valor_pago_produtor": 31, "valor_pago_agroindustria": 32},
+    ),
+    "LISTA_CCPR_VISITA.xlsx": dict(
+        # DADOS_COLETADOS do CCPR não tem coluna de data; por isso a base vem de DADOS_DA_VISITA
+        # (cabeçalho na linha 5 do Excel), que tem id/nome/consultor/propriedade/data completos.
+        # Os campos zootécnicos vêm de um merge com DADOS_COLETADOS por id_atendimento (esse
+        # arquivo não tem bezerras_aleitamento nem receptoras — ficam nulos).
+        sheet="DADOS_DA_VISITA", header_row=4,
+        projeto="CCPR", tipo_visita="RELATORIO DE VISITA ATEG/CCPR_GOIAS",
+        colunas={"id_atendimento": 1, "nome_consultor": 2, "codigo_lr": 3, "nome_produtor": 4,
+                 "nome_propriedade": 5, "data_visita": 8},
+        sheet_extra="DADOS_COLETADOS", header_row_extra=3,
+        colunas_extra={"id_atendimento": 1,
+                        "area_pecuaria_ha": 7, "mdo_dias_homem": 8, "producao_l_dia": 9,
+                        "vacas_lactacao": 10, "vacas_secas": 11, "bezerros_aleitamento": 12,
+                        "novilhas": 13, "reprodutores": 14, "rebanho_total": 15,
+                        "ccs_mensal": 22, "cpp_mensal": 24, "gordura_mensal": 26,
+                        "proteina_mensal": 27},
+    ),
+    "LISTA_REGENERA_VISITA.xlsx": dict(
+        sheet="DADOS_COLETADOS", header_row=3,
+        projeto="REGENERA", tipo_visita="RELATORIO DE VISITA REGENERA",
+        colunas={"id_atendimento": 1, "nome_consultor": 2, "codigo_lr": 3, "id_farm": 4,
+                 "nome_produtor": 5, "nome_propriedade": 6, "data_visita": 9,
+                 "area_pecuaria_ha": 11, "mdo_dias_homem": 12, "producao_l_dia": 13,
+                 "vacas_lactacao": 14, "vacas_secas": 15, "bezerras_aleitamento": 16,
+                 "bezerros_aleitamento": 17, "novilhas": 18, "reprodutores": 19,
+                 "receptoras": 20, "rebanho_total": 21,
+                 "ccs_mensal": 28, "cpp_mensal": 30, "gordura_mensal": 32, "proteina_mensal": 33},
+    ),
+    "LISTA_SEMEAR_VISITA.xlsx": dict(
+        sheet="DADOS_COLETADOS", header_row=3,
+        projeto="SEMEAR", tipo_visita="RELATÓRIO DE VISITA SEMEAR - V2",
+        colunas={"id_atendimento": 1, "nome_consultor": 2, "codigo_lr": 3, "nome_produtor": 4,
+                 "nome_propriedade": 5, "data_visita": 7,
+                 "area_pecuaria_ha": 8, "mdo_dias_homem": 9, "producao_l_dia": 10,
+                 "vacas_lactacao": 11, "vacas_secas": 12, "bezerras_aleitamento": 13,
+                 "bezerros_aleitamento": 14, "novilhas": 15, "reprodutores": 16,
+                 "receptoras": 17, "rebanho_total": 18,
+                 "ccs_mensal": 24, "cpp_mensal": 26, "gordura_mensal": 28, "proteina_mensal": 29},
+    ),
+}
+
 
 def carregar_configuracao(raiz: Path) -> dict:
-    config_file = raiz / "scripts" / "config" / "config.yaml"
-    if not config_file.is_file():
-        config_file = raiz / "SCRIPTS" / "CONFIG" / "config.yaml"
-    with open(config_file, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    with open(raiz / "scripts" / "config" / "config.yaml", encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
 
 
-def obter_cliente_supabase(raiz: Path):
-    for env_path in [
-        raiz / "scripts" / "config" / ".env",
-        raiz / "dashboard" / ".env.local",
-        raiz / ".env",
-    ]:
-        if env_path.is_file():
-            load_dotenv(env_path)
-
-    supabase_url = os.getenv("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
-
-    if not supabase_url or not supabase_key:
-        raise ValueError("❌ Credenciais do Supabase não encontradas!")
-
-    return create_client(supabase_url, supabase_key)
+def ler_lista_geral(caminho: Path, origem: str) -> pd.DataFrame:
+    df = pd.read_excel(caminho, sheet_name="BD")
+    faltando = [c for c in MAPA_COLUNAS if c not in df.columns]
+    if faltando:
+        raise ValueError(f"{caminho.name}: colunas ausentes {faltando}")
+    df = df[list(MAPA_COLUNAS)].rename(columns=MAPA_COLUNAS)
+    df["origem_dados"] = origem
+    df["arquivo"] = caminho.name
+    return df
 
 
-def normalizar_texto(texto: str | None) -> str:
-    if not texto or pd.isna(texto):
-        return ""
-    nfkd = unicodedata.normalize("NFKD", str(texto))
-    return "".join([c for c in nfkd if not unicodedata.combining(c)]).strip().upper()
+def ler_relatorio_especifico(caminho: Path, layout: dict) -> pd.DataFrame:
+    """Lê um relatório específico de agroindústria (layout próprio, fora do padrão BD)."""
+    bruto = pd.read_excel(caminho, sheet_name=layout["sheet"], header=None,
+                           skiprows=layout["header_row"] + 1)
+    df = pd.DataFrame({campo: bruto.iloc[:, idx] for campo, idx in layout["colunas"].items()})
+
+    if "sheet_extra" in layout:
+        # Campos que não estão na aba principal (ex.: zootécnicos do CCPR): merge por
+        # id_atendimento, à parte — se não casar, só o campo extra fica nulo, a visita não some.
+        aux = pd.read_excel(caminho, sheet_name=layout["sheet_extra"], header=None,
+                             skiprows=layout["header_row_extra"] + 1)
+        extra = pd.DataFrame({campo: aux.iloc[:, idx] for campo, idx in layout["colunas_extra"].items()})
+        df["_id_join"] = df["id_atendimento"].map(rn.limpar_id_atendimento)
+        extra["_id_join"] = extra["id_atendimento"].map(rn.limpar_id_atendimento)
+        extra = extra.drop(columns=["id_atendimento"]).dropna(subset=["_id_join"]).drop_duplicates(subset=["_id_join"], keep="last")
+        df = df.merge(extra, on="_id_join", how="left").drop(columns=["_id_join"])
+
+    df["projeto"] = layout["projeto"]
+    df["tipo_visita"] = layout["tipo_visita"]
+    df["origem_dados"] = caminho.stem
+    df["arquivo"] = caminho.name
+    for col in ("id_farm", "valor_pago_produtor", "valor_pago_agroindustria", *CAMPOS_ZOOTECNICOS):
+        if col not in df.columns:
+            df[col] = None
+    return df
 
 
-def extrair_codigo_lr(ponto_atendimento: str | None) -> str | None:
-    if not ponto_atendimento or pd.isna(ponto_atendimento):
-        return None
-    match = re.search(r"(LR\d{4,6})", str(ponto_atendimento), re.IGNORECASE)
-    return match.group(1).upper() if match else None
-
-
-def limpar_id_atendimento(val: any) -> str | None:
-    if pd.isna(val) or val is None:
-        return None
-    s = str(val).strip().replace("\xa0", "")
-    if s.endswith(".0"):
-        s = s[:-2]
-    return s if s and s != "nan" and s != "None" else None
-
-
-def gerar_id_composto(codigo_lr: str | None, consultor: str | None, data_visita_str: str | None, id_atend: str | None) -> str:
-    c_lr = (codigo_lr or "").strip().upper()
-    c_cons = normalizar_texto(consultor)
-    c_dt = (data_visita_str or "").strip()
-    c_atend = (id_atend or "").strip()
-    
-    # Se id_atendimento estiver presente, ele compõe prioritariamente o hash
-    raw_key = f"{c_atend}|{c_lr}|{c_cons}|{c_dt}"
-    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
-
-
-def sanitizar_records(df: pd.DataFrame, colunas_permitidas: list[str]) -> list[dict]:
-    cols_existentes = [c for c in colunas_permitidas if c in df.columns]
-    df_sub = df[cols_existentes].copy()
-    records = df_sub.to_dict(orient="records")
-    cleaned_records = []
-    for row in records:
-        clean_row = {}
-        for k, v in row.items():
-            if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))) or pd.isna(v):
-                clean_row[k] = None
-            elif k == "id_atendimento":
-                try:
-                    clean_row[k] = int(float(v))
-                except (ValueError, TypeError):
-                    clean_row[k] = None
-            elif k in ["valor_pago_produtor", "valor_pago_agroindustria"]:
-                try:
-                    clean_row[k] = float(v)
-                except (ValueError, TypeError):
-                    clean_row[k] = None
-            elif isinstance(v, pd.Timestamp):
-                clean_row[k] = v.isoformat(timespec="milliseconds") + "Z"
-            else:
-                clean_row[k] = str(v).strip() if isinstance(v, str) else v
-        cleaned_records.append(clean_row)
-    return cleaned_records
-
-
-def executar_carga_historico_visitas():
-    print("=" * 70)
-    print("🚀 CARGA HISTÓRICA E ESTÁTICA DE VISITAS (ATÉ 2026/1 - ATÉ 30/06/2026)")
-    print("=" * 70)
-
-    config = carregar_configuracao(raiz_projeto)
-    pasta_backups = config.get("caminhos", {}).get("bd_smartquestion", "")
-    if pasta_backups:
-        caminho_backups = Path(pasta_backups) / "BACKUPS" / "VISITAS"
-    else:
-        caminho_backups = raiz_projeto.parent / "BD_SMARTQUESTION" / "BACKUPS" / "VISITAS"
-
-    if not caminho_backups.exists():
-        caminho_backups = Path(r"C:\Users\Guilherme\LABOR RURAL\Analytics - Departamento Analytics\POWER_BI\PROJETOS\BI_LABOR_RURAL\BD_SMARTQUESTION\BACKUPS\VISITAS")
-
-    arquivos_historicos = config.get("smartquestion", {}).get("visitas_historico_arquivos", [
-        "LISTA_GERAL_VISITAS_2023.xlsx",
-        "LISTA_GERAL_VISITAS_2024.xlsx",
-        "LISTA_GERAL_VISITAS_2025_1.xlsx",
-        "LISTA_GERAL_VISITAS_2025_2.xlsx",
-        "LISTA_GERAL_VISITAS_2026_1.xlsx"
-    ])
-
-    data_corte_estatica = config.get("referencia", {}).get("data_corte_estatica_visitas", "2026-06-30")
-    print(f"📁 Pasta de arquivos históricos: {caminho_backups}")
-    print(f"📅 Data limite de corte estático: {data_corte_estatica}")
-
-    dfs = []
-    for nome_arq in arquivos_historicos:
-        arq_path = caminho_backups / nome_arq
-        if not arq_path.exists():
-            print(f"⚠️ Arquivo não encontrado (pulando): {nome_arq}")
+def montar_relatorios_especificos(cfg: dict) -> pd.DataFrame:
+    """Consolida os relatórios específicos por agroindústria já normalizados e padronizados."""
+    pasta_bd = Path(cfg["caminhos"]["bd_smartquestion"])
+    partes = []
+    for nome, layout in RELATORIOS_ESPECIFICOS.items():
+        caminho = pasta_bd / nome
+        if not caminho.exists():
+            print(f"   ⚠️ Relatório específico não encontrado (ignorado): {caminho}")
             continue
+        bruto = ler_relatorio_especifico(caminho, layout)
+        df = padronizar(bruto)
+        descartadas = len(bruto) - len(df)
+        aviso = f" ({descartadas} linhas sem id_atendimento/data_visita válidos descartadas)" if descartadas else ""
+        print(f"   -> {nome}: {len(df)} visitas ({layout['projeto']}){aviso}")
+        partes.append(df)
+    if not partes:
+        return pd.DataFrame()
+    especificos = pd.concat([p for p in partes if not p.empty], ignore_index=True)
+    antes = len(especificos)
+    especificos = especificos.drop_duplicates(subset=["id_atendimento"], keep="last")
+    if antes != len(especificos):
+        print(f"   ⚠️ {antes - len(especificos)} id_atendimento duplicados entre relatórios específicos "
+              f"(mantido o último). Verifique se o mesmo atendimento não pertence a duas agroindústrias.")
+    return especificos
 
-        print(f"📖 Lendo arquivo de backup: {nome_arq} ...")
-        df_part = pd.read_excel(arq_path, sheet_name=0)
-        print(f"   -> {len(df_part)} registros lidos.")
-        dfs.append(df_part)
 
-    if not dfs:
-        print("❌ Nenhum arquivo histórico foi lido. Carga cancelada.")
-        return
+def padronizar(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["id_atendimento"] = df["id_atendimento"].map(rn.limpar_id_atendimento)
+    # dayfirst=True: alguns relatórios específicos gravam a data como texto "DD/MM/AAAA"
+    # (não como data real do Excel); sem isso, "15/01/2025" falha o parse (mês inválido) e
+    # vira NaT, descartando a visita inteira no dropna abaixo.
+    df["data_visita"] = pd.to_datetime(df["data_visita"], errors="coerce", dayfirst=True)
+    df["codigo_lr"] = df["codigo_lr"].map(rn.limpar_codigo_lr).replace({"": None})
+    df["nome_consultor"] = df["nome_consultor"].astype(str).str.strip().str.upper()
+    df["nome_consultor"] = df["nome_consultor"].replace(rn.ALIAS_CONSULTORES).replace({"NAN": None, "NONE": None})
+    return df.dropna(subset=["id_atendimento", "data_visita"])
 
-    df_full = pd.concat(dfs, ignore_index=True)
-    print(f"\n📊 Total bruto consolidado dos arquivos históricos: {len(df_full)} registros.")
 
-    # Mapear e padronizar colunas da LISTA_GERAL_VISITAS
-    col_map = {
-        "Código do atendimento": "id_atendimento",
-        "Código do(a) produtor(a)": "codigo_lr",
-        "Produtor(a)": "nome_produtor",
-        "Consultor(a)": "nome_consultor",
-        "Data da visita": "data_visita",
-        "Tipo de visita": "tipo_visita",
-        "Ponto de atendimento": "ponto_atendimento",
-        "Projeto": "projeto",
-    }
-    for orig, dest in col_map.items():
-        if orig in df_full.columns and dest not in df_full.columns:
-            df_full.rename(columns={orig: dest}, inplace=True)
+def montar_base(raiz: Path, cfg: dict) -> pd.DataFrame:
+    ref = cfg["referencia"]
+    arquivos = cfg["smartquestion"]["arquivos"]
+    pasta_bd = Path(cfg["caminhos"]["bd_smartquestion"])
+    pasta_backup = pasta_bd / "BACKUPS" / "VISITAS"
+    corte = pd.Timestamp(ref["data_corte_estatica_visitas"]) + pd.Timedelta(days=1)  # inclui o dia inteiro
+    inicio_dinamico = pd.Timestamp(ref["data_inicial_fato_visitas"])
+    if inicio_dinamico > corte:
+        raise ValueError(f"Lacuna entre a base estática (até {ref['data_corte_estatica_visitas']}) "
+                         f"e a dinâmica (a partir de {ref['data_inicial_fato_visitas']}).")
 
-    # Tratamento de Código LR
-    if "ponto_atendimento" in df_full.columns:
-        df_full["codigo_lr_ext"] = df_full["ponto_atendimento"].apply(extrair_codigo_lr)
-        df_full["codigo_lr"] = df_full["codigo_lr"].fillna(df_full["codigo_lr_ext"])
+    print(f"📁 1. Base estática (até {ref['data_corte_estatica_visitas']}): {pasta_backup}")
+    estaticas = []
+    for nome in arquivos["visitas_historico_arquivos"]:
+        caminho = pasta_backup / nome
+        if not caminho.exists():
+            raise FileNotFoundError(f"Arquivo da base estática não encontrado: {caminho}")
+        df = padronizar(ler_lista_geral(caminho, "LISTA_GERAL_VISITAS_BACKUP"))
+        df = df[df["data_visita"] < corte]
+        print(f"   -> {nome}: {len(df)} visitas")
+        estaticas.append(df)
 
-    df_full["codigo_lr"] = df_full["codigo_lr"].astype(str).str.strip().str.upper()
-    df_full["codigo_lr"] = df_full["codigo_lr"].replace({"NAN": None, "NONE": None, "": None})
+    caminho_dinamico = pasta_bd / arquivos["visita_geral"]
+    print(f"📁 2. Base dinâmica (a partir de {ref['data_inicial_fato_visitas']}): {caminho_dinamico.name}")
+    dinamica = padronizar(ler_lista_geral(caminho_dinamico, "LISTA_GERAL_VISITAS"))
+    dinamica = dinamica[dinamica["data_visita"] >= inicio_dinamico]
+    print(f"   -> {len(dinamica)} visitas ({dinamica['data_visita'].min():%Y-%m-%d} a {dinamica['data_visita'].max():%Y-%m-%d})")
 
-    # Tratamento de Datas
-    df_full["data_visita"] = pd.to_datetime(df_full["data_visita"], errors="coerce")
-    df_full = df_full[df_full["data_visita"].notna()].copy()
-    
-    # Aplicar corte estático (somente registros até 2026/1: <= 2026-06-30)
-    dt_corte_dt = pd.to_datetime(data_corte_estatica)
-    df_full = df_full[df_full["data_visita"] <= dt_corte_dt].copy()
-    print(f"   -> Registros mantidos até a data limite ({data_corte_estatica}): {len(df_full)}")
+    # A base dinâmica prevalece se o mesmo atendimento aparecer nas duas.
+    base = pd.concat([*estaticas, dinamica], ignore_index=True)
+    base = base.drop_duplicates(subset=["id_atendimento"], keep="last")
+    for col in ("id_farm", "valor_pago_produtor", "valor_pago_agroindustria", *CAMPOS_ZOOTECNICOS):
+        base[col] = None
 
-    df_full["mes_referencia"] = df_full["data_visita"].dt.to_period("M").dt.to_timestamp()
-    df_full["data_processamento"] = datetime.now()
+    print(f"\n📁 3. Relatórios específicos por agroindústria (prioridade sobre a LISTA_GERAL): {pasta_bd}")
+    especificos = montar_relatorios_especificos(cfg)
+    if not especificos.empty:
+        ids_especificos = set(especificos["id_atendimento"])
+        substituidas = int(base["id_atendimento"].isin(ids_especificos).sum())
+        base = base[~base["id_atendimento"].isin(ids_especificos)]
+        base = pd.concat([b for b in [base, especificos] if not b.empty], ignore_index=True)
+        print(f"   -> {substituidas} atendimentos da LISTA_GERAL substituídos por dados dos relatórios "
+              f"específicos; {len(especificos) - substituidas} atendimentos novos incorporados.")
 
-    # Tratamento de ID Atendimento
-    df_full["id_atendimento_clean"] = df_full["id_atendimento"].apply(limpar_id_atendimento)
+    base["id_composto"] = base["id_atendimento"].map(lambda i: hashlib.sha256(f"ATEND_{i}".encode("utf-8")).hexdigest())
+    base["data_processamento"] = datetime.now()
+    return base
 
-    # Geração de id_composto priorizando id_atendimento
-    df_full["data_visita_str"] = df_full["data_visita"].dt.strftime("%Y-%m-%d")
-    df_full["id_composto"] = df_full.apply(
-        lambda r: gerar_id_composto(r.get("codigo_lr"), r.get("nome_consultor"), r.get("data_visita_str"), r.get("id_atendimento_clean")),
-        axis=1
-    )
 
-    # 📌 DEDUPLICAÇÃO PRIORIZANDO id_atendimento EM PRIMEIRA INSTÂNCIA
-    print("\n🔑 Aplicando regra oficial de deduplicação (1º Lugar: id_atendimento | 2º Lugar: id_composto)...")
-    m_com_id = df_full["id_atendimento_clean"].notna()
-    df_com_id = df_full[m_com_id].drop_duplicates(subset=["id_atendimento_clean"], keep="first")
-    df_sem_id = df_full[~m_com_id].drop_duplicates(subset=["id_composto"], keep="first")
-    
-    df_dedup = pd.concat([df_com_id, df_sem_id], ignore_index=True)
-    print(f"   -> Total de registros únicos após deduplicação: {len(df_dedup)} (Com id_atendimento: {len(df_com_id)}, Sem id_atendimento: {len(df_sem_id)})")
+def registros_para_supabase(df: pd.DataFrame) -> list[dict]:
+    registros = []
+    for r in df[COLUNAS_RAW].to_dict(orient="records"):
+        limpo = {}
+        for k, v in r.items():
+            if v is None or (isinstance(v, float) and math.isnan(v)) or (not isinstance(v, str) and pd.isna(v)):
+                limpo[k] = None
+            elif isinstance(v, str) and v.strip().lower() in ("nan", "none", "null", ""):
+                limpo[k] = None
+            elif k in COLUNAS_INTEIRAS:
+                try:
+                    limpo[k] = int(round(float(v)))
+                except (ValueError, TypeError):
+                    limpo[k] = None
+            elif isinstance(v, (pd.Timestamp, datetime)):
+                limpo[k] = pd.Timestamp(v).strftime("%Y-%m-%dT%H:%M:%S")
+            elif hasattr(v, "item"):
+                limpo[k] = v.item()
+            else:
+                limpo[k] = str(v).strip() if isinstance(v, str) else v
+        registros.append(limpo)
+    return registros
 
-    # Supabase Client
-    supabase = obter_cliente_supabase(raiz_projeto)
 
-    # 1. Ingestão em sq_raw_visitas
-    colunas_raw = [
-        "id_atendimento", "codigo_lr", "nome_produtor", "nome_consultor",
-        "data_visita", "mes_referencia", "tipo_visita", "projeto",
-        "data_processamento", "id_composto"
-    ]
-    records_raw = sanitizar_records(df_dedup, colunas_raw)
+def ids_no_supabase(supabase) -> set[int]:
+    ids, inicio = set(), 0
+    while True:
+        dados = supabase.table(TABELA_RAW).select("id_atendimento").range(inicio, inicio + LOTE - 1).execute().data or []
+        ids.update(int(d["id_atendimento"]) for d in dados if d.get("id_atendimento") is not None)
+        if len(dados) < LOTE:
+            return ids
+        inicio += LOTE
 
-    print(f"\n⬆️ Enviando {len(records_raw)} registros estáticos para sq_raw_visitas...")
-    chunk_size = 1000
-    for i in range(0, len(records_raw), chunk_size):
-        chunk = records_raw[i : i + chunk_size]
-        try:
-            supabase.table("sq_raw_visitas").upsert(
-                chunk,
-                on_conflict="id_composto"
-            ).execute()
-            print(f"   ✅ sq_raw_visitas - Lote {i // chunk_size + 1}/{(len(records_raw) + chunk_size - 1) // chunk_size}: {len(chunk)} registros.")
-        except Exception as e_raw:
-            print(f"   ❌ Erro ao enviar sq_raw_visitas lote {i // chunk_size + 1}: {e_raw}")
 
-    # 2. Ingestão em sq_fato_visitas (requer codigo_lr não nulo)
-    df_fato = df_dedup[df_dedup["codigo_lr"].notna() & (df_dedup["codigo_lr"].astype(str).str.strip() != "")].copy()
-    colunas_fato = [
-        "id_atendimento", "codigo_lr", "nome_consultor", "mes_referencia",
-        "nome_produtor", "projeto", "data_visita", "data_processamento",
-        "id_composto", "tipo_visita"
-    ]
-    records_fato = sanitizar_records(df_fato, colunas_fato)
+def executar_carga_historico_visitas(raiz: Path | None = None) -> pd.DataFrame:
+    raiz = raiz or raiz_projeto
+    print("=" * 70)
+    print("🚀 CARGA DA RAW DE VISITAS (BASE ESTÁTICA + LISTA_GERAL_VISITAS DINÂMICA)")
+    print("=" * 70)
+    carregar_env(raiz)
+    cfg = carregar_configuracao(raiz)
+    base = montar_base(raiz, cfg)
+    print(f"\n📊 Total consolidado: {len(base)} atendimentos únicos "
+          f"({base['data_visita'].min():%Y-%m-%d} a {base['data_visita'].max():%Y-%m-%d})")
 
-    print(f"\n⬆️ Enviando {len(records_fato)} registros estáticos para sq_fato_visitas...")
-    for i in range(0, len(records_fato), chunk_size):
-        chunk = records_fato[i : i + chunk_size]
-        try:
-            supabase.table("sq_fato_visitas").upsert(
-                chunk,
-                on_conflict="id_composto"
-            ).execute()
-            print(f"   ✅ sq_fato_visitas - Lote {i // chunk_size + 1}/{(len(records_fato) + chunk_size - 1) // chunk_size}: {len(chunk)} registros.")
-        except Exception as e_fato:
-            print(f"   ❌ Erro ao enviar sq_fato_visitas lote {i // chunk_size + 1}: {e_fato}")
+    supabase = obter_cliente_supabase(raiz)
+    registros = registros_para_supabase(base)
+    print(f"\n⬆️ Enviando {len(registros)} registros para {TABELA_RAW}...")
+    for i in range(0, len(registros), LOTE):
+        supabase.table(TABELA_RAW).upsert(registros[i:i + LOTE], on_conflict="id_composto").execute()
+    print("   ✅ Upsert concluído.")
 
-    print("\n" + "=" * 70)
-    print("✨ CARGA HISTÓRICA E ESTÁTICA DE VISITAS CONCLUÍDA COM SUCESSO!")
-    print("=" * 70 + "\n")
+    faltando = set(base["id_atendimento"].astype(int)) - ids_no_supabase(supabase)
+    if faltando:
+        raise RuntimeError(f"{len(faltando)} atendimentos dos arquivos não estão em {TABELA_RAW} após a carga "
+                           f"(ex.: {sorted(faltando)[:10]}). A raw não pode ser publicada incompleta.")
+    print(f"   ✅ Conferência: todos os {len(base)} atendimentos dos arquivos estão em {TABELA_RAW}.")
+    print("=" * 70)
+    return base
 
 
 if __name__ == "__main__":

@@ -154,8 +154,10 @@ CAMINHO_ARQUIVO = PASTA_SAIDA / f"{DATA_EXPORTACAO}_nome_do_arquivo.ext"
 
 ---
 
-## 🔒 9. Acesso ao Supabase (Leitura Estrita para IA / Escrita Controlada via Pipeline ETL)
-- **Escopo do Assistente de IA**: O acesso do assistente de IA ao Supabase é **exclusivamente para CONSULTA / LEITURA (`SELECT` / Read-Only)**. Operações de gravação ou alteração direta via SQL/client pelo assistente são estritamente proibidas.
+## 🔒 9. Acesso ao Supabase (Leitura e Inserção para IA / Escrita Controlada via Pipeline ETL)
+- **Escopo do Assistente de IA**: O assistente de IA pode **CONSULTAR (`SELECT`) e INSERIR dados (`INSERT`)** no Supabase sem pedir autorização prévia.
+- **Criação exige confirmação**: Antes de **criar qualquer objeto** no banco (tabelas, colunas, views, funções, triggers, índices, policies, buckets etc.), o assistente deve **perguntar ao usuário e aguardar aprovação explícita**, descrevendo o que será criado e a nomenclatura proposta (seguindo a regra 11).
+- **Demais alterações**: `UPDATE`, `DELETE`, `ALTER`, `DROP` ou `TRUNCATE` em objetos já existentes podem ser executados pelo assistente sem pedir autorização prévia.
 - **Escopo do Pipeline ETL**: Os scripts oficiais de pipeline (`reconciliar_movimentacao_e_ativos.py`, `ETL_BI_LR.ipynb`, etc.) possuem autorização para executar operações controladas de gravação/upsert exclusivamente nas tabelas gerenciadas pelo projeto (`sq_*`).
 
 ---

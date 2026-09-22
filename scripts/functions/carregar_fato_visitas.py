@@ -1,4 +1,10 @@
 """
+DEPRECATED: superseded por scripts/functions/camada_consumo.py
+(construir_fato_visitas). A resolução de agroindústria/região/status/blocos
+Elabore e a publicação final de sq_fato_visitas agora vivem lá, junto com as
+demais tabelas fato de consumo. Este módulo fica apenas como referência
+histórica (AGENTS.md regra 4); executar_pipeline.py não o chama mais.
+
 Módulo: carregar_fato_visitas.py
 Responsável por extrair visitas e vínculos brutos do Supabase, aplicar regras de negócio,
 manter o consultor original de campo, preservar nome do produtor e propriedade,
@@ -259,6 +265,14 @@ def executar_etl_fato_visitas(
     df_visitas['mes_ano'] = df_visitas['data_visita'].dt.strftime('%Y-%m')
     df_visitas['mes_referencia'] = df_visitas['data_visita'].dt.to_period('M').dt.to_timestamp()
 
+    # Normalização de aliases de nomes de consultores
+    MAPA_ALIAS_CONSULTORES = {
+        "MARIO BARBOSA FILHO": "MARIO BARBOSA ROSA FILHO",
+        "MARIO BARBOSA": "MARIO BARBOSA ROSA FILHO",
+    }
+    if 'nome_consultor' in df_visitas.columns:
+        df_visitas['nome_consultor'] = df_visitas['nome_consultor'].astype(str).str.strip().str.upper().replace(MAPA_ALIAS_CONSULTORES)
+
     # Filtro estrito de visitas técnicas da cadeia de Leite (Whitelist aprovada sem CFT)
     if 'tipo_visita' in df_visitas.columns:
         linhas_antes = len(df_visitas)
@@ -483,15 +497,22 @@ def executar_etl_fato_visitas(
 
     # 5. Cálculo do Hash SHA-256 (id_composto) e Deduplicação prioritária
     print("\n🔑 ETAPA 5: Gerando chave única de deduplicação (id_atendimento em 1º lugar, id_composto em 2º lugar)")
-    hash_cols = ['codigo_lr', 'nome_consultor', 'mes_referencia_str', 'id_atendimento']
-    df_hash = f_visitas[hash_cols].copy()
-    df_hash['id_atendimento'] = df_hash['id_atendimento'].astype(str).replace({'<NA>': 'NULL_VAL'})
-    df_hash['mes_referencia_str'] = df_hash['mes_referencia_str'].astype(str).replace({'None': 'NULL_VAL'})
-    df_hash['codigo_lr'] = df_hash['codigo_lr'].astype(str).replace({'None': 'NULL_VAL', 'nan': 'NULL_VAL'})
-    df_hash['nome_consultor'] = df_hash['nome_consultor'].astype(str).replace({'None': 'NULL_VAL', 'nan': 'NULL_VAL'})
+    def _gerar_hash_fato(row):
+        atend_val = row.get('id_atendimento')
+        if pd.notna(atend_val) and atend_val is not None:
+            try:
+                s_at = str(int(float(atend_val))).strip()
+                if s_at and s_at != "0" and s_at != "nan":
+                    return hashlib.sha256(f"ATEND_{s_at}".encode('utf-8')).hexdigest()
+            except (ValueError, TypeError):
+                pass
+        c_lr = str(row.get('codigo_lr') or '').strip().upper() or 'NULL_VAL'
+        c_cons = str(row.get('nome_consultor') or '').strip() or 'NULL_VAL'
+        c_mes = str(row.get('mes_referencia_str') or '').strip() or 'NULL_VAL'
+        raw_key = f"{c_lr}{c_cons}{c_mes}"
+        return hashlib.sha256(raw_key.encode('utf-8')).hexdigest()
 
-    hash_input = df_hash.agg(''.join, axis=1)
-    f_visitas['id_composto'] = hash_input.apply(lambda x: hashlib.sha256(x.encode()).hexdigest())
+    f_visitas['id_composto'] = f_visitas.apply(_gerar_hash_fato, axis=1)
 
     total_bruto = len(f_visitas)
     # Prioridade 1º lugar: id_atendimento (registros válidos e não nulos)

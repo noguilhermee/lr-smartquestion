@@ -1777,6 +1777,34 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function renderEconomics(data) {
+    if (!data) return;
+    const slide4 = data.slide4 || {};
+    const slide5 = data.slide5 || {};
+    const kpi4 = slide4.kpis || {};
+    const kpi5 = slide5.kpis || {};
+
+    updateValue('kpiEconVolTotal', number(kpi4.volume_diario_total));
+    updateValue('kpiEconProdutividade', number(kpi4.produtividade_l_vl_dia));
+    updateValue('kpiEconPrecoMedio', kpi4.preco_medio_litro !== undefined ? `R$ ${kpi4.preco_medio_litro}` : '—');
+    updateValue('kpiEconCoeMedio', kpi4.coe_medio_litro !== undefined ? `R$ ${kpi4.coe_medio_litro}` : '—');
+    updateValue('kpiEconMargemBruta', kpi4.margem_bruta_litro !== undefined ? `R$ ${kpi4.margem_bruta_litro}` : '—');
+    updateValue('kpiEconPercMbPositiva', percent(kpi4.perc_mb_positiva));
+
+    if (slide4.top5_coe) charts.renderTop5CostsPie('chartTop5CostsPie', slide4.top5_coe);
+    if (slide4.volume_evolution) charts.renderVolumeEvolution('chartVolumeEvolution', slide4.volume_evolution);
+
+    updateValue('kpiProfTotalAtivas', number(kpi5.total_fazendas_ativas));
+    updateValue('kpiProfMbPositiva', `${number(kpi5.fazendas_mb_positiva)} (${percent(kpi5.perc_mb_positiva)})`);
+    updateValue('kpiProfMbNegativa', `${number(kpi5.fazendas_mb_negativa)} (${percent(kpi5.perc_mb_negativa)})`);
+    updateValue('kpiProfCad1Ano', `${number(kpi5.cad_1_ano)} (${percent(kpi5.perc_cad_1_ano)})`);
+    updateValue('kpiProfCad2Anos', `${number(kpi5.cad_2_anos)} (${percent(kpi5.perc_cad_2_anos)})`);
+    updateValue('kpiProfCad3PlusAnos', `${number(kpi5.cad_3_plus_anos)} (${percent(kpi5.perc_cad_3_plus_anos)})`);
+
+    if (slide5.cadastro_breakdown) charts.renderCadastroDonut('chartCadastroBreakdownDonut', slide5.cadastro_breakdown);
+    if (slide5.top10_mb_ranking) charts.renderMbRankingHorizontal('chartMbRankingHorizontal', slide5.top10_mb_ranking);
+  }
+
   let debounceFilterTimer = null;
 
   async function loadAllData(isFilterChange = false) {
@@ -1799,20 +1827,23 @@ document.addEventListener('DOMContentLoaded', () => {
       if (filter.producer) params.set('producer', filter.producer);
 
       const query = params.toString() ? `?${params.toString()}` : '';
-      const [overview, visits, turnover, consistency] = await Promise.all([
+      const [overview, visits, turnover, consistency, economics] = await Promise.all([
         getJson(`/api/overview${query}`),
         getJson(`/api/visits${query}`),
         getJson(`/api/turnover${query}`),
-        getJson(`/api/consistency${query}`)
+        getJson(`/api/consistency${query}`),
+        getJson(`/api/economics${query}`)
       ]);
       state.overview = overview;
       state.visits = visits;
       state.turnover = turnover;
       state.consistency = consistency;
+      state.economics = economics;
       renderVisits(visits);
       renderConsistency(consistency);
       renderOverview(overview);
       renderTurnover(turnover);
+      renderEconomics(economics);
       renderTables();
       updateTimestamp();
     } finally {

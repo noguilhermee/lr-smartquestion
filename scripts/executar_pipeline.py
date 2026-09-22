@@ -101,8 +101,30 @@ def main():
 
     sucesso = executar_notebook(notebook_path)
     
-    # 3. Pós-ETL: Reconciliação de Movimentação, Ativos e Sanitização das Tabelas Fato
+    # 3. Pós-ETL: Carga Econômica, Reconciliação de Movimentação, Ativos e Sanitização das Tabelas Fato
     if sucesso:
+        try:
+            try:
+                from functions.carregar_fato_economico import processar_e_carregar_fato_economico
+            except ImportError:
+                from FUNCTIONS.carregar_fato_economico import processar_e_carregar_fato_economico
+            print("\n💰 [PÓS-ETL] Processando e alimentando a tabela fato econômica (sq_fato_economico)...")
+            processar_e_carregar_fato_economico(raiz_projeto)
+        except Exception as e_econ:
+            print(f"⚠️ Aviso na carga econômica: {e_econ}")
+
+        raw_visitas_ok = False
+        try:
+            try:
+                from functions.carregar_historico_visitas import executar_carga_historico_visitas
+            except ImportError:
+                from FUNCTIONS.carregar_historico_visitas import executar_carga_historico_visitas
+            print("\n📚 [PÓS-ETL] Carregando sq_raw_visitas (backups até o corte estático + LISTA_GERAL_VISITAS.xlsx)...")
+            executar_carga_historico_visitas(raiz_projeto)
+            raw_visitas_ok = True
+        except Exception as e_raw_vis:
+            print(f"❌ Falha na carga da raw de visitas: {e_raw_vis}")
+
         try:
             try:
                 from functions.reconciliar_movimentacao_e_ativos import executar_reconciliacao
@@ -113,15 +135,20 @@ def main():
         except Exception as e_rec:
             print(f"⚠️ Aviso na reconciliação: {e_rec}")
 
+        if not raw_visitas_ok:
+            print("\n⛔ Camada de consumo NÃO publicada: a raw de visitas não foi carregada por completo.")
+            sys.exit(1)
         try:
             try:
-                from functions.sanitizar_tabelas_fato_supabase import executar_sanitizacao_completa
+                from functions.camada_consumo import executar_camada_consumo
             except ImportError:
-                from FUNCTIONS.sanitizar_tabelas_fato_supabase import executar_sanitizacao_completa
-            print("\n🧹 [PÓS-ETL] Sanitizando tabelas fato no Supabase...")
-            executar_sanitizacao_completa(modo_execucao="aplicar")
-        except Exception as e_san:
-            print(f"⚠️ Aviso na sanitização: {e_san}")
+                from FUNCTIONS.camada_consumo import executar_camada_consumo
+            print("\n🧱 [PÓS-ETL] Publicando camada de consumo (sq_fato_visitas, sq_fato_carteira_mensal,")
+            print("             sq_fato_consistencia, sq_fato_movimentacao)...")
+            executar_camada_consumo(raiz_projeto, gravar=True)
+        except Exception as e_consumo:
+            print(f"❌ Falha na publicação da camada de consumo: {e_consumo}")
+            sys.exit(1)
 
         print("\n🎉 Pipeline ETL finalizada com sucesso!")
         sys.exit(0)

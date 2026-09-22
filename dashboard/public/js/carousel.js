@@ -8,7 +8,9 @@ class DashboardCarousel {
     this.slideNames = [
       'Visitas e cobertura',
       'Movimentações e vínculos',
-      'Dados e consistência'
+      'Dados e consistência',
+      'Econômico e Produção',
+      'Perfil da Base de Produtores'
     ];
     this.totalSlides = this.slideNames.length;
     this.track = document.getElementById('carouselTrack');
