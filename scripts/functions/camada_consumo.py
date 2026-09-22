@@ -769,7 +769,7 @@ COLS_VISITAS = ["id_composto", "id_atendimento", "codigo_lr", "nome_consultor", 
                 "novilhas", "reprodutores", "receptoras", "rebanho_total", "status_produtor",
                 "origem_dados", "cadastro_elabore", "dados_elabore_pct", "dados_elabore_status", "blocos_elabore"]
 
-COLS_CONSISTENCIA = ["codigo_lr", "nome_consultor", "profissao_consultor", "projeto", "mes_referencia",
+COLS_CONSISTENCIA = ["id_composto", "codigo_lr", "nome_consultor", "profissao_consultor", "projeto", "mes_referencia",
                      "data_carencia_fim", "mes_elabore", "consistencia_mensal", "consistencia_anual",
                      "status_code", "excecao", "meses_sequenciais", "detalhamento_inconsistencia"]
 
@@ -845,7 +845,11 @@ def executar_camada_consumo(raiz: Path | None = None, gravar: bool = True) -> di
     sincronizar_tabela(supabase, TAB_VISITAS, _registros_json(r["visitas"][COLS_VISITAS], d, ts))
     sincronizar_tabela(supabase, TAB_CARTEIRA, _registros_json(r["carteira"], d, ts))
     cols_cons = [c for c in COLS_CONSISTENCIA if c in r["consistencia"].columns]
-    sincronizar_tabela(supabase, TAB_CONSISTENCIA, _registros_json(r["consistencia"][cols_cons], d, ts), chave="codigo_lr,nome_consultor,mes_referencia")
+    # A grain de sq_fato_consistencia é fazenda×mês e já vem materializada em id_composto
+    # (f"{cod}|{mes}"), que é a PK da tabela. O on_conflict pelo trio
+    # (codigo_lr, nome_consultor, mes_referencia) não tem unique constraint correspondente
+    # e fazia o Postgres recusar todo o upsert com 42P10, deixando a tabela vazia.
+    sincronizar_tabela(supabase, TAB_CONSISTENCIA, _registros_json(r["consistencia"][cols_cons], d, ts))
     cols_mov = [c for c in COLS_MOVIMENTACAO if c in r["movimentacao"].columns]
     sincronizar_tabela(supabase, TAB_MOVIMENTACAO, _registros_json(r["movimentacao"][cols_mov], d, ts))
     print("🎉 Camada de consumo publicada.")

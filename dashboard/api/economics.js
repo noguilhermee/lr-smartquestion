@@ -1,12 +1,12 @@
+// Agroindústria e região já chegam resolvidas pelo ETL em sq_fato_economico (regra 13):
+// a API apenas lê as colunas. As antigas importações sanitizeConsultorList/isTestData/
+// ehCadeiaLeite/mapAgroindustria não existem mais em shared.js e faziam esta rota
+// devolver HTTP 500 em toda requisição.
 const {
   getSupabaseClient,
   fetchAll,
   fetchWithCache,
-  monthLabel,
-  sanitizeConsultorList,
-  isTestData,
-  ehCadeiaLeite,
-  mapAgroindustria
+  monthLabel
 } = require('./shared');
 
 module.exports = async (req, res) => {
@@ -18,37 +18,6 @@ module.exports = async (req, res) => {
     if (req.method === 'OPTIONS') return res.status(200).end();
 
     const supabase = getSupabaseClient();
-    const { getRegiaoMap, getDimRegioesMap, sanitizeRegiao } = require('./azurePostgres');
-
-    const [regiaoMap, dimRegioesData] = await Promise.all([
-      getRegiaoMap(supabase, fetchAll).catch(() => new Map()),
-      getDimRegioesMap(supabase).catch(() => ({ deParaMap: new Map() }))
-    ]);
-
-    function getRegiao(codigoLr, fallback, agroindustria = null, projeto = null) {
-      let reg = null;
-      if (codigoLr && regiaoMap.has(String(codigoLr).trim())) {
-        reg = regiaoMap.get(String(codigoLr).trim());
-      } else if (fallback) {
-        reg = fallback;
-      }
-      if (reg) {
-        const rawTrim = String(reg).trim();
-        const agro = agroindustria || (projeto ? mapAgroindustria(projeto) : null);
-        if (agro) {
-          const agroKey = `${agro.toUpperCase()}|${rawTrim.toUpperCase()}`;
-          if (dimRegioesData.deParaMap && dimRegioesData.deParaMap.has(agroKey)) {
-            return dimRegioesData.deParaMap.get(agroKey);
-          }
-        }
-        if (dimRegioesData.deParaMap && dimRegioesData.deParaMap.has(rawTrim.toUpperCase())) {
-          return dimRegioesData.deParaMap.get(rawTrim.toUpperCase());
-        }
-        const clean = sanitizeRegiao(reg, projeto);
-        if (clean) return clean;
-      }
-      return 'NÃO INFORMADA';
-    }
 
     // Leitura das tabelas econômicas e de vínculos
     const [rawEconData, rawVinculosData] = await Promise.all([
@@ -80,9 +49,9 @@ module.exports = async (req, res) => {
     let econList = (rawEconData || []).map(row => {
       const cod = String(row.codigo_lr || '').trim().toUpperCase();
       const vinculo = vinculoMap.get(cod) || {};
-      const agro = mapAgroindustria(row.agroindustria || vinculo.agroindustria || row.projeto || vinculo.projeto);
-      const reg = getRegiao(cod, row.regiao || vinculo.regiao, agro, row.projeto || vinculo.projeto);
-      
+      const agro = String(row.agroindustria || vinculo.agroindustria || '').trim();
+      const reg = String(row.regiao || vinculo.regiao || '').trim() || 'NÃO INFORMADA';
+
       return {
         ...row,
         codigo_lr: cod,
