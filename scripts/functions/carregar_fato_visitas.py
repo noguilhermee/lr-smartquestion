@@ -220,7 +220,7 @@ def ler_excel_seguro(caminho_excel, **kwargs):
 
 
 def executar_etl_fato_visitas(
-    data_inicial: str = '2026-01-01',
+    data_inicial: str = '2026-07-01',
     data_final: Optional[str] = None,
     raiz_projeto: Optional[Path] = None,
     tabela_fato: str = 'sq_fato_visitas',
@@ -481,8 +481,8 @@ def executar_etl_fato_visitas(
         lambda x: x.isoformat(timespec='milliseconds') + 'Z' if pd.notna(x) else None
     )
 
-    # 5. Cálculo do Hash SHA-256 (id_composto)
-    print("\n🔑 ETAPA 5: Gerando chave única de deduplicação (id_composto)")
+    # 5. Cálculo do Hash SHA-256 (id_composto) e Deduplicação prioritária
+    print("\n🔑 ETAPA 5: Gerando chave única de deduplicação (id_atendimento em 1º lugar, id_composto em 2º lugar)")
     hash_cols = ['codigo_lr', 'nome_consultor', 'mes_referencia_str', 'id_atendimento']
     df_hash = f_visitas[hash_cols].copy()
     df_hash['id_atendimento'] = df_hash['id_atendimento'].astype(str).replace({'<NA>': 'NULL_VAL'})
@@ -494,8 +494,12 @@ def executar_etl_fato_visitas(
     f_visitas['id_composto'] = hash_input.apply(lambda x: hashlib.sha256(x.encode()).hexdigest())
 
     total_bruto = len(f_visitas)
-    f_visitas.drop_duplicates(subset=['id_composto'], keep='first', inplace=True)
-    print(f"   -> Registros consolidados: {len(f_visitas)} (removidas {total_bruto - len(f_visitas)} duplicatas por id_composto).")
+    # Prioridade 1º lugar: id_atendimento (registros válidos e não nulos)
+    m_valid_id = f_visitas['id_atendimento'].notna() & (f_visitas['id_atendimento'] > 0)
+    df_com_id = f_visitas[m_valid_id].drop_duplicates(subset=['id_atendimento'], keep='first')
+    df_sem_id = f_visitas[~m_valid_id].drop_duplicates(subset=['id_composto'], keep='first')
+    f_visitas = pd.concat([df_com_id, df_sem_id], ignore_index=True)
+    print(f"   -> Registros consolidados: {len(f_visitas)} (removidas {total_bruto - len(f_visitas)} duplicatas por id_atendimento/id_composto).")
 
     # 6. Preparação estrita de colunas e limpeza de NaNs
     print("\n📦 ETAPA 6: Preparando payload e sanitizando NaNs para Supabase")

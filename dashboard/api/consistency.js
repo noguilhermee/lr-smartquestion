@@ -97,7 +97,7 @@ module.exports = async (req, res) => {
       return true;
     }
 
-    const [consistenciaHistoricaBruta, produtoresAtivosBrutos, vinculosFallback, consistenciaMensalBruta, consistenciaAnualBruta, elaboreBlocksMap] = await Promise.all([
+    const [consistenciaHistoricaBruta, produtoresAtivosBrutos, vinculosFallback, consistenciaMensalBruta, consistenciaAnualBruta, elaboreBlocksMap, inativacoesBrutas] = await Promise.all([
       fetchWithCache('CONSIST_FATO_HIST', () =>
         fetchAll(() => supabase
           .from('sq_fato_consistencia')
@@ -161,8 +161,18 @@ module.exports = async (req, res) => {
           return true;
         });
       }),
-      getElaboreBlocksFromPostgres(refMonth).catch(() => new Map())
+      getElaboreBlocksFromPostgres(refMonth).catch(() => new Map()),
+      fetchWithCache('CONSIST_INATIVACOES', () =>
+        fetchAll(() => supabase
+          .from('sq_raw_inativacoes_produtor')
+          .select('codigo_lr, data_inativacao, data_solicitacao')).catch(() => [])
+      )
     ]);
+
+    const inativacoesSet = new Set();
+    (inativacoesBrutas || []).forEach(i => {
+      if (i.codigo_lr) inativacoesSet.add(String(i.codigo_lr).trim().toUpperCase());
+    });
 
     const fallbackMetaMap = new Map((vinculosFallback || []).map(v => [v.codigo_lr, v]));
     const mensalRefMap = new Map();
@@ -232,11 +242,7 @@ module.exports = async (req, res) => {
       const statusConsist = String(rawMensalVal || '').toLowerCase();
       const detalheConsist = (mensalDirect && mensalDirect.detalhamento_inconsistencia !== undefined) ? mensalDirect.detalhamento_inconsistencia : c?.detalhamento_inconsistencia;
 
-      const refMonthStr = String(c?.mes_referencia || refMonth || '').slice(0, 7);
-      const isCinthiaMissingMay = (p.codigo_lr === 'LR10245' || String(p.nome_produtor || '').toLowerCase().includes('cinthia')) && refMonthStr === '2026-05';
-      const isSemDadosExplicit = hasNoMensalRecord || !statusConsist || statusConsist.includes('sem dados') || statusConsist.includes('sem_dados') || statusConsist.includes('não calculated') || statusConsist.includes('nao calculado');
-
-      const isSemDados = isSemDadosExplicit || isCinthiaMissingMay;
+      const isSemDados = hasNoMensalRecord || !statusConsist || statusConsist.includes('sem dados') || statusConsist.includes('sem_dados') || statusConsist.includes('não calculated') || statusConsist.includes('nao calculado');
       const isConsistente = !isSemDados && statusConsist.includes('consistente') && !statusConsist.includes('inconsistente');
       const isInconsistente = !isSemDados && !isConsistente && (statusConsist.includes('inconsistente') || statusConsist.includes('divergente') || statusConsist.includes('outlier'));
 
@@ -372,9 +378,7 @@ module.exports = async (req, res) => {
       : percConsistente;
     const produtoresComDados = new Set(consistenciaFiltrada.filter(c => {
       const statusConsist = String(c.consistencia_mensal || '').toLowerCase();
-      const refMonthStr = String(c.mes_referencia || '').slice(0, 7);
-      const isCinthiaMissingMay = c.codigo_lr === 'LR10245' && refMonthStr === '2026-05';
-      const isSemDados = isCinthiaMissingMay || !c.consistencia_mensal || statusConsist.includes('sem dados') || statusConsist.includes('não calculado');
+      const isSemDados = !c.consistencia_mensal || statusConsist.includes('sem dados') || statusConsist.includes('não calculado');
       return !isSemDados;
     }).map(c => c.codigo_lr).filter(Boolean)).size;
 
@@ -403,16 +407,15 @@ module.exports = async (req, res) => {
       const mensalDirect = mensalRefMap.get(mKey) || mensalRefMap.get(cdLrUpper);
       const statusConsist = String(mensalDirect ? mensalDirect.consistencia_mensal : (c?.consistencia_mensal || '')).toLowerCase();
       const hasNoMensalRecord = !mensalDirect && (!c || (!c.mes_elabore && !c.consistencia_mensal));
-      const isCinthiaMissingMay = (p.codigo_lr === 'LR10245' || String(p.nome_produtor || '').toLowerCase().includes('cinthia')) && refMonthStr === '2026-05';
-      const isSemDados = hasNoMensalRecord || isCinthiaMissingMay || !statusConsist || statusConsist.includes('sem dados') || statusConsist.includes('não calculado') || statusConsist.includes('nao calculado');
+      const isSemDados = hasNoMensalRecord || !statusConsist || statusConsist.includes('sem dados') || statusConsist.includes('não calculated') || statusConsist.includes('nao calculado');
       const possuiDados = Boolean(!isSemDados);
       const prodName = p.nome_produtor || metaFallback?.nome_produtor || p.codigo_lr || 'PRODUTOR';
       const consultoresSanitizados = sanitizeConsultorList(p.nome_consultor || c?.nome_consultor || metaFallback?.nome_consultor);
       const consultorNome = consultoresSanitizados[0] || 'NÃO INFORMADO';
       const mesRefVal = c?.mes_referencia || refMonth;
 
-      const isInactiveProd = String(p.status || c?.status || '').trim().toUpperCase().includes('INATIV');
-      const isCad = c?.excecao !== 1 && c?.excecao !== true;
+      const isInactiveProd = inativacoesSet.has(cdLrUpper) || String(p.status || c?.status || '').trim().toUpperCase().includes('INATIV');
+      const isCad = !isInactiveProd && c?.excecao !== 1 && c?.excecao !== true;
       const cadLabel = isInactiveProd ? 'INATIVO' : (isCad ? 'SIM' : 'NÃO');
 
       const defaultBlocks = {
@@ -480,9 +483,7 @@ module.exports = async (req, res) => {
       const mKey = `${cdLrUpper}_${refMonthStr}`;
       const mensalDirect = mensalRefMap.get(mKey) || mensalRefMap.get(cdLrUpper);
       const statusConsist = String(mensalDirect ? mensalDirect.consistencia_mensal : (c.consistencia_mensal || '')).toLowerCase();
-      const hasNoMensalRecord = !mensalDirect && !c.mes_elabore && !c.consistencia_mensal;
-      const isCinthiaMissingMay = (c.codigo_lr === 'LR10245' || String(produtor?.nome_produtor || '').toLowerCase().includes('cinthia')) && refMonthStr === '2026-05';
-      const isSemDados = hasNoMensalRecord || isCinthiaMissingMay || statusConsist.includes('sem dados') || statusConsist.includes('não calculated') || statusConsist.includes('nao calculado');
+      const isSemDados = hasNoMensalRecord || statusConsist.includes('sem dados') || statusConsist.includes('não calculated') || statusConsist.includes('nao calculado');
       const possuiDados = Boolean(!isSemDados);
       const prodName = produtor?.nome_produtor || metaFallback?.nome_produtor || c.codigo_lr || 'PRODUTOR';
       const consultoresSanitizados = sanitizeConsultorList(c.nome_consultor || produtor?.nome_consultor || metaFallback?.nome_consultor);

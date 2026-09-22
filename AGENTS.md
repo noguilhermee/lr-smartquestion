@@ -186,4 +186,11 @@ CAMINHO_ARQUIVO = PASTA_SAIDA / f"{DATA_EXPORTACAO}_nome_do_arquivo.ext"
   3. Descrever claramente o objetivo do script e os impactos esperados.
   4. **Pedir formalmente que o próprio usuário execute o comando em seu terminal**, aguardando o retorno ou logs fornecidos por ele.
 
+---
+
+## 🛠️ 13. Proibição de Correção Paliativa no Frontend/API e Foco no ETL
+- **Regra Absoluta**: **NUNCA fazer "gambiarras", tratamentos paliativos ou manipulações artificiais de dados no front-end ou nos arquivos JS de API** (`dashboard/api/*`, `dashboard/public/*`).
+- **Procedimento Obrigatório**: Caso seja identificada qualquer inconsistência, divergência de contagem ou ausência de dados na interface, a correção deve ser realizada na raiz da fonte de dados (nos scripts de ETL/Python). O assistente de IA deve **obrigatoriamente estruturar um plano de implementação para ajustar a regra diretamente nos scripts de ETL** (`scripts/`), garantindo que o banco de dados (Supabase) permaneça como a única fonte da verdade e que os dados sejam reconciliados e persistidos corretamente na origem.
+
+
 

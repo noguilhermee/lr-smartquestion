@@ -981,15 +981,27 @@ def executar_reconciliacao(reindex_completo: bool = False):
 
     # Carregar lista de códigos de produtores com atendimento/visita em sq_raw_visitas
     codigos_com_visita = set()
+    codigos_com_visita_por_mes = {}
     try:
         df_vis_cods = consultar_tabela_supabase(
             "sq_raw_visitas",
-            "codigo_lr",
+            "codigo_lr, mes_referencia, data_visita",
             raiz=raiz_projeto
         )
-        if not df_vis_cods.empty and "codigo_lr" in df_vis_cods.columns:
-            codigos_com_visita = set(df_vis_cods["codigo_lr"].dropna().astype(str).str.strip().str.upper())
-            print(f"   -> {len(codigos_com_visita)} produtores identificados com relatórios de visita em sq_raw_visitas.")
+        if not df_vis_cods.empty:
+            if "codigo_lr" in df_vis_cods.columns:
+                codigos_com_visita = set(df_vis_cods["codigo_lr"].dropna().astype(str).str.strip().str.upper())
+            for _, rv in df_vis_cods.iterrows():
+                c_vis = str(rv.get("codigo_lr") or "").strip().upper()
+                dt_vis = rv.get("mes_referencia") or rv.get("data_visita")
+                if c_vis and pd.notna(dt_vis):
+                    m_vis = pd.to_datetime(dt_vis, errors="coerce")
+                    if pd.notna(m_vis):
+                        m_str = m_vis.strftime("%Y-%m-01")
+                        if m_str not in codigos_com_visita_por_mes:
+                            codigos_com_visita_por_mes[m_str] = set()
+                        codigos_com_visita_por_mes[m_str].add(c_vis)
+            print(f"   -> {len(codigos_com_visita)} produtores identificados com relatórios de visita em sq_raw_visitas ({len(codigos_com_visita_por_mes)} meses).")
     except Exception as e_v_cods:
         print(f"   ⚠️ Aviso ao carregar visitas para validação CFT: {e_v_cods}")
 
@@ -1091,12 +1103,13 @@ def executar_reconciliacao(reindex_completo: bool = False):
             elif not consultores_do_grupo and cons_resp in consultores_inativos:
                 continue
 
-            # 1. Se a data de associação for posterior ao mês avaliado, ainda não existia
+            # 1. Se a data de associação for posterior ao mês avaliado, verificar se houve visita no mês avaliado
             dt_assoc = r.get("data_associacao")
             dt_assoc_p = pd.to_datetime(dt_assoc, errors="coerce")
 
             if pd.notna(dt_assoc_p) and dt_assoc_p.strftime("%Y-%m-01") > ref_m:
-                continue
+                if c.upper() not in codigos_com_visita_por_mes.get(ref_m, set()):
+                    continue
 
             # 2. REGRA PRINCIPAL: Usar BD_BI_VINCULOS_COMPLETO.xlsx como fonte de verdade.
             is_ativo_excel = c.upper() in codigos_ativos_excel
