@@ -98,10 +98,24 @@ class DashboardCharts {
               const radius = (element.innerRadius + element.outerRadius) / 2;
               x = element.x + Math.cos(angle) * radius;
               y = element.y + Math.sin(angle) * radius;
-              fill = '#ffffff';
+              fill = requestedColor || '#ffffff';
             } else if (isHorizontal) {
-              x += 7;
-              align = 'left';
+              if (requestedPosition === 'inside') {
+                const isPositive = element.x >= element.base;
+                const barLength = Math.abs(element.x - element.base);
+                if (barLength >= 45) {
+                  x = isPositive ? element.x - 10 : element.x + 10;
+                  align = isPositive ? 'right' : 'left';
+                  fill = requestedColor || '#ffffff';
+                } else {
+                  x = isPositive ? element.x + 7 : element.x - 7;
+                  align = isPositive ? 'left' : 'right';
+                  fill = color.ink;
+                }
+              } else {
+                x += 7;
+                align = 'left';
+              }
             } else if (requestedPosition === 'insideBase' && Number.isFinite(element.base)) {
               y = element.base - 11;
             } else {
@@ -110,9 +124,11 @@ class DashboardCharts {
 
             context.textAlign = align;
             context.lineWidth = 3;
-            context.strokeStyle = requestedPosition === 'insideBase'
-              ? String(dataset.backgroundColor || color.dark)
-              : (isDoughnut ? 'rgba(0, 77, 73, 0.38)' : color.surface);
+            context.strokeStyle = requestedPosition === 'inside'
+              ? 'rgba(0, 0, 0, 0.45)'
+              : (requestedPosition === 'insideBase'
+                ? String(dataset.backgroundColor || color.dark)
+                : (isDoughnut ? 'rgba(0, 40, 35, 0.55)' : color.surface));
             context.strokeText(label, x, y);
             context.fillStyle = fill;
             context.fillText(label, x, y);
@@ -590,35 +606,69 @@ class DashboardCharts {
     const variacoes = data.map(d => Number(d.variacao_percentual || 0));
 
     this.instances[id] = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      plugins: [this.valueLabels(
+        (value, { dataset }) => {
+          if (dataset.type !== 'line' && !dataset.label?.includes('Variação')) return null;
+          const num = Number(value || 0);
+          const prefix = num > 0 ? '+' : '';
+          return `${prefix}${num.toFixed(1).replace('.', ',')}%`;
+        },
+        { fontSize: 10, color: color.warning }
+      )],
       data: {
         labels,
         datasets: [
-          {
-            type: 'bar',
-            label: 'Volume (L/mês)',
-            data: volumes,
-            backgroundColor: color.green,
-            borderRadius: 4,
-            yAxisID: 'y'
-          },
           {
             type: 'line',
             label: 'Variação %',
             data: variacoes,
             borderColor: color.warning,
             backgroundColor: color.warning,
-            borderWidth: 2,
-            pointRadius: 4,
-            yAxisID: 'y1'
+            borderWidth: 3,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            pointBackgroundColor: color.warning,
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 1.5,
+            yAxisID: 'y1',
+            order: 1
+          },
+          {
+            type: 'bar',
+            label: 'Volume (L/mês)',
+            data: volumes,
+            backgroundColor: color.green,
+            borderRadius: 4,
+            yAxisID: 'y',
+            order: 2
           }
         ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
         plugins: {
           legend: { display: true, position: 'top', labels: { boxWidth: 12 } },
-          tooltip: this.tooltip()
+          tooltip: {
+            ...this.tooltip(),
+            mode: 'index',
+            intersect: false,
+            callbacks: {
+              label: (context) => {
+                const val = Number(context.raw || 0);
+                if (context.dataset.type === 'line' || context.dataset.label.includes('Variação')) {
+                  const prefix = val > 0 ? '+' : '';
+                  return ` Variação %: ${prefix}${val.toFixed(2).replace('.', ',')}%`;
+                }
+                return ` Volume: ${val.toLocaleString('pt-BR')} L/mês`;
+              }
+            }
+          }
         },
         scales: {
           x: { grid: { display: false } },
@@ -650,6 +700,10 @@ class DashboardCharts {
 
     this.instances[id] = new Chart(canvas.getContext('2d'), {
       type: 'doughnut',
+      plugins: [this.valueLabels(
+        (value) => `${value}`,
+        { fontSize: 11.5, color: '#ffffff', minimumPercentage: 2 }
+      )],
       data: {
         labels,
         datasets: [{
@@ -695,7 +749,7 @@ class DashboardCharts {
       type: 'bar',
       plugins: [this.valueLabels(
         (value) => `R$ ${Number(value || 0).toFixed(2)}`,
-        { color: ({ datasetIndex, dataIndex }) => bgColors[dataIndex] }
+        { position: 'inside', color: '#ffffff', fontSize: 11 }
       )],
       data: {
         labels,
