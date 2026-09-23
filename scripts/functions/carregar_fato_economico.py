@@ -169,7 +169,7 @@ def converter_numero_br_float(val: Any) -> float:
 
 def sanitize_json_records(records: list[dict]) -> list[dict]:
     """Garante compatibilidade total com JSON e PostgreSQL (sanitiza NaN/Inf para 0.0/None)."""
-    int_cols = {"idfazenda", "vacas_lactacao", "vacas_totais", "flag_mb_positiva"}
+    int_cols = {"vacas_lactacao", "vacas_totais", "flag_mb_positiva"}
     str_limits = {
         "codigo_lr": 50,
         "projeto": 100,
@@ -178,6 +178,7 @@ def sanitize_json_records(records: list[dict]) -> list[dict]:
         "id_composto": 255,
         "nome_produtor": 255,
         "nome_consultor": 255,
+        "idfazenda": 36,
     }
 
     clean = []
@@ -307,7 +308,8 @@ def processar_e_carregar_fato_economico(raiz: Path | None = None) -> int:
     # Colunas descritivas
     col_produtor = encontrar_nome_coluna(cols, ["fazenda - produtor", "property_entrepreneur_label", "nome produtor", "produtor", "fazenda"])
     col_consultor = encontrar_nome_coluna(cols, ["consultor", "grupo de atendimento", "consultor_campo", "consultor de campo"])
-    col_projeto = encontrar_nome_coluna(cols, ["agroindústria", "agroindustria", "projeto"])
+    col_agro = encontrar_nome_coluna(cols, ["agroindústria", "agroindustria", "agroindustry_name"])
+    col_projeto = encontrar_nome_coluna(cols, ["filtro 1", "filtro 2", "filter_1", "filter_2", "projeto"])
     col_regiao = encontrar_nome_coluna(cols, ["região", "regiao", "unidade", "estado"])
     col_idfaz = encontrar_nome_coluna(cols, ["idfazenda", "id_property", "código fazenda", "codigo fazenda"])
 
@@ -364,26 +366,32 @@ def processar_e_carregar_fato_economico(raiz: Path | None = None) -> int:
         except Exception:
             continue
 
-        id_comp = f"{cod_lr}_{mes_str}T00:00:00+00:00"
+        id_comp = f"{cod_lr}_{mes_str}"
 
         # Fallback para metadados via sq_raw_vinculos
         meta_vinculo = mapa_vinculos.get(cod_lr, {})
 
-        nome_prod = row.get(col_produtor) if col_produtor and pd.notna(row.get(col_produtor)) else meta_vinculo.get("nome_produtor")
+        raw_produtor = row.get(col_produtor) if col_produtor and pd.notna(row.get(col_produtor)) else None
+        if raw_produtor and " - " in str(raw_produtor):
+            # Coluna "Fazenda - Produtor" vem composta; mantemos apenas o nome do produtor (após o hífen)
+            nome_prod = str(raw_produtor).split(" - ", 1)[1].strip()
+        else:
+            nome_prod = raw_produtor if raw_produtor else meta_vinculo.get("nome_produtor")
+
         nome_cons = row.get(col_consultor) if col_consultor and pd.notna(row.get(col_consultor)) else (
             meta_vinculo.get("consultor_grupo_atendimento") or meta_vinculo.get("grupo_atendimento") or meta_vinculo.get("consultor_campo")
         )
+        agro = row.get(col_agro) if col_agro and pd.notna(row.get(col_agro)) else (
+            meta_vinculo.get("codigo_agroindustria") or meta_vinculo.get("agroindustria")
+        )
         proj = row.get(col_projeto) if col_projeto and pd.notna(row.get(col_projeto)) else meta_vinculo.get("projeto")
-        agro = proj or meta_vinculo.get("codigo_agroindustria") or meta_vinculo.get("agroindustria")
         reg = row.get(col_regiao) if col_regiao and pd.notna(row.get(col_regiao)) else (
             meta_vinculo.get("unidade_atendimento") or meta_vinculo.get("regiao") or meta_vinculo.get("estado_produtor")
         )
 
+        # IdFazenda no relatório Elabore é UUID (ex: "00220277-a58e-4b9e-9b89-e6acf8a1a400"), não numérico
         raw_idfaz = row.get(col_idfaz) if col_idfaz and pd.notna(row.get(col_idfaz)) else meta_vinculo.get("codigo_fazenda") or meta_vinculo.get("idfazenda")
-        try:
-            id_faz = int(float(str(raw_idfaz).strip())) if pd.notna(raw_idfaz) and str(raw_idfaz).strip() != "" else None
-        except Exception:
-            id_faz = None
+        id_faz = str(raw_idfaz).strip() if pd.notna(raw_idfaz) and str(raw_idfaz).strip() != "" else None
 
         dt_assoc = meta_vinculo.get("data_associacao")
         dt_assoc_str = str(dt_assoc)[:10] if pd.notna(dt_assoc) and str(dt_assoc).strip() else None

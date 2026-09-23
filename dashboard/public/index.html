@@ -235,8 +235,8 @@
         </div>
       </section>
 
-      <!-- Slide 4: Econômico e Produção -->
-      <section class="slide" id="slide4" aria-label="Econômico e Produção">
+      <!-- Slide 4: Econômico e Perfil dos Produtores -->
+      <section class="slide" id="slide4" aria-label="Econômico e Perfil dos Produtores">
         <div class="kpi-grid">
           <article class="metric-card metric-card--primary"><span class="metric-icon material-symbols-rounded" aria-hidden="true">water_drop</span><span class="metric-label">Volume total <button class="kpi-info-btn" type="button" aria-label="Informações sobre o indicador" data-info-title="Volume total (L/dia)" data-info-body="Volume diário médio de leite comercializado no período."><span class="material-symbols-rounded" aria-hidden="true">info</span></button></span><strong id="kpiEconVolTotal">—</strong><small>Litros / dia</small></article>
           <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">speed</span><span class="metric-label">Produtividade <button class="kpi-info-btn" type="button" aria-label="Informações sobre o indicador" data-info-title="Produtividade (L/VL/dia)" data-info-body="Média de produção diária por vaca em lactação."><span class="material-symbols-rounded" aria-hidden="true">info</span></button></span><strong id="kpiEconProdutividade">—</strong><small>L / vaca em lactação / dia</small></article>
@@ -248,25 +248,13 @@
 
         <div class="grid-two grid-two--data">
           <article class="panel-card">
-            <div class="panel-heading"><h2>5 principais itens de custo (COE)</h2><div class="panel-actions"><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div>
-            <div class="chart-box"><canvas id="chartTop5CostsPie"></canvas></div>
-          </article>
-          <article class="panel-card">
             <div class="panel-heading"><h2>Evolução mensal do volume e variação %</h2><div class="panel-actions"><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div>
             <div class="chart-box"><canvas id="chartVolumeEvolution"></canvas></div>
           </article>
-        </div>
-      </section>
-
-      <!-- Slide 5: Perfil da Base de Produtores -->
-      <section class="slide" id="slide5" aria-label="Perfil da Base de Produtores">
-        <div class="kpi-grid">
-          <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">storefront</span><span class="metric-label">Fazendas ativas <button class="kpi-info-btn" type="button" aria-label="Informações sobre o indicador" data-info-title="Fazendas ativas" data-info-body="Base total de fazendas ativas sob gestão no filtro."><span class="material-symbols-rounded" aria-hidden="true">info</span></button></span><strong id="kpiProfTotalAtivas">—</strong><small>Base ativa total</small></article>
-          <article class="metric-card metric-card--soft"><span class="metric-icon material-symbols-rounded" aria-hidden="true">trending_up</span><span class="metric-label">Fazendas MB+ <button class="kpi-info-btn" type="button" aria-label="Informações sobre o indicador" data-info-title="Fazendas com MB Positiva" data-info-body="Quantidade e percentual de fazendas com margem bruta maior que zero."><span class="material-symbols-rounded" aria-hidden="true">info</span></button></span><strong id="kpiProfMbPositiva">—</strong><small>Margem Bruta &gt; R$ 0</small></article>
-          <article class="metric-card metric-card--alert"><span class="metric-icon material-symbols-rounded" aria-hidden="true">trending_down</span><span class="metric-label">Fazendas MB− <button class="kpi-info-btn" type="button" aria-label="Informações sobre o indicador" data-info-title="Fazendas com MB Negativa" data-info-body="Quantidade e percentual de fazendas com margem bruta menor ou igual a zero."><span class="material-symbols-rounded" aria-hidden="true">info</span></button></span><strong id="kpiProfMbNegativa">—</strong><small>Margem Bruta ≤ R$ 0</small></article>
-          <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">counter_1</span><span class="metric-label">1 ano de cadastro <button class="kpi-info-btn" type="button" aria-label="Informações sobre o indicador" data-info-title="1 ano de cadastro" data-info-body="Fazendas com tempo de associação menor ou igual a 1 ano."><span class="material-symbols-rounded" aria-hidden="true">info</span></button></span><strong id="kpiProfCad1Ano">—</strong><small>Até 12 meses</small></article>
-          <article class="metric-card"><span class="metric-icon material-symbols-rounded" aria-hidden="true">counter_2</span><span class="metric-label">2 anos de cadastro <button class="kpi-info-btn" type="button" aria-label="Informações sobre o indicador" data-info-title="2 anos de cadastro" data-info-body="Fazendas com tempo de associação entre 1 e 2 anos."><span class="material-symbols-rounded" aria-hidden="true">info</span></button></span><strong id="kpiProfCad2Anos">—</strong><small>Entre 13 e 24 meses</small></article>
-          <article class="metric-card metric-card--primary"><span class="metric-icon material-symbols-rounded" aria-hidden="true">counter_3</span><span class="metric-label">3+ anos de cadastro <button class="kpi-info-btn" type="button" aria-label="Informações sobre o indicador" data-info-title="3+ anos de cadastro" data-info-body="Fazendas com tempo de associação superior a 2 anos."><span class="material-symbols-rounded" aria-hidden="true">info</span></button></span><strong id="kpiProfCad3PlusAnos">—</strong><small>Acima de 24 meses</small></article>
+          <article class="panel-card">
+            <div class="panel-heading"><h2>5 principais itens de custo (COE)</h2><div class="panel-actions"><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div>
+            <div class="chart-box"><canvas id="chartTop5CostsPie"></canvas></div>
+          </article>
         </div>
 
         <div class="grid-two grid-two--data">
@@ -292,8 +280,7 @@
         <button class="page-dot active" type="button" data-slide="0" aria-label="Ir para Visitas e cobertura">1</button>
         <button class="page-dot" type="button" data-slide="1" aria-label="Ir para Movimentações e vínculos">2</button>
         <button class="page-dot" type="button" data-slide="2" aria-label="Ir para Dados e consistência">3</button>
-        <button class="page-dot" type="button" data-slide="3" aria-label="Ir para Econômico e Produção">4</button>
-        <button class="page-dot" type="button" data-slide="4" aria-label="Ir para Perfil da Base de Produtores">5</button>
+        <button class="page-dot" type="button" data-slide="3" aria-label="Ir para Econômico e Perfil dos Produtores">4</button>
         <button class="carousel-arrow" id="nextSlide" type="button" aria-label="Próxima página">›</button>
       </div>
     </div>

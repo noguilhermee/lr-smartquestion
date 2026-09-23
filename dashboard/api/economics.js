@@ -157,38 +157,46 @@ module.exports = async (req, res) => {
         flag_positiva: Number(r.margem_bruta_por_litro || 0) > 0
       }));
 
+    const cadastroBreakdown = [
+      { categoria: '1 ano de cadastro', count: cad1Ano, perc: totalFazendas > 0 ? Number(((cad1Ano / totalFazendas) * 100).toFixed(1)) : 0 },
+      { categoria: '2 anos de cadastro', count: cad2Anos, perc: totalFazendas > 0 ? Number(((cad2Anos / totalFazendas) * 100).toFixed(1)) : 0 },
+      { categoria: '3+ anos de cadastro', count: cad3PlusAnos, perc: totalFazendas > 0 ? Number(((cad3PlusAnos / totalFazendas) * 100).toFixed(1)) : 0 }
+    ];
+
+    const kpisConsolidados = {
+      volume_diario_total: Math.round(volDiarioTotal),
+      produtividade_l_vl_dia: Number(prodMedia.toFixed(2)),
+      preco_medio_litro: Number(precoMedio.toFixed(2)),
+      coe_medio_litro: Number(coeMedio.toFixed(2)),
+      margem_bruta_litro: Number(mbMedia.toFixed(2)),
+      perc_mb_positiva: Number(percMbPositiva.toFixed(1)),
+      total_fazendas_ativas: totalFazendas,
+      fazendas_mb_positiva: mbPositivas.length,
+      perc_mb_positiva_base: totalFazendas > 0 ? Number(((mbPositivas.length / totalFazendas) * 100).toFixed(1)) : 0,
+      fazendas_mb_negativa: mbNegativasCount,
+      perc_mb_negativa: totalFazendas > 0 ? Number(((mbNegativasCount / totalFazendas) * 100).toFixed(1)) : 0,
+      cad_1_ano: cad1Ano,
+      perc_cad_1_ano: totalFazendas > 0 ? Number(((cad1Ano / totalFazendas) * 100).toFixed(1)) : 0,
+      cad_2_anos: cad2Anos,
+      perc_cad_2_anos: totalFazendas > 0 ? Number(((cad2Anos / totalFazendas) * 100).toFixed(1)) : 0,
+      cad_3_plus_anos: cad3PlusAnos,
+      perc_cad_3_plus_anos: totalFazendas > 0 ? Number(((cad3PlusAnos / totalFazendas) * 100).toFixed(1)) : 0
+    };
+
     return res.status(200).json({
+      kpis: kpisConsolidados,
+      top5_coe: top5Coe,
+      volume_evolution: volumeEvolution,
+      cadastro_breakdown: cadastroBreakdown,
+      top10_mb_ranking: top10MbRanking,
       slide4: {
-        kpis: {
-          volume_diario_total: Math.round(volDiarioTotal),
-          produtividade_l_vl_dia: Number(prodMedia.toFixed(2)),
-          preco_medio_litro: Number(precoMedio.toFixed(2)),
-          coe_medio_litro: Number(coeMedio.toFixed(2)),
-          margem_bruta_litro: Number(mbMedia.toFixed(2)),
-          perc_mb_positiva: Number(percMbPositiva.toFixed(1))
-        },
+        kpis: kpisConsolidados,
         top5_coe: top5Coe,
         volume_evolution: volumeEvolution
       },
       slide5: {
-        kpis: {
-          total_fazendas_ativas: totalFazendas,
-          fazendas_mb_positiva: mbPositivas.length,
-          perc_mb_positiva: totalFazendas > 0 ? Number(((mbPositivas.length / totalFazendas) * 100).toFixed(1)) : 0,
-          fazendas_mb_negativa: mbNegativasCount,
-          perc_mb_negativa: totalFazendas > 0 ? Number(((mbNegativasCount / totalFazendas) * 100).toFixed(1)) : 0,
-          cad_1_ano: cad1Ano,
-          perc_cad_1_ano: totalFazendas > 0 ? Number(((cad1Ano / totalFazendas) * 100).toFixed(1)) : 0,
-          cad_2_anos: cad2Anos,
-          perc_cad_2_anos: totalFazendas > 0 ? Number(((cad2Anos / totalFazendas) * 100).toFixed(1)) : 0,
-          cad_3_plus_anos: cad3PlusAnos,
-          perc_cad_3_plus_anos: totalFazendas > 0 ? Number(((cad3PlusAnos / totalFazendas) * 100).toFixed(1)) : 0
-        },
-        cadastro_breakdown: [
-          { categoria: '1 ano de cadastro', count: cad1Ano, perc: totalFazendas > 0 ? Number(((cad1Ano / totalFazendas) * 100).toFixed(1)) : 0 },
-          { categoria: '2 anos de cadastro', count: cad2Anos, perc: totalFazendas > 0 ? Number(((cad2Anos / totalFazendas) * 100).toFixed(1)) : 0 },
-          { categoria: '3+ anos de cadastro', count: cad3PlusAnos, perc: totalFazendas > 0 ? Number(((cad3PlusAnos / totalFazendas) * 100).toFixed(1)) : 0 }
-        ],
+        kpis: kpisConsolidados,
+        cadastro_breakdown: cadastroBreakdown,
         top10_mb_ranking: top10MbRanking
       }
     });

@@ -1,7 +1,9 @@
+import difflib
 import os
 import re
 import sys
 import time
+import unicodedata
 from datetime import datetime, date
 from pathlib import Path
 from typing import Any, Dict, List, Set
@@ -52,6 +54,34 @@ except ImportError:
         consultar_tabela_supabase,
     )
     from FUNCTIONS.metadata_tracker import obter_metadados_planilhas
+
+
+def _normalizar_nome(texto: str) -> str:
+    """Remove acentos, colapsa espaços e coloca em maiúsculas para casar nomes entre fontes."""
+    if not texto or not isinstance(texto, str):
+        return ""
+    sem_acento = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"\s+", " ", sem_acento).strip().upper()
+
+
+MOTIVO_CADASTRO_GENERICO = "Cadastro de Produtor(a)"
+
+
+def _eh_nome_placeholder(nome) -> bool:
+    """Nome genérico do SmartQuestion ("PRODUTOR(A) PARA CADASTRO") ou fallback "Novo Produtor (...)"."""
+    if not isinstance(nome, str) or not nome.strip() or nome.strip().lower() == "nan":
+        return True
+    upper = nome.strip().upper()
+    return "CADASTRO" in upper or upper.startswith("NOVO PRODUTOR")
+
+
+def _id_atendimento_str(valor) -> str | None:
+    if valor is None or (isinstance(valor, float) and np.isnan(valor)):
+        return None
+    s = str(valor).strip()
+    if s.endswith(".0"):
+        s = s[:-2]
+    return s if s and s.lower() != "nan" else None
 
 
 def extrair_consultor_individual(consultor_str: str, grupo_str: str = "") -> str:
@@ -241,6 +271,12 @@ def executar_reconciliacao(reindex_completo: bool = False):
                 
             # Incluir todas as entradas válidas de vínculos (preservando o grupo completo)
             nome_prod_vinc = str(row.get("nome_produtor") or "").strip()
+            dt_assoc_str = None
+            if dt_assoc:
+                try:
+                    dt_assoc_str = pd.to_datetime(dt_assoc).strftime("%Y-%m-%d")
+                except Exception:
+                    dt_assoc_str = None
             id_comp = f"{cod}_{dt_mov}_Entrada"
             movimentacoes_lista.append({
                 "id_composto": id_comp,
@@ -252,8 +288,113 @@ def executar_reconciliacao(reindex_completo: bool = False):
                 "movimentacao": "Entrada",
                 "motivo_inativacao": None,
                 "outro_motivo": None,
+                "data_solicitacao": dt_assoc_str,
+                "origem_dado": "sq_raw_vinculos",
                 "data_processamento": datetime.now(FUSO_SP).isoformat(),
             })
+
+    # ─── Resolução de codigo_lr dos cadastros ──────────────────────────────────
+    # Os cadastros (LISTA_CADASTRO.xlsx / sq_raw_visitas) trazem um "código do produtor"
+    # provisório que não bate com nenhuma chave de sq_raw_vinculos nem de sq_dim_fazendas_ativas.
+    # Resolvemos o codigo_lr real só pelo nome, em 3 critérios de prioridade decrescente; se
+    # nenhum resolver de forma inequívoca, o cadastro NÃO entra em sq_raw_movimentacao — vai para
+    # a planilha de auditoria em db/output/logs/ e é resolvido sozinho numa execução futura,
+    # quando o vínculo existir.
+    df_vinc_qualquer_projeto = consultar_tabela_supabase(
+        "sq_raw_vinculos",
+        "codigo_lr, nome_produtor, data_associacao, projeto, consultor_grupo_atendimento, cidade_produtor",
+        raiz=raiz_projeto,
+    )
+    vinc_por_nome: Dict[str, List[dict]] = {}
+    if not df_vinc_qualquer_projeto.empty:
+        for _, row in df_vinc_qualquer_projeto.iterrows():
+            n = _normalizar_nome(row.get("nome_produtor"))
+            c = str(row.get("codigo_lr") or "").strip()
+            if not n or not c:
+                continue
+            vinc_por_nome.setdefault(n, []).append({
+                "codigo_lr": c,
+                "data_associacao": row.get("data_associacao"),
+                "consultor": str(row.get("consultor_grupo_atendimento") or ""),
+                "cidade": _normalizar_nome(row.get("cidade_produtor")),
+            })
+
+    lg_por_nome: Dict[str, List[dict]] = {}
+    arquivo_lg_resolver = bd_path / "LISTA_GERAL_RELATORIO_DE_GRUPO.xlsx"
+    if arquivo_lg_resolver.exists():
+        try:
+            df_lg_resolver = pd.read_excel(arquivo_lg_resolver)
+            col_nome_lg = next((c for c in df_lg_resolver.columns if str(c).strip() == "Nome"), None)
+            col_cod_lg = next((c for c in df_lg_resolver.columns if "código" in str(c).lower() or "codigo" in str(c).lower()), None)
+            col_cid_lg = next((c for c in df_lg_resolver.columns if "cidade" in str(c).lower()), None)
+            col_grp_lg = next((c for c in df_lg_resolver.columns if "grupo ponto" in str(c).lower()), None)
+            if col_nome_lg is not None and col_cod_lg is not None:
+                for _, row in df_lg_resolver.iterrows():
+                    n = _normalizar_nome(row.get(col_nome_lg))
+                    c = str(row.get(col_cod_lg) or "").strip()
+                    if not n or not c or c.lower() == "nan":
+                        continue
+                    lg_por_nome.setdefault(n, []).append({
+                        "codigo_lr": c,
+                        "cidade": _normalizar_nome(row.get(col_cid_lg)) if col_cid_lg is not None else "",
+                        "consultor": str(row.get(col_grp_lg) or "") if col_grp_lg is not None else "",
+                    })
+        except Exception as e_lg_resolver:
+            print(f"   ⚠️ Aviso ao ler {arquivo_lg_resolver.name} para resolução de cadastros: {e_lg_resolver}")
+
+    todos_nomes_conhecidos = sorted(set(vinc_por_nome) | set(lg_por_nome))
+    cadastros_sem_resolucao: List[dict] = []
+
+    def resolver_codigo_lr_cadastro(nome: str, mes: str, id_atend: str, consultor: str = "",
+                                     cidade: str = "", tipo_cadastro: str = "") -> str | None:
+        n = _normalizar_nome(nome)
+        if not n:
+            return None
+        eh_troca = "troca" in (tipo_cadastro or "").lower()
+
+        # (a) nome idêntico no vínculo, qualquer projeto, com data entre -1 e +2 meses da
+        # solicitação (troca de titularidade aceita qualquer data, já que o vínculo é antigo).
+        candidatos_a = vinc_por_nome.get(n, [])
+        if candidatos_a:
+            if eh_troca:
+                escolhidos = {c["codigo_lr"] for c in candidatos_a}
+            else:
+                escolhidos = set()
+                try:
+                    mes_ts = pd.Timestamp(mes)
+                    janela_ini, janela_fim = mes_ts - pd.DateOffset(months=1), mes_ts + pd.DateOffset(months=2)
+                    for c in candidatos_a:
+                        dt_a = pd.to_datetime(c["data_associacao"], errors="coerce")
+                        if pd.notna(dt_a) and janela_ini <= dt_a <= janela_fim:
+                            escolhidos.add(c["codigo_lr"])
+                except Exception:
+                    pass
+            if len(escolhidos) == 1:
+                return escolhidos.pop()
+
+        # (b) nome idêntico na LISTA_GERAL_RELATORIO_DE_GRUPO.xlsx (coluna "Código" = codigo_lr).
+        codigos_b = {c["codigo_lr"] for c in lg_por_nome.get(n, [])}
+        if len(codigos_b) == 1:
+            return codigos_b.pop()
+
+        # (c) nome parecido (similaridade >= 0,85), só aceito se sobrar 1 candidato do mesmo
+        # consultor ou da mesma cidade — evita casar produtores homônimos diferentes.
+        parecidos = difflib.get_close_matches(n, todos_nomes_conhecidos, n=5, cutoff=0.85)
+        if parecidos:
+            candidatos_c = []
+            for p in parecidos:
+                candidatos_c += vinc_por_nome.get(p, [])
+                candidatos_c += lg_por_nome.get(p, [])
+            cid_n, cons_n = _normalizar_nome(cidade), _normalizar_nome(consultor)
+            filtrados = [
+                c for c in candidatos_c
+                if (cid_n and c.get("cidade") == cid_n) or (cons_n and cons_n in _normalizar_nome(c.get("consultor")))
+            ]
+            codigos_c = {c["codigo_lr"] for c in filtrados}
+            if len(codigos_c) == 1:
+                return codigos_c.pop()
+
+        return None
 
     # Mapeamento dimensional para validação da cadeia produtiva com paginação transparente (P-09)
     df_all_vinc = consultar_tabela_supabase("sq_raw_vinculos", "codigo_lr, projeto, tipo_ponto_atendimento, nome_produtor", raiz=raiz_projeto)
@@ -292,55 +433,11 @@ def executar_reconciliacao(reindex_completo: bool = False):
                 return True
         return False
 
-    # 4.2 Entradas de 2026 em diante (a partir de *_LISTA_CADASTRO.xlsx E de atendimentos de CADASTRO em sq_raw_visitas)
-    # A) Leitura dos atendimentos de cadastro vindos do SmartQuestion (sq_raw_visitas / LISTA_GERAL_VISITAS.xlsx)
-    try:
-        df_raw_visitas_cad = consultar_tabela_supabase(
-            "sq_raw_visitas",
-            "id_atendimento, nome_consultor, codigo_lr, nome_produtor, data_visita, tipo_visita, projeto",
-            filtros=[("gte", "data_visita", "2026-01-01")],
-            raiz=raiz_projeto
-        )
-        if not df_raw_visitas_cad.empty:
-            m_cad = (
-                df_raw_visitas_cad["tipo_visita"].astype(str).str.upper().str.contains("CADASTRO") |
-                df_raw_visitas_cad["codigo_lr"].astype(str).str.upper().str.contains("CADASTRO")
-            )
-            df_cads_vis = df_raw_visitas_cad[m_cad].copy()
-            for _, r_cv in df_cads_vis.iterrows():
-                id_atend = str(r_cv.get("id_atendimento") or "").strip().replace(".0", "")
-                if not id_atend or id_atend.lower() == "nan":
-                    continue
-                dt_vis = pd.to_datetime(r_cv.get("data_visita"), errors="coerce")
-                if pd.isna(dt_vis):
-                    continue
-                dt_mov = dt_vis.strftime("%Y-%m-01")
-                
-                cod_raw = str(r_cv.get("codigo_lr") or "").strip()
-                cod = cod_raw if (cod_raw and "CADASTRO" not in cod_raw.upper() and cod_raw.lower() != "nan") else f"CAD_{id_atend}"
-                cons = extrair_consultor_individual(r_cv.get("nome_consultor"))
-                nome_p = str(r_cv.get("nome_produtor") or "").strip()
-                if "PARA CADASTRO" in nome_p.upper() or "CADASTRO" in nome_p.upper() or not nome_p:
-                    nome_p = mapa_lr_nome.get(cod) or f"Novo Produtor ({id_atend})"
-                    
-                id_atend_num = int(id_atend) if str(id_atend).isdigit() else id_atend
-                id_comp = f"CAD_{id_atend}_{dt_mov}_Entrada"
-                movimentacoes_lista.append({
-                    "id_composto": id_comp,
-                    "codigo_lr": cod,
-                    "nome_consultor": cons,
-                    "nome_produtor": nome_p,
-                    "numero_atendimento": id_atend_num,
-                    "data_movimentacao": dt_mov,
-                    "movimentacao": "Entrada",
-                    "motivo_inativacao": None,
-                    "outro_motivo": "Cadastro de Produtor(a)",
-                    "data_processamento": datetime.now(FUSO_SP).isoformat(),
-                })
-    except Exception as e_vis_cad:
-        print(f"   ⚠️ Aviso ao extrair atendimentos de cadastro em sq_raw_visitas: {e_vis_cad}")
-
-    # B) Leitura de planilhas adicionais de cadastro (*_LISTA_CADASTRO.xlsx se existirem)
+    # 4.2 Entradas de 2026 em diante (a partir de *_LISTA_CADASTRO.xlsx, com fallback em
+    # sq_raw_visitas para atendimentos que a planilha não cobre)
+    # A) LISTA_CADASTRO.xlsx é a fonte principal: já traz nome real, consultor e tipo de
+    # cadastro, e filtra por cadeia de produção (só Leite segue adiante).
+    atendimentos_planilha_cadastro: Set[str] = set()
     arquivos_cad = list(bd_path.glob("*_LISTA_CADASTRO.xlsx")) + list((bd_path / "BACKUPS").glob("*_LISTA_CADASTRO.xlsx"))
     if arquivos_cad:
         for arq_cad in arquivos_cad:
@@ -362,20 +459,27 @@ def executar_reconciliacao(reindex_completo: bool = False):
                 col_tipo_c = [c for c in df_c.columns if "tipo de cadastro" in str(c).lower()]
                 col_cadeia_c = [c for c in df_c.columns if "cadeia" in str(c).lower()]
                 col_proj_c = [c for c in df_c.columns if "projeto" in str(c).lower()]
+                col_cid_c = [c for c in df_c.columns if "cidade" in str(c).lower()]
                 col_prod_c = [c for c in df_c.columns if ("produtor" in str(c).lower() and "novo" not in str(c).lower() and "código" not in str(c).lower() and "consultor" not in str(c).lower())]
                 col_novo_prod_c = [c for c in df_c.columns if "novo(a) produtor(a)" in str(c).lower() and "nome" in str(c).lower()]
-                
+
                 for _, row in df_c.iterrows():
                     id_atend = str(row[col_id_c]).strip().replace(".0", "")
                     if not id_atend or id_atend.lower() == "nan":
                         continue
+                    # Registrado como "coberto" pela planilha ANTES de qualquer filtro — mesmo um
+                    # cadastro de outra cadeia ou sem data válida não deve ser reprocessado pelo
+                    # fallback de sq_raw_visitas (bloco B), que não tem como saber por que a
+                    # planilha o descartou.
+                    atendimentos_planilha_cadastro.add(id_atend)
+
                     dt_solic = pd.to_datetime(row[col_dt_c], errors="coerce")
                     if pd.isna(dt_solic):
                         continue
                     dt_mov = dt_solic.strftime("%Y-%m-01")
                     if dt_mov < "2026-01-01":
                         continue
-                    
+
                     # Filtro exclusivo de LEITE
                     if col_cadeia_c:
                         cadeia_val = str(row.get(col_cadeia_c[0]) or "").strip().lower()
@@ -385,24 +489,30 @@ def executar_reconciliacao(reindex_completo: bool = False):
                         if not eh_cadeia_leite(str(row.get(col_proj_c[0]) or ""), str(row.get(col_cod_c) or "")):
                             continue
 
-                    cod_raw = str(row.get(col_cod_c) or "").strip().replace(".0", "")
-                    cod = cod_raw if (cod_raw and cod_raw.lower() != "nan") else f"CAD_{id_atend}"
                     cons = extrair_consultor_individual(str(row[col_cons_c]))
                     tipo_cad = str(row[col_tipo_c[0]]) if col_tipo_c and pd.notna(row.get(col_tipo_c[0])) else "Inclusão de propriedade"
-                    
+                    cidade_cad = str(row.get(col_cid_c[0]) or "") if col_cid_c else ""
+
                     # Nome do produtor direto do Excel (ou titular novo em caso de troca)
                     nome_prod_cad = ""
                     if col_novo_prod_c and pd.notna(row.get(col_novo_prod_c[0])) and str(row.get(col_novo_prod_c[0])).strip():
                         nome_prod_cad = str(row.get(col_novo_prod_c[0])).strip()
                     elif col_prod_c and pd.notna(row.get(col_prod_c[0])):
                         nome_prod_cad = str(row.get(col_prod_c[0])).strip()
-                    if not nome_prod_cad and cod in mapa_lr_nome:
-                        nome_prod_cad = mapa_lr_nome[cod]
+
+                    cod = resolver_codigo_lr_cadastro(nome_prod_cad, dt_mov, id_atend, consultor=cons,
+                                                       cidade=cidade_cad, tipo_cadastro=tipo_cad)
+                    if not cod:
+                        cadastros_sem_resolucao.append({
+                            "fonte": arq_cad.name, "numero_atendimento": id_atend, "nome_produtor": nome_prod_cad,
+                            "nome_consultor": cons, "data_solicitacao": dt_solic.strftime("%Y-%m-%d"),
+                            "tipo_cadastro": tipo_cad, "motivo": "Nenhum codigo_lr resolvido por nome",
+                        })
+                        continue
 
                     id_atend_num = int(id_atend) if str(id_atend).isdigit() else id_atend
-                    id_comp = f"CAD_{id_atend}_{dt_mov}_Entrada"
                     movimentacoes_lista.append({
-                        "id_composto": id_comp,
+                        "id_composto": f"{cod}_{dt_mov}_Entrada",
                         "codigo_lr": cod,
                         "nome_consultor": cons,
                         "nome_produtor": nome_prod_cad if (nome_prod_cad and nome_prod_cad.lower() != "nan") else None,
@@ -411,10 +521,89 @@ def executar_reconciliacao(reindex_completo: bool = False):
                         "movimentacao": "Entrada",
                         "motivo_inativacao": None,
                         "outro_motivo": tipo_cad,
+                        "data_solicitacao": dt_solic.strftime("%Y-%m-%d"),
+                        "origem_dado": arq_cad.name,
                         "data_processamento": datetime.now(FUSO_SP).isoformat(),
                     })
             except Exception as e_cad:
                 print(f"   ⚠️ Aviso ao processar {arq_cad.name}: {e_cad}")
+
+    # B) Fallback: atendimentos de cadastro que existem em sq_raw_visitas mas NÃO estão em
+    # nenhuma *_LISTA_CADASTRO.xlsx (planilha desatualizada ou exportada antes do cadastro).
+    try:
+        df_raw_visitas_cad = consultar_tabela_supabase(
+            "sq_raw_visitas",
+            "id_atendimento, nome_consultor, codigo_lr, nome_produtor, data_visita, tipo_visita, projeto",
+            raiz=raiz_projeto
+        )
+        if not df_raw_visitas_cad.empty:
+            # consultar_tabela_supabase só aceita filtros de igualdade; o corte de data é feito aqui.
+            df_raw_visitas_cad = df_raw_visitas_cad[
+                pd.to_datetime(df_raw_visitas_cad["data_visita"], errors="coerce") >= pd.Timestamp("2026-01-01")
+            ]
+        atendimentos_visitas_cadastro: Set[str] = set()
+        if not df_raw_visitas_cad.empty:
+            m_cad = (
+                df_raw_visitas_cad["tipo_visita"].astype(str).str.upper().str.contains("CADASTRO") |
+                df_raw_visitas_cad["codigo_lr"].astype(str).str.upper().str.contains("CADASTRO")
+            )
+            df_cads_vis = df_raw_visitas_cad[m_cad].copy()
+            for _, r_cv in df_cads_vis.iterrows():
+                id_atend = str(r_cv.get("id_atendimento") or "").strip().replace(".0", "")
+                if not id_atend or id_atend.lower() == "nan":
+                    continue
+                atendimentos_visitas_cadastro.add(id_atend)
+                if id_atend in atendimentos_planilha_cadastro:
+                    continue  # já coberto pela LISTA_CADASTRO (bloco A)
+
+                dt_vis = pd.to_datetime(r_cv.get("data_visita"), errors="coerce")
+                if pd.isna(dt_vis):
+                    continue
+                dt_mov = dt_vis.strftime("%Y-%m-01")
+
+                cod_raw = str(r_cv.get("codigo_lr") or "").strip()
+                # A visita de cadastro vem com o nome genérico "PRODUTOR(A) PARA CADASTRO": tratar
+                # como vazio para não atrapalhar a resolução por nome.
+                nome_p = str(r_cv.get("nome_produtor") or "").strip()
+                if _eh_nome_placeholder(nome_p):
+                    nome_p = mapa_lr_nome.get(cod_raw) or ""
+                    if _eh_nome_placeholder(nome_p):
+                        nome_p = ""
+                cons = extrair_consultor_individual(r_cv.get("nome_consultor"))
+                cod = resolver_codigo_lr_cadastro(nome_p, dt_mov, id_atend, consultor=cons)
+                if not cod:
+                    cadastros_sem_resolucao.append({
+                        "fonte": "sq_raw_visitas (fallback)", "numero_atendimento": id_atend, "nome_produtor": nome_p,
+                        "nome_consultor": cons, "data_solicitacao": dt_vis.strftime("%Y-%m-%d"),
+                        "tipo_cadastro": MOTIVO_CADASTRO_GENERICO, "motivo": "Nenhum codigo_lr resolvido por nome",
+                    })
+                    continue
+
+                id_atend_num = int(id_atend) if str(id_atend).isdigit() else id_atend
+                movimentacoes_lista.append({
+                    "id_composto": f"{cod}_{dt_mov}_Entrada",
+                    "codigo_lr": cod,
+                    "nome_consultor": cons,
+                    "nome_produtor": nome_p or None,
+                    "numero_atendimento": id_atend_num,
+                    "data_movimentacao": dt_mov,
+                    "movimentacao": "Entrada",
+                    "motivo_inativacao": None,
+                    "outro_motivo": MOTIVO_CADASTRO_GENERICO,
+                    "data_solicitacao": dt_vis.strftime("%Y-%m-%d"),
+                    "origem_dado": "sq_raw_visitas",
+                    "data_processamento": datetime.now(FUSO_SP).isoformat(),
+                })
+
+        # Conferência de completude: cadastro presente em sq_raw_visitas mas ausente de TODAS as
+        # LISTA_CADASTRO.xlsx exportadas — pode indicar planilha desatualizada.
+        faltando_na_planilha = sorted(atendimentos_visitas_cadastro - atendimentos_planilha_cadastro)
+        if faltando_na_planilha and arquivos_cad:
+            nomes_arqs = ", ".join(a.name for a in arquivos_cad)
+            print(f"   ⚠️ {len(faltando_na_planilha)} cadastro(s) presentes em sq_raw_visitas mas ausentes de "
+                  f"{nomes_arqs}: {faltando_na_planilha}")
+    except Exception as e_vis_cad:
+        print(f"   ⚠️ Aviso ao extrair atendimentos de cadastro em sq_raw_visitas: {e_vis_cad}")
 
     # 4.3 Saídas (Histórico Pré-2026 preservado + 2026 em diante por Data da Solicitação - Filtrado LEITE)
     codigos_oficiais_set = set(df_vinc_db["codigo_lr"].dropna().unique()) if not df_vinc_db.empty else set()
@@ -447,11 +636,13 @@ def executar_reconciliacao(reindex_completo: bool = False):
             else:
                 dt_mov = config.mes_referencia.strftime("%Y-%m-01")
                 id_comp = f"{cod}_{dt_mov}_Saída"
-                
+
+
             motivo = row.get("motivo_inativacao")
             outro = row.get("outro_motivo")
             id_atend_num = int(id_atend) if str(id_atend).isdigit() else (id_atend if id_atend else None)
-            
+            dt_solic_str = (dt_solic_p if pd.notna(dt_solic_p) else dt_efetiva).strftime("%Y-%m-%d") if pd.notna(dt_solic_p) or pd.notna(dt_efetiva) else None
+
             movimentacoes_lista.append({
                 "id_composto": id_comp,
                 "codigo_lr": cod,
@@ -462,50 +653,127 @@ def executar_reconciliacao(reindex_completo: bool = False):
                 "movimentacao": "Saída",
                 "motivo_inativacao": motivo,
                 "outro_motivo": outro,
+                "data_solicitacao": dt_solic_str,
+                "origem_dado": "sq_raw_inativacoes_produtor",
                 "data_processamento": datetime.now(FUSO_SP).isoformat(),
             })
             
-    df_mov_final = pd.DataFrame(movimentacoes_lista).sort_values(
-        by=["numero_atendimento"], na_position="first"
-    ).drop_duplicates(subset=["codigo_lr", "movimentacao", "data_movimentacao"], keep="last").copy()
-    
-    # Recalcular id_composto final garantindo unicidade perfeita
-    def _gerar_id_comp(r):
-        if r["movimentacao"] == "Entrada" and pd.notna(r.get("numero_atendimento")):
-            return f"CAD_{int(float(r['numero_atendimento']))}_{r['data_movimentacao']}_Entrada"
-        return f"{r['codigo_lr']}_{r['data_movimentacao']}_{r['movimentacao']}"
+    # Consolidação em duas etapas, sempre complementando campos (groupby.first() pega o primeiro
+    # valor não nulo de CADA coluna, na ordem de prioridade definida pelo sort):
+    #   1) Por (numero_atendimento, movimentação): o mesmo atendimento de cadastro pode chegar
+    #      tanto pela LISTA_CADASTRO quanto pelo fallback de sq_raw_visitas (bloco B) — em tese
+    #      não deveriam coexistir (B pula quem já está coberto pela planilha), mas a linha com
+    #      codigo_lr "LR<dígitos>" tem prioridade sobre qualquer outra por segurança.
+    #   2) Por (codigo_lr, mês, movimentação): junta o resultado com a entrada "crua" do vínculo
+    #      (sem atendimento), priorizando a linha que tem atendimento.
+    # O motivo genérico da visita vira nulo durante a consolidação para não vencer o tipo de
+    # cadastro da planilha ("Inclusão de propriedade" etc.) e é restaurado só onde faltar.
+    colunas_mov = (list(movimentacoes_lista[0].keys()) + ["chave_atendimento"]) if movimentacoes_lista else []
+    df_mov = pd.DataFrame(movimentacoes_lista)
+    df_mov["_at"] = df_mov["numero_atendimento"].map(_id_atendimento_str)
+    df_mov["_tem_at"] = df_mov["_at"].notna()
+    df_mov["_eh_lr"] = df_mov["codigo_lr"].astype(str).str.upper().str.fullmatch(r"LR\d+")
+    df_mov.loc[df_mov["nome_produtor"].map(_eh_nome_placeholder), "nome_produtor"] = None
+    df_mov.loc[df_mov["outro_motivo"] == MOTIVO_CADASTRO_GENERICO, "outro_motivo"] = None
+    df_mov = df_mov.sort_values(by=["_tem_at", "_eh_lr"], ascending=False, kind="stable")
 
-    df_mov_final["id_composto"] = df_mov_final.apply(_gerar_id_comp, axis=1)
-    df_mov_final = df_mov_final.drop_duplicates(subset=["id_composto"], keep="last")
+    com_at = df_mov[df_mov["_tem_at"]].groupby(["_at", "movimentacao"], sort=False, as_index=False).first()
+    df_mov = pd.concat([com_at, df_mov[~df_mov["_tem_at"]]], ignore_index=True)
+    df_mov["_tem_at"] = df_mov["_at"].notna()
+    df_mov = df_mov.sort_values(by=["_tem_at"], ascending=False, kind="stable")
+    df_mov_final = df_mov.groupby(["codigo_lr", "data_movimentacao", "movimentacao"], sort=False, as_index=False).first()
+
+    df_mov_final["_tem_at"] = df_mov_final["_at"].notna()
+    cadastro_sem_motivo = df_mov_final["_tem_at"] & (df_mov_final["movimentacao"] == "Entrada") & df_mov_final["outro_motivo"].isna()
+    df_mov_final.loc[cadastro_sem_motivo, "outro_motivo"] = MOTIVO_CADASTRO_GENERICO
+    cad_sem_nome = df_mov_final["nome_produtor"].isna() & df_mov_final["_tem_at"]
+    df_mov_final.loc[cad_sem_nome, "nome_produtor"] = "Novo Produtor (" + df_mov_final.loc[cad_sem_nome, "_at"] + ")"
+
+    # id_composto = codigo_lr_numero_atendimento_movimentacao (ex.: LR02480_420000019_Saída).
+    # Entradas de vínculo sem atendimento (histórico) usam a data no lugar do atendimento.
+    # chave_atendimento guarda esse mesmo valor (número ou data) em texto — numero_atendimento é
+    # numeric e não comporta a data como alias, por isso a coluna separada em texto.
+    df_mov_final["chave_atendimento"] = [
+        at if isinstance(at, str) else dt
+        for at, dt in zip(df_mov_final["_at"], df_mov_final["data_movimentacao"])
+    ]
+    df_mov_final["id_composto"] = [
+        f"{cod}_{chave}_{mov}"
+        for cod, chave, mov in zip(df_mov_final["codigo_lr"], df_mov_final["chave_atendimento"],
+                                    df_mov_final["movimentacao"])
+    ]
+    df_mov_final = df_mov_final.drop_duplicates(subset=["id_composto"], keep="first")[colunas_mov].copy()
     print(f"   -> Total de movimentações consolidadas: {len(df_mov_final)} (Entradas: {len(df_mov_final[df_mov_final['movimentacao'] == 'Entrada'])}, Saídas: {len(df_mov_final[df_mov_final['movimentacao'] == 'Saída'])})")
-    
-    # 4.4 Limpar rigorosamente registros de 2026 em diante no Supabase antes de reinserir
-    try:
-        res_2026_db = supabase.table("sq_fato_movimentacao").select("id_composto").gte("data_movimentacao", "2026-01-01").execute()
-        ids_2026_db = [r["id_composto"] for r in (res_2026_db.data or [])]
-        if ids_2026_db:
-            print(f"   🧹 Limpando {len(ids_2026_db)} registros antigos de 2026 em diante no Supabase...")
-            LOTE_DEL = 100
-            for d_idx in range(0, len(ids_2026_db), LOTE_DEL):
-                lote_ids = ids_2026_db[d_idx : d_idx + LOTE_DEL]
-                supabase.table("sq_fato_movimentacao").delete().in_("id_composto", lote_ids).execute()
-    except Exception as e_clean:
-        print(f"   ⚠️ Aviso ao limpar registros de 2026: {e_clean}")
 
-    # Upsert em lotes em sq_fato_movimentacao (1000 registros por lote)
-    print("\n💾 5. Gravando movimentações consolidadas em sq_fato_movimentacao no Supabase...")
+    # Rede de segurança: (codigo_lr, mês, movimentação) já é único por construção (dedup acima),
+    # mas o mesmo produtor pode aparecer sob dois codigo_lr diferentes (ex.: cadastro não resolvido
+    # ainda por resolver_codigo_cadastro, ou dois vínculos distintos para o mesmo nome). Isso não
+    # bloqueia a publicação — só torna visível no log, já que hoje nada mais verifica isso.
+    dup_nome_mes = (
+        df_mov_final.assign(_nome_norm=df_mov_final["nome_produtor"].map(_normalizar_nome))
+        .query("_nome_norm != ''")
+        .groupby(["_nome_norm", "data_movimentacao", "movimentacao"])
+        .filter(lambda g: len(g) > 1)
+    )
+    if not dup_nome_mes.empty:
+        qtd_grupos = dup_nome_mes.groupby(["_nome_norm", "data_movimentacao", "movimentacao"]).ngroups
+        print(f"   ⚠️ {qtd_grupos} produtor(es)/mês com mais de um codigo_lr para a mesma movimentação "
+              f"(possível cadastro ainda não resolvido ao vínculo):")
+        for (_nome_norm, mes_dup, mov_dup), grupo in dup_nome_mes.groupby(["_nome_norm", "data_movimentacao", "movimentacao"]):
+            print(f"     - {grupo['nome_produtor'].iloc[0]} | {mes_dup} | {mov_dup} | codigos: {sorted(grupo['codigo_lr'].unique())}")
+
+    # Cadastros sem codigo_lr resolvido (nenhum dos 3 critérios de resolver_codigo_lr_cadastro
+    # bateu): não entram em sq_raw_movimentacao — ficam só nesta planilha de auditoria e são
+    # resolvidos sozinhos numa execução futura, assim que o vínculo do produtor existir.
+    if cadastros_sem_resolucao:
+        pasta_logs = raiz_projeto / "db" / "output" / "logs"
+        pasta_logs.mkdir(parents=True, exist_ok=True)
+        caminho_auditoria = pasta_logs / f"{datetime.now(FUSO_SP).strftime('%Y_%m_%d_%H%M%S')}_cadastros_sem_codigo_lr.xlsx"
+        pd.DataFrame(cadastros_sem_resolucao).to_excel(caminho_auditoria, index=False)
+        print(f"   ⚠️ {len(cadastros_sem_resolucao)} cadastro(s) sem codigo_lr resolvido — não entraram em "
+              f"sq_raw_movimentacao. Detalhes em {caminho_auditoria}")
+
+    # 4.4 Sincronizar sq_raw_movimentacao (bruto): upsert de tudo + remoção de quem não existe
+    # mais em df_mov_final (id_composto legado, cadastro duplicado, etc.). Esta é a ÚNICA escrita
+    # de movimentação do pipeline — grava sempre no bruto; camada_consumo.py lê daqui e publica
+    # a versão enriquecida (consultor/tipo/motivo/projeto/agroindustria/regiao) em
+    # sq_fato_movimentacao. Antes, este script escrevia direto em sq_fato_movimentacao só com os
+    # campos brutos, apagando o enriquecimento sempre que rodava sem a camada de consumo na
+    # sequência (ex.: execução interrompida no meio) e deixando linhas duplicadas por
+    # (codigo_lr, mês, movimentação) que nunca eram limpas fora da janela 2026+.
+    print("\n💾 5. Sincronizando movimentações consolidadas em sq_raw_movimentacao no Supabase...")
     registros_mov = df_mov_final.replace({np.nan: None}).to_dict(orient="records")
     LOTE = 1000
     sucesso_mov = 0
     for i in range(0, len(registros_mov), LOTE):
         lote = registros_mov[i : i + LOTE]
         try:
-            supabase.table("sq_fato_movimentacao").upsert(lote, on_conflict="id_composto").execute()
+            supabase.table("sq_raw_movimentacao").upsert(lote, on_conflict="id_composto").execute()
             sucesso_mov += len(lote)
         except Exception as e:
             print(f"   ❌ Erro ao enviar lote {i // LOTE + 1}: {e}")
         time.sleep(0.01)
-    print(f"   ✅ {sucesso_mov} registros de movimentação atualizados no Supabase.")
+    print(f"   ✅ {sucesso_mov} registros de movimentação atualizados em sq_raw_movimentacao.")
+
+    try:
+        ids_db, inicio_pag = set(), 0
+        while True:
+            pagina = supabase.table("sq_raw_movimentacao").select("id_composto").range(inicio_pag, inicio_pag + 999).execute().data or []
+            ids_db.update(r["id_composto"] for r in pagina)
+            if len(pagina) < 1000:
+                break
+            inicio_pag += 1000
+        ids_atuais = set(df_mov_final["id_composto"])
+        obsoletos = sorted(ids_db - ids_atuais)
+        if obsoletos:
+            print(f"   🧹 Removendo {len(obsoletos)} registros obsoletos de sq_raw_movimentacao (formato legado/duplicado)...")
+            LOTE_DEL = 100
+            for d_idx in range(0, len(obsoletos), LOTE_DEL):
+                lote_ids = obsoletos[d_idx : d_idx + LOTE_DEL]
+                supabase.table("sq_raw_movimentacao").delete().in_("id_composto", lote_ids).execute()
+            print(f"   ✅ {len(obsoletos)} registros obsoletos removidos.")
+    except Exception as e_clean:
+        print(f"   ⚠️ Aviso ao remover registros obsoletos de sq_raw_movimentacao: {e_clean}")
 
     # 6. Reconciliar Tabelas de Fazendas:
     #    6.1 sq_raw_fazendas (e sq_raw_fazendas_grupo se existir): Espelho COMPLETO da LISTA_GERAL (todas as cadeias, ativos e inativos)

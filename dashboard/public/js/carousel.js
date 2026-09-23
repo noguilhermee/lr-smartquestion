@@ -9,8 +9,7 @@ class DashboardCarousel {
       'Visitas e cobertura',
       'Movimentações e vínculos',
       'Dados e consistência',
-      'Econômico e Produção',
-      'Perfil da Base de Produtores'
+      'Econômico e Perfil dos Produtores'
     ];
     this.totalSlides = this.slideNames.length;
     this.track = document.getElementById('carouselTrack');

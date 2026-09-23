@@ -8,8 +8,8 @@ regras de `regras_negocio` e grava tabelas prontas para leitura direta pela API:
   sq_fato_visitas          1 linha por visita técnica de leite válida (id_atendimento)
   sq_fato_carteira_mensal  1 linha por fazenda ativa × mês × consultor de campo
   sq_fato_consistencia     1 linha por fazenda × mês de referência do Elabore
-  sq_fato_movimentacao     entradas/saídas de leite enriquecidas (consolida a saída
-                           de reconciliar_movimentacao_e_ativos.py)
+  sq_fato_movimentacao     entradas/saídas de leite enriquecidas (lê o bruto gravado em
+                           sq_raw_movimentacao por reconciliar_movimentacao_e_ativos.py)
 
 Todas as gravações são idempotentes: upsert pela chave + remoção das chaves que
 deixaram de existir. A API não aplica nenhuma regra de negócio sobre esses dados.
@@ -56,6 +56,7 @@ TAB_VISITAS = "sq_fato_visitas"
 TAB_CARTEIRA = "sq_fato_carteira_mensal"
 TAB_CONSISTENCIA = "sq_fato_consistencia"
 TAB_MOVIMENTACAO = "sq_fato_movimentacao"
+TAB_MOVIMENTACAO_RAW = "sq_raw_movimentacao"
 
 # Não deixa uma carga de raw incompleta esvaziar a fato: aborta se algum mês perder
 # mais que esta fração das visitas já publicadas.
@@ -158,7 +159,7 @@ def carregar_fontes(supabase, conexao_elabore, data_inicio_elabore: str) -> Font
                                      "tipo_ponto_atendimento,data_associacao,grupo_atendimento,consultor_grupo_atendimento,estado_produtor"),
         "raw_inativacoes": _buscar_tudo(supabase, "sq_raw_inativacoes_produtor",
                                         "codigo_lr,nome_produtor,projeto,grupo_ponto_atendimento,data_solicitacao,data_inativacao"),
-        "fato_movimentacao": _buscar_tudo(supabase, TAB_MOVIMENTACAO,
+        "fato_movimentacao": _buscar_tudo(supabase, TAB_MOVIMENTACAO_RAW,
                                           "id_composto,codigo_lr,nome_consultor,nome_produtor,numero_atendimento,data_movimentacao,"
                                           "movimentacao,motivo_inativacao,outro_motivo,data_solicitacao,data_processamento"),
         "raw_consistencia_mensal": _buscar_tudo(supabase, "sq_raw_consistencia_mensal",
@@ -364,6 +365,7 @@ class Contexto:
         return {
             "cadastro_elabore": codigo_lr in self.cadastrados_elabore,
             "dados_elabore_pct": pct,
+            "dados_elabore_status": rn.rotulo_dados_elabore(pct),
             "blocos_elabore": blocos,
         }
 
@@ -438,7 +440,8 @@ def construir_fato_visitas(f: Fontes, ctx: Contexto) -> tuple[pd.DataFrame, pd.D
         consultor = consultores[0]
         agro = ctx.agroindustria(cod, projeto, mes)
         dt_inat = ctx.inativacao_mais_recente.get(cod)
-        inativo = dt_inat is not None and dt_inat.to_period("M") <= r["data_visita"].to_period("M") and (cod, mes) not in ctx.fazenda_mes
+        # Comparação por data (não por mês): visita anterior à inativação foi feita com a fazenda ativa.
+        inativo = dt_inat is not None and r["data_visita"] > dt_inat and (cod, mes) not in ctx.fazenda_mes
         elab = ctx.elabore(cod, mes)
         linhas.append({
             "id_composto": _hash_atendimento(r["id_atendimento"]),
@@ -476,7 +479,6 @@ def construir_fato_visitas(f: Fontes, ctx: Contexto) -> tuple[pd.DataFrame, pd.D
             "status_produtor": "INATIVO" if inativo else "ATIVO",
             "origem_dados": _texto(r.get("origem_dados")),
             **elab,
-            "dados_elabore_status": rn.rotulo_dados_elabore(elab["dados_elabore_pct"]),
         })
     return pd.DataFrame(linhas), pd.DataFrame(auditoria)
 
@@ -771,7 +773,9 @@ COLS_VISITAS = ["id_composto", "id_atendimento", "codigo_lr", "nome_consultor", 
 
 COLS_CONSISTENCIA = ["id_composto", "codigo_lr", "nome_consultor", "profissao_consultor", "projeto", "mes_referencia",
                      "data_carencia_fim", "mes_elabore", "consistencia_mensal", "consistencia_anual",
-                     "status_code", "excecao", "meses_sequenciais", "detalhamento_inconsistencia"]
+                     "status_code", "excecao", "meses_sequenciais", "detalhamento_inconsistencia",
+                     "agroindustria", "regiao", "na_carteira", "detalhamento_anual",
+                     "cadastro_elabore", "dados_elabore_pct", "dados_elabore_status", "blocos_elabore"]
 
 COLS_MOVIMENTACAO = ["id_composto", "codigo_lr", "nome_consultor", "nome_produtor", "numero_atendimento",
                      "data_movimentacao", "movimentacao", "motivo_inativacao", "outro_motivo", "data_solicitacao"]

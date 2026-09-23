@@ -34,7 +34,7 @@ module.exports = async (req, res) => {
     const totalAtivos = codigosAtivos.size;
     const totalVisitas = visitasFiltradas.length;
     const consultoresAtivos = new Set(carteiraFiltrada.map(r => r.consultor).filter(Boolean)).size;
-    const percVisitados = totalAtivos > 0 ? Math.min(100, (codigosVisitados.size / totalAtivos) * 100).toFixed(1) : '0.0';
+    const percVisitados = totalAtivos > 0 ? ((codigosVisitados.size / totalAtivos) * 100).toFixed(1) : '0.0';
     const visitasPorProdutor = totalAtivos > 0 ? (totalVisitas / totalAtivos).toFixed(1) : '0.0';
 
     const fazendasMes = [...new Map(carteiraFiltrada.map(r => [r.codigo_lr, r])).values()];
@@ -63,7 +63,7 @@ module.exports = async (req, res) => {
       percCobertura: referencias.map(ref => {
         const item = porMes.get(ref);
         if (!item || item.ativos.size === 0) return 0;
-        return Number(Math.min(100, (item.visitados.size / item.ativos.size) * 100).toFixed(1));
+        return Number(((item.visitados.size / item.ativos.size) * 100).toFixed(1));
       })
     };
 

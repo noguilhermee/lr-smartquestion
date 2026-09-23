@@ -1781,28 +1781,24 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!data) return;
     const slide4 = data.slide4 || {};
     const slide5 = data.slide5 || {};
-    const kpi4 = slide4.kpis || {};
-    const kpi5 = slide5.kpis || {};
+    const kpi = data.kpis || slide4.kpis || {};
 
-    updateValue('kpiEconVolTotal', number(kpi4.volume_diario_total));
-    updateValue('kpiEconProdutividade', number(kpi4.produtividade_l_vl_dia));
-    updateValue('kpiEconPrecoMedio', kpi4.preco_medio_litro !== undefined ? `R$ ${kpi4.preco_medio_litro}` : '—');
-    updateValue('kpiEconCoeMedio', kpi4.coe_medio_litro !== undefined ? `R$ ${kpi4.coe_medio_litro}` : '—');
-    updateValue('kpiEconMargemBruta', kpi4.margem_bruta_litro !== undefined ? `R$ ${kpi4.margem_bruta_litro}` : '—');
-    updateValue('kpiEconPercMbPositiva', percent(kpi4.perc_mb_positiva));
+    updateValue('kpiEconVolTotal', number(kpi.volume_diario_total));
+    updateValue('kpiEconProdutividade', number(kpi.produtividade_l_vl_dia));
+    updateValue('kpiEconPrecoMedio', kpi.preco_medio_litro !== undefined ? `R$ ${kpi.preco_medio_litro}` : '—');
+    updateValue('kpiEconCoeMedio', kpi.coe_medio_litro !== undefined ? `R$ ${kpi.coe_medio_litro}` : '—');
+    updateValue('kpiEconMargemBruta', kpi.margem_bruta_litro !== undefined ? `R$ ${kpi.margem_bruta_litro}` : '—');
+    updateValue('kpiEconPercMbPositiva', percent(kpi.perc_mb_positiva));
 
-    if (slide4.top5_coe) charts.renderTop5CostsPie('chartTop5CostsPie', slide4.top5_coe);
-    if (slide4.volume_evolution) charts.renderVolumeEvolution('chartVolumeEvolution', slide4.volume_evolution);
+    const top5Coe = data.top5_coe || slide4.top5_coe;
+    const volEvolution = data.volume_evolution || slide4.volume_evolution;
+    const cadBreakdown = data.cadastro_breakdown || slide5.cadastro_breakdown;
+    const mbRanking = data.top10_mb_ranking || slide5.top10_mb_ranking;
 
-    updateValue('kpiProfTotalAtivas', number(kpi5.total_fazendas_ativas));
-    updateValue('kpiProfMbPositiva', `${number(kpi5.fazendas_mb_positiva)} (${percent(kpi5.perc_mb_positiva)})`);
-    updateValue('kpiProfMbNegativa', `${number(kpi5.fazendas_mb_negativa)} (${percent(kpi5.perc_mb_negativa)})`);
-    updateValue('kpiProfCad1Ano', `${number(kpi5.cad_1_ano)} (${percent(kpi5.perc_cad_1_ano)})`);
-    updateValue('kpiProfCad2Anos', `${number(kpi5.cad_2_anos)} (${percent(kpi5.perc_cad_2_anos)})`);
-    updateValue('kpiProfCad3PlusAnos', `${number(kpi5.cad_3_plus_anos)} (${percent(kpi5.perc_cad_3_plus_anos)})`);
-
-    if (slide5.cadastro_breakdown) charts.renderCadastroDonut('chartCadastroBreakdownDonut', slide5.cadastro_breakdown);
-    if (slide5.top10_mb_ranking) charts.renderMbRankingHorizontal('chartMbRankingHorizontal', slide5.top10_mb_ranking);
+    if (top5Coe) charts.renderTop5CostsPie('chartTop5CostsPie', top5Coe);
+    if (volEvolution) charts.renderVolumeEvolution('chartVolumeEvolution', volEvolution);
+    if (cadBreakdown) charts.renderCadastroDonut('chartCadastroBreakdownDonut', cadBreakdown);
+    if (mbRanking) charts.renderMbRankingHorizontal('chartMbRankingHorizontal', mbRanking);
   }
 
   let debounceFilterTimer = null;

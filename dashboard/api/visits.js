@@ -69,10 +69,10 @@ module.exports = async (req, res) => {
       timestamp: new Date().toISOString(),
       refMonth,
       kpis: {
-        perc_cobertura_geral: totalAtivos > 0 ? Math.min(100, (visitadosUnicos / totalAtivos) * 100).toFixed(1) : '0.0',
+        perc_cobertura_geral: totalAtivos > 0 ? ((visitadosUnicos / totalAtivos) * 100).toFixed(1) : '0.0',
         total_visitas: totalVisitas,
         media_visitas_consultor: (totalVisitas / (consultoresList.length || 1)).toFixed(1),
-        fazendas_nao_visitadas: Math.max(0, totalAtivos - visitadosUnicos)
+        fazendas_nao_visitadas: totalAtivos - visitadosUnicos
       },
       rankingConsultores: {
         labels: consultoresList.map(c => c.consultor),
