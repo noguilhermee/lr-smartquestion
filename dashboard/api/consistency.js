@@ -50,9 +50,9 @@ module.exports = async (req, res) => {
 
     const [carteiraTodos, consistenciaTodos] = await Promise.all([
       fetchWithCache('CARTEIRA_MENSAL_ALL', () =>
-        fetchAll(() => supabase.from('sq_fato_carteira_mensal').select('*').order('mes_referencia', { ascending: false }))),
+        fetchAll(() => supabase.from('sq_fato_carteira_mensal').select('*').order('mes_referencia', { ascending: false }), 1000, 'id_composto')),
       fetchWithCache('FATO_CONSISTENCIA_ALL', () =>
-        fetchAll(() => supabase.from('sq_fato_consistencia').select('*').order('mes_referencia', { ascending: false })))
+        fetchAll(() => supabase.from('sq_fato_consistencia').select('*').order('mes_referencia', { ascending: false }), 1000, 'id_composto'))
     ]);
 
     // Base do mês: 1 linha por fazenda (a carteira tem 1 linha por consultor)

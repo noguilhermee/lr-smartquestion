@@ -15,7 +15,7 @@ module.exports = async (req, res) => {
 
     // Carteira mensal (1 linha por fazenda × mês × consultor), já resolvida pelo ETL
     const carteiraTodos = await fetchWithCache('CARTEIRA_MENSAL_ALL', () =>
-      fetchAll(() => supabase.from('sq_fato_carteira_mensal').select('*').order('mes_referencia', { ascending: false }))
+      fetchAll(() => supabase.from('sq_fato_carteira_mensal').select('*').order('mes_referencia', { ascending: false }), 1000, 'id_composto')
     );
 
     const carteiraMes = refMonth ? carteiraTodos.filter(r => String(r.mes_referencia).slice(0, 10) === refMonth) : carteiraTodos;
@@ -23,7 +23,7 @@ module.exports = async (req, res) => {
 
     // Visitas técnicas válidas (1 linha por atendimento)
     const visitasTodas = await fetchWithCache('FATO_VISITAS_ALL', () =>
-      fetchAll(() => supabase.from('sq_fato_visitas').select('*').order('data_visita', { ascending: false }))
+      fetchAll(() => supabase.from('sq_fato_visitas').select('*').order('data_visita', { ascending: false }), 1000, 'id_atendimento')
     );
     const visitasMes = refMonth ? visitasTodas.filter(v => String(v.mes_referencia).slice(0, 10) === refMonth) : visitasTodas;
     const visitasFiltradas = visitasMes.filter(v => rowMatchesFilters({ ...v, status: v.status_produtor }, filters));

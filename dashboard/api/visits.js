@@ -14,13 +14,13 @@ module.exports = async (req, res) => {
     const refMonth = isAllMonths ? null : filters.month;
 
     const carteiraTodos = await fetchWithCache('CARTEIRA_MENSAL_ALL', () =>
-      fetchAll(() => supabase.from('sq_fato_carteira_mensal').select('*').order('mes_referencia', { ascending: false }))
+      fetchAll(() => supabase.from('sq_fato_carteira_mensal').select('*').order('mes_referencia', { ascending: false }), 1000, 'id_composto')
     );
     const carteiraMes = refMonth ? carteiraTodos.filter(r => String(r.mes_referencia).slice(0, 10) === refMonth) : carteiraTodos;
     const carteiraFiltrada = carteiraMes.filter(r => rowMatchesFilters({ ...r, status: r.status_visita }, filters));
 
     const visitasTodas = await fetchWithCache('FATO_VISITAS_ALL', () =>
-      fetchAll(() => supabase.from('sq_fato_visitas').select('*').order('data_visita', { ascending: false }))
+      fetchAll(() => supabase.from('sq_fato_visitas').select('*').order('data_visita', { ascending: false }), 1000, 'id_atendimento')
     );
     const visitasFiltradas = visitasTodas
       .filter(v => !refMonth || String(v.mes_referencia).slice(0, 10) === refMonth)
