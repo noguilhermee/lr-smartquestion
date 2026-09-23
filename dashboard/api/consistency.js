@@ -45,8 +45,6 @@ module.exports = async (req, res) => {
 
     const supabase = getSupabaseClient();
     const filters = parseFilters(req.query);
-    const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(filters.month) ? filters.month : null;
-    const doMes = r => !refMonth || String(r.mes_referencia).slice(0, 10) === refMonth;
 
     const [carteiraTodos, consistenciaTodos] = await Promise.all([
       fetchWithCache('CARTEIRA_MENSAL_ALL', () =>
@@ -54,6 +52,11 @@ module.exports = async (req, res) => {
       fetchWithCache('FATO_CONSISTENCIA_ALL', () =>
         fetchAll(() => supabase.from('sq_fato_consistencia').select(COLUNAS.consistencia).order('mes_referencia', { ascending: false }), undefined, 'id_composto'))
     ]);
+
+    const ultimosMeses = [...new Set([...carteiraTodos, ...consistenciaTodos].map(c => String(c.mes_referencia).slice(0, 10)))].filter(Boolean).sort();
+    const ultimoMesDisponivel = ultimosMeses.length > 0 ? ultimosMeses[ultimosMeses.length - 1] : null;
+    const refMonth = /^\d{4}-\d{2}-\d{2}$/.test(filters.month) ? filters.month : ultimoMesDisponivel;
+    const doMes = r => !refMonth || String(r.mes_referencia).slice(0, 10) === refMonth;
 
     // Base do mês: 1 linha por fazenda (a carteira tem 1 linha por consultor)
     const porFazenda = new Map();

@@ -75,7 +75,7 @@ const COLUNAS = {
     'cadastro_elabore', 'dados_elabore_pct', 'dados_elabore_status', 'blocos_elabore'
   ].join(','),
   movimentacao: [
-    'id_composto', 'codigo_lr', 'data_movimentacao', 'nome_produtor', 'numero_atendimento',
+    'id_composto', 'codigo_lr', 'data_movimentacao', 'data_solicitacao', 'nome_produtor', 'numero_atendimento',
     'consultor', 'tipo', 'motivo', 'projeto', 'agroindustria', 'regiao'
   ].join(','),
   consistencia: [

@@ -52,7 +52,7 @@ module.exports = async (req, res) => {
       status: m.tipo === 'SAÍDA' ? 'INATIVO' : 'ATIVO',
       mes_referencia: `${String(m.data_movimentacao).slice(0, 7)}-01`,
       tipo: m.tipo,
-      data: formatDate(m.data_movimentacao),
+      data: formatDate(m.data_solicitacao),
       motivo: m.motivo
     }));
 
