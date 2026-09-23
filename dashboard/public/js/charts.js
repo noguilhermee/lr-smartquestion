@@ -544,6 +544,10 @@ class DashboardCharts {
 
     this.instances[id] = new Chart(canvas.getContext('2d'), {
       type: 'doughnut',
+      plugins: [this.valueLabels(
+        (value, { percentage }) => percentage >= 4 ? `${percentage.toFixed(1).replace('.', ',')}%` : '',
+        { fontSize: 12 }
+      )],
       data: {
         labels,
         datasets: [{
@@ -689,6 +693,10 @@ class DashboardCharts {
 
     this.instances[id] = new Chart(canvas.getContext('2d'), {
       type: 'bar',
+      plugins: [this.valueLabels(
+        (value) => `R$ ${Number(value || 0).toFixed(2)}`,
+        { color: ({ datasetIndex, dataIndex }) => bgColors[dataIndex] }
+      )],
       data: {
         labels,
         datasets: [{
@@ -702,6 +710,7 @@ class DashboardCharts {
         indexAxis: 'y',
         responsive: true,
         maintainAspectRatio: false,
+        layout: { padding: { right: 46 } },
         plugins: {
           legend: { display: false },
           tooltip: {

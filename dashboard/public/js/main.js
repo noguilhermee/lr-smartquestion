@@ -563,7 +563,9 @@ document.addEventListener('DOMContentLoaded', () => {
     tbodyTurnover: { colKey: null, dir: 'asc' },
     tbodyConsultants: { colKey: null, dir: 'asc' },
     tbodyDataProducers: { colKey: 'possui_dados', dir: 'asc' },
-    tbodyInconsistencies: { colKey: null, dir: 'asc' }
+    tbodyInconsistencies: { colKey: null, dir: 'asc' },
+    tbodyCadastroDetalhe: { colKey: null, dir: 'asc' },
+    tbodyMbRankingDetalhe: { colKey: null, dir: 'asc' }
   };
 
   // Estado de paginação para cada tabela do dashboard
@@ -573,7 +575,9 @@ document.addEventListener('DOMContentLoaded', () => {
     tableTurnover: { page: 1, pageSize: 25 },
     tableConsultants: { page: 1, pageSize: 25 },
     tableDataProducers: { page: 1, pageSize: 25 },
-    tableInconsistencies: { page: 1, pageSize: 25 }
+    tableInconsistencies: { page: 1, pageSize: 25 },
+    tableCadastroDetalhe: { page: 1, pageSize: 25 },
+    tableMbRankingDetalhe: { page: 1, pageSize: 25 }
   };
 
   function getPaginatedSlice(tableId, rows) {
@@ -826,7 +830,9 @@ document.addEventListener('DOMContentLoaded', () => {
       tbodyTurnover: ['atendimento', 'produtor', 'tipo', 'data', 'grupo', 'motivo'],
       tbodyConsultants: ['consultor', 'total_fazendas', 'fazendas_visitadas', 'total_visitas', 'perc_cobertura', 'status'],
       tbodyDataProducers: ['codigo_lr', 'produtor', 'consultor', 'possui_dados', 'referencia', 'status'],
-      tbodyInconsistencies: ['codigo_lr', 'produtor', 'consultor', 'meses_sequenciais', 'consistencia_mensal', 'consistencia_anual', 'acao']
+      tbodyInconsistencies: ['codigo_lr', 'produtor', 'consultor', 'meses_sequenciais', 'consistencia_mensal', 'consistencia_anual', 'acao'],
+      tbodyCadastroDetalhe: ['nome_fazenda', 'produtor', 'cidade_uf', 'consultor', 'data_associacao_ts', 'tempo_meses', 'categoria_cadastro', 'status'],
+      tbodyMbRankingDetalhe: ['posicao', 'nome_fazenda', 'produtor', 'consultor', 'mes_referencia', 'volume_diario_litros', 'preco_medio_litro', 'coe_por_litro', 'margem_bruta_por_litro']
     };
 
     Object.entries(MAPPINGS).forEach(([tbodyId, colKeys]) => {
@@ -1266,6 +1272,46 @@ document.addEventListener('DOMContentLoaded', () => {
       return `<tr class="${rowClass}"><td class="col-center"><strong>${escapeHtml(row.codigo_lr || '—')}</strong></td><td class="col-left" title="${escapeHtml(prodName)}"><strong>${escapeHtml(prodName)}</strong></td><td class="col-left" title="${escapeHtml(row.consultor || '—')}">${escapeHtml(row.consultor || '—')}</td><td class="col-center font-tabular">${seqText}</td><td class="col-center"><span class="badge ${badgeClassMensal}" title="${escapeHtml(row.consistencia_mensal || 'SEM DADOS')}">${escapeHtml(row.consistencia_mensal || 'SEM DADOS')}</span></td><td class="col-center"><span class="badge ${badgeClassAnual}" title="${escapeHtml(row.consistencia_anual || 'SEM DADOS')}">${escapeHtml(row.consistencia_anual || 'SEM DADOS')}</span></td><td class="col-center"><button class="link-button btn-view-details" type="button" onclick="window.openInconsistencyDetail('${escapeHtml(row.codigo_lr || row.produtor)}')">Ver detalhes ›</button></td></tr>`;
     });
     renderTablePagination('paginationInconsistencies', 'tableInconsistencies', inconsistencies.length);
+
+    // Tabela 7: Tempo de Cadastro dos Produtores (detalhe exibido ao expandir o painel)
+    const economics = state.economics || {};
+    let cadDetalhe = economics.cadastro_detalhe || economics.slide5?.cadastro_detalhe || [];
+    cadDetalhe = applyColumnFilters(cadDetalhe, 'tableCadastroDetalhe');
+    updateCount('countCadastroDetalhe', cadDetalhe);
+    cadDetalhe = sortRows(cadDetalhe, tableSort.tbodyCadastroDetalhe, (row, key) => row[key]);
+    updateTableHeadIcons('tbodyCadastroDetalhe', tableSort.tbodyCadastroDetalhe.colKey, tableSort.tbodyCadastroDetalhe.dir);
+    const pCadDetalhe = getPaginatedSlice('tableCadastroDetalhe', cadDetalhe);
+    if (el('tbodyCadastroDetalhe')) el('tbodyCadastroDetalhe').innerHTML = rowsOrEmpty(pCadDetalhe, 8, (row) => `<tr>
+      <td class="col-left" title="${escapeHtml(row.nome_fazenda)}"><strong>${escapeHtml(row.nome_fazenda)}</strong></td>
+      <td class="col-left" title="${escapeHtml(row.produtor)}">${escapeHtml(row.produtor)}</td>
+      <td class="col-left">${escapeHtml(row.cidade_uf)}</td>
+      <td class="col-left" title="${escapeHtml(row.consultor)}">${escapeHtml(row.consultor)}</td>
+      <td class="col-center">${escapeHtml(row.data_associacao)}</td>
+      <td class="col-center">${escapeHtml(row.tempo_cadastro)}</td>
+      <td class="col-center">${escapeHtml(row.categoria_cadastro)}</td>
+      <td class="col-center"><span class="badge ${String(row.status).toUpperCase().includes('INATIV') ? 'badge-neutral' : 'badge-positive'}">${escapeHtml(row.status)}</span></td>
+    </tr>`);
+    renderTablePagination('paginationCadastroDetalhe', 'tableCadastroDetalhe', cadDetalhe.length);
+
+    // Tabela 8: Top 10 Fazendas por Margem Bruta (detalhe exibido ao expandir o painel)
+    let mbDetalhe = economics.top10_mb_ranking || economics.slide5?.top10_mb_ranking || [];
+    mbDetalhe = applyColumnFilters(mbDetalhe, 'tableMbRankingDetalhe');
+    updateCount('countMbRankingDetalhe', mbDetalhe);
+    mbDetalhe = sortRows(mbDetalhe, tableSort.tbodyMbRankingDetalhe, (row, key) => row[key]);
+    updateTableHeadIcons('tbodyMbRankingDetalhe', tableSort.tbodyMbRankingDetalhe.colKey, tableSort.tbodyMbRankingDetalhe.dir);
+    const pMbDetalhe = getPaginatedSlice('tableMbRankingDetalhe', mbDetalhe);
+    if (el('tbodyMbRankingDetalhe')) el('tbodyMbRankingDetalhe').innerHTML = rowsOrEmpty(pMbDetalhe, 9, (row) => `<tr>
+      <td class="col-center font-tabular">${escapeHtml(row.posicao)}</td>
+      <td class="col-left" title="${escapeHtml(row.nome_fazenda)}"><strong>${escapeHtml(row.nome_fazenda)}</strong></td>
+      <td class="col-left" title="${escapeHtml(row.produtor)}">${escapeHtml(row.produtor)}</td>
+      <td class="col-left" title="${escapeHtml(row.consultor)}">${escapeHtml(row.consultor)}</td>
+      <td class="col-center">${escapeHtml(row.mes_label)}</td>
+      <td class="col-center font-tabular">${number(row.volume_diario_litros)}</td>
+      <td class="col-center font-tabular">R$ ${number(row.preco_medio_litro)}</td>
+      <td class="col-center font-tabular">R$ ${number(row.coe_por_litro)}</td>
+      <td class="col-center font-tabular"><strong class="${row.flag_positiva ? 'text-positive' : 'text-negative'}">R$ ${number(row.margem_bruta_por_litro)}</strong></td>
+    </tr>`);
+    renderTablePagination('paginationMbRankingDetalhe', 'tableMbRankingDetalhe', mbDetalhe.length);
   }
 
   // ─── LÓGICA DE FILTRAGEM MULTIDIRECIONAL ESTILO POWER BI ──────────────
@@ -1646,6 +1692,45 @@ document.addEventListener('DOMContentLoaded', () => {
       };
     }
 
+    if (tableId === 'tableCadastroDetalhe') {
+      const economics = state.economics || {};
+      let data = economics.cadastro_detalhe || economics.slide5?.cadastro_detalhe || [];
+      data = applyColumnFilters(data, 'tableCadastroDetalhe');
+      return {
+        headers: ['Fazenda', 'Produtor(a)', 'Cidade/UF', 'Consultor(a)', 'Data de Associação', 'Tempo de Cadastro', 'Categoria', 'Status'],
+        rows: data.map((r) => [
+          r.nome_fazenda || '—',
+          r.produtor || '—',
+          r.cidade_uf || '—',
+          r.consultor || '—',
+          r.data_associacao || '—',
+          r.tempo_cadastro || '—',
+          r.categoria_cadastro || '—',
+          r.status || '—'
+        ])
+      };
+    }
+
+    if (tableId === 'tableMbRankingDetalhe') {
+      const economics = state.economics || {};
+      let data = economics.top10_mb_ranking || economics.slide5?.top10_mb_ranking || [];
+      data = applyColumnFilters(data, 'tableMbRankingDetalhe');
+      return {
+        headers: ['#', 'Fazenda', 'Produtor(a)', 'Consultor(a)', 'Mês Referência', 'Volume Diário (L)', 'Preço Médio (R$/L)', 'COE (R$/L)', 'Margem Bruta (R$/L)'],
+        rows: data.map((r) => [
+          r.posicao ?? '—',
+          r.nome_fazenda || '—',
+          r.produtor || '—',
+          r.consultor || '—',
+          r.mes_label || '—',
+          number(r.volume_diario_litros),
+          number(r.preco_medio_litro),
+          number(r.coe_por_litro),
+          number(r.margem_bruta_por_litro)
+        ])
+      };
+    }
+
     return null;
   }
 
@@ -1743,6 +1828,8 @@ document.addEventListener('DOMContentLoaded', () => {
     el('btnExportConsultants')?.addEventListener('click', () => exportTableToCsv('tableConsultants', 'consultores_ativos'));
     el('btnExportDataProducers')?.addEventListener('click', () => exportTableToCsv('tableDataProducers', 'produtores_com_dados'));
     el('btnExportInconsistencies')?.addEventListener('click', exportInconsistenciesToCsv);
+    el('btnExportCadastroDetalhe')?.addEventListener('click', () => exportTableToCsv('tableCadastroDetalhe', 'tempo_cadastro_produtores'));
+    el('btnExportMbRankingDetalhe')?.addEventListener('click', () => exportTableToCsv('tableMbRankingDetalhe', 'top10_margem_bruta'));
   }
 
   function updateTimestamp() {
@@ -1808,6 +1895,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (cadBreakdown) charts.renderCadastroDonut('chartCadastroBreakdownDonut', cadBreakdown);
     if (mbRanking) charts.renderMbRankingHorizontal('chartMbRankingHorizontal', mbRanking);
+    // As tabelas detalhadas (cadastro_detalhe / top10_mb_ranking) são renderizadas em
+    // renderTables(), junto com as demais tabelas do dashboard (mesmo padrão de
+    // ordenação/filtro/paginação/exportação das páginas 1–3).
   }
 
   let debounceFilterTimer = null;

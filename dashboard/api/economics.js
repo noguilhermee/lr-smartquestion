@@ -15,7 +15,8 @@ const {
   getSupabaseClient,
   fetchAll,
   fetchWithCache,
-  monthLabel
+  monthLabel,
+  formatDate
 } = require('./shared');
 
 module.exports = async (req, res) => {
@@ -69,6 +70,9 @@ module.exports = async (req, res) => {
         projeto: String(row.projeto || vinculo.projeto || '').trim(),
         consultor: String(row.nome_consultor || vinculo.consultor_campo || '').trim(),
         produtor: String(row.nome_produtor || vinculo.nome_produtor || '').trim(),
+        nome_fazenda: String(vinculo.nome_propriedade || '').trim(),
+        cidade: String(vinculo.cidade_produtor || '').trim(),
+        estado: String(vinculo.estado_produtor || '').trim(),
         status: String(vinculo.status_cadastro || 'Ativo').trim(),
         data_associacao: row.data_associacao || vinculo.data_associacao
       };
@@ -164,16 +168,57 @@ module.exports = async (req, res) => {
     let cad2Anos = 0;
     let cad3PlusAnos = 0;
 
+    // Lista detalhada de produtores/fazendas para a tabela do painel "Tempo de cadastro dos
+    // produtores" (exibida ao expandir o gráfico em tela cheia).
+    const cadastroDetalhe = [];
+
     econComDados.forEach(r => {
+      let categoria;
+      let tempoLabel = '—';
+      let diffAnos = null;
+      let tempoMeses = null;
       if (r.data_associacao) {
         const dtAssoc = new Date(r.data_associacao);
-        const diffAnos = Math.floor((hoje - dtAssoc) / (1000 * 60 * 60 * 24 * 365.25));
-        if (diffAnos <= 1) cad1Ano++;
-        else if (diffAnos === 2) cad2Anos++;
-        else cad3PlusAnos++;
+        const diffMesesTotal = Math.max(0, Math.floor((hoje - dtAssoc) / (1000 * 60 * 60 * 24 * 30.4375)));
+        tempoMeses = diffMesesTotal;
+        diffAnos = Math.floor((hoje - dtAssoc) / (1000 * 60 * 60 * 24 * 365.25));
+        const anos = Math.floor(diffMesesTotal / 12);
+        const meses = diffMesesTotal % 12;
+        tempoLabel = anos > 0
+          ? `${anos} ano${anos !== 1 ? 's' : ''}${meses > 0 ? ` e ${meses} m${meses !== 1 ? 'eses' : 'ês'}` : ''}`
+          : `${meses} m${meses !== 1 ? 'eses' : 'ês'}`;
+
+        if (diffAnos <= 1) { cad1Ano++; categoria = '1 ano de cadastro'; }
+        else if (diffAnos === 2) { cad2Anos++; categoria = '2 anos de cadastro'; }
+        else { cad3PlusAnos++; categoria = '3+ anos de cadastro'; }
       } else {
         cad1Ano++; // Fallback padrão
+        categoria = '1 ano de cadastro';
       }
+
+      cadastroDetalhe.push({
+        codigo_lr: r.codigo_lr,
+        produtor: r.produtor || r.codigo_lr,
+        nome_fazenda: r.nome_fazenda || '—',
+        agroindustria: r.agroindustria || '—',
+        regiao: r.regiao || '—',
+        consultor: r.consultor || '—',
+        status: r.status || '—',
+        cidade: r.cidade || '',
+        estado: r.estado || '',
+        cidade_uf: [r.cidade, r.estado].filter(Boolean).join(' / ') || '—',
+        data_associacao: r.data_associacao ? formatDate(r.data_associacao) : '—',
+        data_associacao_ts: r.data_associacao ? new Date(r.data_associacao).getTime() : null,
+        tempo_cadastro: tempoLabel,
+        tempo_meses: tempoMeses,
+        categoria_cadastro: categoria
+      });
+    });
+
+    cadastroDetalhe.sort((a, b) => {
+      const da = a.data_associacao_ts ?? Infinity;
+      const db = b.data_associacao_ts ?? Infinity;
+      return da - db; // cadastro mais antigo primeiro
     });
 
     const totalFazendas = econComDados.length;
@@ -195,9 +240,19 @@ module.exports = async (req, res) => {
     const top10MbRanking = Array.from(ultimoRegistroPorFazenda.values())
       .sort((a, b) => Number(b.margem_bruta_por_litro || 0) - Number(a.margem_bruta_por_litro || 0))
       .slice(0, 10)
-      .map(r => ({
+      .map((r, idx) => ({
+        posicao: idx + 1,
         codigo_lr: r.codigo_lr,
         produtor: r.produtor || r.codigo_lr,
+        nome_fazenda: r.nome_fazenda || '—',
+        agroindustria: r.agroindustria || '—',
+        regiao: r.regiao || '—',
+        consultor: r.consultor || '—',
+        mes_referencia: r.mes_referencia,
+        mes_label: monthLabel(String(r.mes_referencia || '').substring(0, 7)),
+        volume_diario_litros: Number(r.volume_diario_litros || 0),
+        preco_medio_litro: Number(r.preco_medio_litro || 0),
+        coe_por_litro: Number(r.coe_por_litro || 0),
         margem_bruta_por_litro: Number(r.margem_bruta_por_litro || 0),
         flag_positiva: Number(r.margem_bruta_por_litro || 0) > 0
       }));
@@ -233,6 +288,7 @@ module.exports = async (req, res) => {
       top5_coe: top5Coe,
       volume_evolution: volumeEvolution,
       cadastro_breakdown: cadastroBreakdown,
+      cadastro_detalhe: cadastroDetalhe,
       top10_mb_ranking: top10MbRanking,
       slide4: {
         kpis: kpisConsolidados,
@@ -242,6 +298,7 @@ module.exports = async (req, res) => {
       slide5: {
         kpis: kpisConsolidados,
         cadastro_breakdown: cadastroBreakdown,
+        cadastro_detalhe: cadastroDetalhe,
         top10_mb_ranking: top10MbRanking
       }
     });

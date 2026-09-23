@@ -260,11 +260,71 @@
         <div class="grid-two grid-two--data">
           <article class="panel-card">
             <div class="panel-heading"><h2>Tempo de cadastro dos produtores</h2><div class="panel-actions"><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div>
-            <div class="chart-box"><canvas id="chartCadastroBreakdownDonut"></canvas></div>
+            <div class="chart-box chart-box--with-table"><canvas id="chartCadastroBreakdownDonut"></canvas></div>
+            <div class="panel-table-view">
+              <div class="panel-table-view-heading"><span class="record-count" id="countCadastroDetalhe">0 registros</span><button class="btn-table-export" id="btnExportCadastroDetalhe" type="button" title="Exportar tabela para CSV (Excel)" aria-label="Exportar para CSV"><span class="material-symbols-rounded" aria-hidden="true">download</span><span>Exportar</span></button></div>
+              <div class="table-scroll"><table class="data-table" id="tableCadastroDetalhe">
+                <colgroup>
+                  <col style="width:16%"><col style="width:18%"><col style="width:13%"><col style="width:15%"><col style="width:12%"><col style="width:12%"><col style="width:9%"><col style="width:9%">
+                </colgroup>
+                <thead><tr>
+                  <th class="col-left">Fazenda</th>
+                  <th class="col-left">Produtor(a)</th>
+                  <th class="col-left">Cidade/UF</th>
+                  <th class="col-left">Consultor(a)</th>
+                  <th class="col-center">Data de Associação</th>
+                  <th class="col-center">Tempo de Cadastro</th>
+                  <th class="col-center">Categoria</th>
+                  <th class="col-center">Status</th>
+                </tr><tr class="table-filter-row">
+                  <th><input type="text" class="table-col-filter" data-table="tableCadastroDetalhe" data-col="nome_fazenda" placeholder="Filtrar..." aria-label="Filtrar Fazenda"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCadastroDetalhe" data-col="produtor" placeholder="Filtrar..." aria-label="Filtrar Produtor"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCadastroDetalhe" data-col="cidade_uf" placeholder="Filtrar..." aria-label="Filtrar Cidade/UF"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCadastroDetalhe" data-col="consultor" placeholder="Filtrar..." aria-label="Filtrar Consultor"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCadastroDetalhe" data-col="data_associacao" placeholder="Filtrar..." aria-label="Filtrar Data"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCadastroDetalhe" data-col="tempo_cadastro" placeholder="Filtrar..." aria-label="Filtrar Tempo"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCadastroDetalhe" data-col="categoria_cadastro" placeholder="Filtrar..." aria-label="Filtrar Categoria"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCadastroDetalhe" data-col="status" placeholder="Filtrar..." aria-label="Filtrar Status"></th>
+                </tr></thead>
+                <tbody id="tbodyCadastroDetalhe"><tr><td colspan="8" class="empty-cell">Carregando...</td></tr></tbody>
+              </table></div>
+              <div class="table-pagination" id="paginationCadastroDetalhe" data-table="tableCadastroDetalhe"></div>
+            </div>
           </article>
           <article class="panel-card">
             <div class="panel-heading"><h2>Top 10 Fazendas por Margem Bruta (R$/L)</h2><div class="panel-actions"><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div>
-            <div class="chart-box"><canvas id="chartMbRankingHorizontal"></canvas></div>
+            <div class="chart-box chart-box--with-table"><canvas id="chartMbRankingHorizontal"></canvas></div>
+            <div class="panel-table-view">
+              <div class="panel-table-view-heading"><span class="record-count" id="countMbRankingDetalhe">0 registros</span><button class="btn-table-export" id="btnExportMbRankingDetalhe" type="button" title="Exportar tabela para CSV (Excel)" aria-label="Exportar para CSV"><span class="material-symbols-rounded" aria-hidden="true">download</span><span>Exportar</span></button></div>
+              <div class="table-scroll"><table class="data-table" id="tableMbRankingDetalhe">
+                <colgroup>
+                  <col style="width:6%"><col style="width:17%"><col style="width:17%"><col style="width:15%"><col style="width:9%"><col style="width:11%"><col style="width:11%"><col style="width:7%"><col style="width:7%">
+                </colgroup>
+                <thead><tr>
+                  <th class="col-center">#</th>
+                  <th class="col-left">Fazenda</th>
+                  <th class="col-left">Produtor(a)</th>
+                  <th class="col-left">Consultor(a)</th>
+                  <th class="col-center">Mês Ref.</th>
+                  <th class="col-center">Volume Diário (L)</th>
+                  <th class="col-center">Preço Médio (R$/L)</th>
+                  <th class="col-center">COE (R$/L)</th>
+                  <th class="col-center">Margem Bruta (R$/L)</th>
+                </tr><tr class="table-filter-row">
+                  <th><input type="text" class="table-col-filter" data-table="tableMbRankingDetalhe" data-col="posicao" placeholder="Filtrar..." aria-label="Filtrar posição"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableMbRankingDetalhe" data-col="nome_fazenda" placeholder="Filtrar..." aria-label="Filtrar Fazenda"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableMbRankingDetalhe" data-col="produtor" placeholder="Filtrar..." aria-label="Filtrar Produtor"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableMbRankingDetalhe" data-col="consultor" placeholder="Filtrar..." aria-label="Filtrar Consultor"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableMbRankingDetalhe" data-col="mes_label" placeholder="Filtrar..." aria-label="Filtrar Mês"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableMbRankingDetalhe" data-col="volume_diario_litros" placeholder="Filtrar..." aria-label="Filtrar Volume"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableMbRankingDetalhe" data-col="preco_medio_litro" placeholder="Filtrar..." aria-label="Filtrar Preço"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableMbRankingDetalhe" data-col="coe_por_litro" placeholder="Filtrar..." aria-label="Filtrar COE"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableMbRankingDetalhe" data-col="margem_bruta_por_litro" placeholder="Filtrar..." aria-label="Filtrar Margem"></th>
+                </tr></thead>
+                <tbody id="tbodyMbRankingDetalhe"><tr><td colspan="9" class="empty-cell">Carregando...</td></tr></tbody>
+              </table></div>
+              <div class="table-pagination" id="paginationMbRankingDetalhe" data-table="tableMbRankingDetalhe"></div>
+            </div>
           </article>
         </div>
       </section>
