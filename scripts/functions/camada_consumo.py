@@ -778,7 +778,8 @@ COLS_CONSISTENCIA = ["id_composto", "codigo_lr", "nome_consultor", "profissao_co
                      "cadastro_elabore", "dados_elabore_pct", "dados_elabore_status", "blocos_elabore"]
 
 COLS_MOVIMENTACAO = ["id_composto", "codigo_lr", "nome_consultor", "nome_produtor", "numero_atendimento",
-                     "data_movimentacao", "movimentacao", "motivo_inativacao", "outro_motivo", "data_solicitacao"]
+                     "data_movimentacao", "movimentacao", "motivo_inativacao", "outro_motivo", "data_solicitacao",
+                     "consultor", "tipo", "motivo", "projeto", "agroindustria", "regiao"]
 
 
 def construir_tudo(f: Fontes, agora: datetime | None = None, data_inicial_consistencia: str = "2025-01-01") -> dict:
