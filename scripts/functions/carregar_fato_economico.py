@@ -2,19 +2,43 @@
 """
 Módulo: carregar_fato_economico.py
 Responsável por consolidar, calcular indicadores econômicos e zootécnicos a partir
-dos relatórios de indicadores mensais do Elabore, e executar a carga upsert na
+do relatório de indicadores MENSAIS do Elabore, e executar a carga upsert na
 tabela fato 'sq_fato_economico' do Supabase.
 
-Estrutura da Tabela no Supabase:
-- Nome: sq_fato_economico
+Regra de negócio (validada por reconciliação 1:1 contra os indicadores ANUAIS do
+Elabore — soma dos 12 meses de cada janela == valor anual, em 100% das janelas
+testadas em 2026-09-23):
+
+    COE (Custo Operacional Efetivo) do mês =
+        Custo de Concentrado e Mineral (R$)
+      + Gasto Total Volumoso (R$) + Custo Forrageira Própria Volumoso (R$)
+      + Despesas Mão de Obra CONTRATADA (R$)                        <- MO familiar NÃO entra no COE
+      + Medicamentos e Vacinas (R$) + Hormônios (R$) + Reprodução (R$)
+      + Acessórios e Despesas Gerais (R$) + Despesas Administrativas (R$)
+      + Arrendamento (R$) + Assistência Técnica (R$) + Reparos e Consertos (R$)
+      + Impostos e Taxas (R$) + Energia Elétrica (R$) + Combustível (R$)
+      + Leite para Bezerras (R$) + Sucedâneo (R$) + Reposição da cama (R$)
+
+    ATENÇÃO: "Material de Ordenha (R$)" existe na planilha mas o Elabore NÃO o
+    soma no COE anual (testado: incluí-lo derruba a aderência de 100% para 1,5%).
+    Não incluir esta coluna no COE — é uma possível inconsistência do próprio
+    relatório Elabore, a reportar à equipe do lr-indicadores-elabore.
+
+    Margem Bruta = Receita Bruta da Atividade (R$) - COE   (NÃO é Receita do Leite - COE)
+    volume_leite_mes = Produção Total de Leite (litros)    (NÃO é Volume de Leite Vendido)
+    receita_leite_total = Receita Total do Leite (R$)      (Venda + Derivados)
+
+Estrutura da Tabela no Supabase (sq_fato_economico):
 - Chave Primária: id_composto (codigo_lr + '_' + mes_referencia)
-- Campos: id_composto, codigo_lr, idfazenda, nome_produtor, nome_consultor,
-  projeto, agroindustria, regiao, mes_referencia, volume_leite_mes,
-  volume_diario_litros, vacas_lactacao, vacas_totais, produtividade_l_vl_dia,
-  receita_leite_total, preco_medio_litro, coe_total_reais, coe_por_litro,
-  margem_bruta_total, margem_bruta_por_litro, flag_mb_positiva,
-  coe_concentrado, coe_volumoso, coe_mao_de_obra, coe_sanidade, coe_outros,
-  data_associacao, data_processamento
+- Campos: id_composto, codigo_lr, idfazenda, id_propriedade_elabore, nome_produtor,
+  nome_consultor, projeto, agroindustria, regiao, mes_referencia, volume_leite_mes,
+  volume_leite_vendido, volume_diario_litros, vacas_lactacao, vacas_totais,
+  produtividade_l_vl_dia, receita_leite_total, receita_bruta_atividade,
+  preco_medio_litro, coe_total_reais, coe_por_litro, margem_bruta_total,
+  margem_bruta_por_litro, flag_mb_positiva, coe_concentrado, coe_volumoso,
+  coe_mao_de_obra, coe_sanidade, coe_outros, custo_mo_familiar,
+  possui_dados_economicos, status_consistencia_mensal, data_associacao,
+  data_processamento
 """
 from __future__ import annotations
 
@@ -98,13 +122,13 @@ def obter_cliente_supabase(raiz: Path) -> Client:
     return create_client(supabase_url, supabase_key)
 
 
-def ler_excel_seguro(caminho_arquivo: Path) -> pd.DataFrame:
+def ler_excel_seguro(caminho_arquivo: Path, sheet_name: str | int = 0) -> pd.DataFrame:
     """Lê um arquivo Excel criando uma cópia temporária para evitar locks no Windows."""
     tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
     tmp.close()
     try:
         shutil.copy2(caminho_arquivo, tmp.name)
-        df = pd.read_excel(tmp.name)
+        df = pd.read_excel(tmp.name, sheet_name=sheet_name)
         return df
     finally:
         try:
@@ -169,7 +193,8 @@ def converter_numero_br_float(val: Any) -> float:
 
 def sanitize_json_records(records: list[dict]) -> list[dict]:
     """Garante compatibilidade total com JSON e PostgreSQL (sanitiza NaN/Inf para 0.0/None)."""
-    int_cols = {"vacas_lactacao", "vacas_totais", "flag_mb_positiva"}
+    int_cols = {"flag_mb_positiva", "possui_dados_economicos"}
+    numeric_2dec_cols = {"vacas_lactacao", "vacas_totais"}
     str_limits = {
         "codigo_lr": 50,
         "projeto": 100,
@@ -179,6 +204,8 @@ def sanitize_json_records(records: list[dict]) -> list[dict]:
         "nome_produtor": 255,
         "nome_consultor": 255,
         "idfazenda": 36,
+        "id_propriedade_elabore": 36,
+        "status_consistencia_mensal": 50,
     }
 
     clean = []
@@ -207,14 +234,29 @@ def sanitize_json_records(records: list[dict]) -> list[dict]:
                 if math.isnan(v_flt) or math.isinf(v_flt):
                     clean_row[k] = 0.0
                 else:
-                    clean_row[k] = round(v_flt, 4)
+                    clean_row[k] = round(v_flt, 4) if k not in numeric_2dec_cols else round(v_flt, 2)
             else:
                 clean_row[k] = v
         clean.append(clean_row)
     return clean
 
 
+def resolver_coluna_exata(columns: list[str], candidatos: list[str]) -> str | None:
+    """
+    Resolve o nome exato de uma coluna (case-insensitive, ignorando espaços nas pontas).
+    Diferente da busca por substring, evita falsos positivos (ex: 'Concentrado Vendido (R$)'
+    casando com o padrão 'concentrado' de custo).
+    """
+    cols_map = {c.strip().lower(): c for c in columns}
+    for cand in candidatos:
+        hit = cols_map.get(cand.strip().lower())
+        if hit:
+            return hit
+    return None
+
+
 def encontrar_nome_coluna(columns: list[str], padroes: list[str]) -> str | None:
+    """Busca fuzzy (substring) — usada apenas para campos descritivos/cadastrais, nunca para valores financeiros."""
     cols_map = {c.strip().lower(): c for c in columns}
     for padrao in padroes:
         p_low = padrao.strip().lower()
@@ -226,21 +268,51 @@ def encontrar_nome_coluna(columns: list[str], padroes: list[str]) -> str | None:
     return None
 
 
-def somar_colunas_linha(row: pd.Series, columns: list[str], padroes: list[str]) -> float:
-    total = 0.0
-    cols_usadas = set()
-    excluir_termos = ["litro", "por_litro", "%", "percentual", "share", "unitario", "unitário", "medio", "médio"]
-    for col in columns:
-        col_low = col.strip().lower()
-        if any(term in col_low for term in excluir_termos):
-            continue
-        for p in padroes:
-            if p.lower() in col_low and col not in cols_usadas:
-                cols_usadas.add(col)
-                val = converter_numero_br_float(row[col])
-                if val != 0.0:
-                    total += val
-    return total
+# ---------------------------------------------------------------------------
+# Mapa oficial e explícito das colunas financeiras/zootécnicas usadas no COE.
+# Usa correspondência EXATA (não substring) para não confundir, por exemplo,
+# "Concentrado Vendido (R$)" (receita) com "Custo de Concentrado e Mineral (R$)".
+# Cada chave lógica aceita variações de nome (planilha pode ser re-exportada
+# com pequenas mudanças de rótulo), mas sempre por nome completo e exato.
+# ---------------------------------------------------------------------------
+MAPA_COLUNAS_COE = {
+    "concentrado_mineral": ["Custo de Concentrado e Mineral (R$)"],
+    "volumoso": ["Gasto Total Volumoso (R$)"],
+    "forrageira_propria_volumoso": ["Custo Forrageira Própria Volumoso (R$)"],
+    "mo_contratada": ["Despesas Mão de Obra Contratada (R$)"],
+    "mo_familiar": ["Despesas Mão de Obra Familiar (R$)"],
+    "medicamentos_vacinas": ["Medicamentos e Vacinas (R$)"],
+    "hormonios": ["Hormônios (R$)"],
+    "reproducao": ["Reprodução (R$)"],
+    "acessorios_gerais": ["Acessórios e Despesas Gerais (R$)"],
+    "despesas_administrativas": ["Despesas Administrativas (R$)"],
+    "arrendamento": ["Arrendamento (R$)"],
+    "assistencia_tecnica": ["Assistência Técnica (R$)"],
+    "reparos_consertos": ["Reparos e Consertos (R$)"],
+    "impostos_taxas": ["Impostos e Taxas (R$)"],
+    "energia_eletrica": ["Energia Elétrica (R$)"],
+    "combustivel": ["Combustível (R$)"],
+    "leite_bezerras": ["Leite para Bezerras (R$)"],
+    "sucedaneo": ["Sucedâneo (R$)"],
+    "reposicao_cama": ["Reposição da cama (R$)"],
+}
+
+MAPA_COLUNAS_BASE = {
+    "receita_venda_leite": ["Receita com Venda de Leite (R$)"],
+    "receita_total_leite": ["Receita Total do Leite (R$)"],
+    "receita_bruta_atividade": ["Receita Bruta da Atividade (R$)"],
+    "volume_vendido": ["Volume de Leite Vendido (litros)"],
+    "producao_total": ["Produção Total de Leite (litros)"],
+    "producao_diaria": ["Produção Diária de Leite (litros/dia)"],
+    "vacas_lactacao": ["Vacas em Lactação (cabeças)"],
+    "vacas_totais": ["Total de Vacas (cabeças)"],
+    "produtividade": ["Produção por Vaca em Lactação (litros/vaca/dia)"],
+    "dias_no_mes": ["Dias no Mês"],
+    "status_consistencia": ["Status de Consistência"],
+    "possui_dados_receita": ["Possui Dados de Receita"],
+    "possui_dados_rebanho": ["Possui Dados de Rebanho"],
+    "possui_dados_despesas": ["Possui Dados de Despesas"],
+}
 
 
 def processar_e_carregar_fato_economico(raiz: Path | None = None) -> int:
@@ -251,10 +323,10 @@ def processar_e_carregar_fato_economico(raiz: Path | None = None) -> int:
     supabase = obter_cliente_supabase(raiz)
 
     print("\n" + "=" * 70)
-    print("🚀 PROCESSANDO TABELA FATO: sq_fato_economico")
+    print("🚀 PROCESSANDO TABELA FATO: sq_fato_economico (regra COE validada 1:1 c/ Elabore Anual)")
     print("=" * 70)
 
-    # 1. Carregar cadastro de produtores / vínculos para fallback de metadados
+    # 1. Carregar cadastro de produtores / vínculos (fonte de verdade de projeto/consultor/data de associação)
     raw_vinculos = buscar_todos_registros(supabase, "sq_raw_vinculos", "*")
     mapa_vinculos = {}
     if raw_vinculos:
@@ -263,9 +335,8 @@ def processar_e_carregar_fato_economico(raiz: Path | None = None) -> int:
             if cod and cod not in mapa_vinculos:
                 mapa_vinculos[cod] = v
 
-    # 2. Localizar e ler o relatório de indicadores mensais e anuais do Elabore
+    # 2. Localizar e ler o relatório de indicadores MENSAIS do Elabore (fonte única da fato econômica)
     dir_elabore_mensal = Path(config.get("caminhos", {}).get("elabore_mensal", ""))
-    dir_elabore_anual = Path(config.get("caminhos", {}).get("elabore_anual", ""))
     fallbacks = [
         raiz / "db" / "input",
         raiz / "DB" / "INPUT",
@@ -275,77 +346,43 @@ def processar_e_carregar_fato_economico(raiz: Path | None = None) -> int:
 
     try:
         arquivo_excel = localizar_arquivo_recente(dir_elabore_mensal, fallbacks, "*indicadores_mensais.xlsx")
-        df_excel = ler_excel_seguro(arquivo_excel)
+        df_excel = ler_excel_seguro(arquivo_excel, sheet_name="Indicadores Mensais")
         print(f"📊 Planilha mensal carregada com sucesso ({len(df_excel)} linhas e {len(df_excel.columns)} colunas).")
     except Exception as e:
         print(f"⚠️ Erro ao localizar/ler planilha de indicadores mensais: {e}")
-        df_excel = pd.DataFrame()
-
-    # Tentar também carregar indicadores anuais do Elabore como complemento de métricas econômicas
-    df_anual = pd.DataFrame()
-    try:
-        arquivo_anual = localizar_arquivo_recente(dir_elabore_anual, fallbacks, "*indicadores_anuais.xlsx")
-        df_anual = ler_excel_seguro(arquivo_anual)
-        print(f"📊 Planilha anual de indicadores carregada ({len(df_anual)} linhas e {len(df_anual.columns)} colunas).")
-    except Exception as e_anual:
-        print(f"ℹ️ Planilha de indicadores anuais não encontrada ou não lida: {e_anual}")
-
-    if df_excel.empty and df_anual.empty:
-        print("⚠️ Nenhum relatório de indicadores do Elabore (mensal ou anual) pôde ser lido.")
         return 0
 
+    if df_excel.empty:
+        print("⚠️ Planilha de indicadores mensais do Elabore está vazia.")
+        return 0
 
     cols = list(df_excel.columns)
 
-    # Identificar colunas essenciais
+    # Identificar colunas essenciais (chave)
     col_codigo = encontrar_nome_coluna(cols, ["código lr", "codigo lr", "labor_rural_code", "codigo_lr", "código", "codigo"])
     col_mes = encontrar_nome_coluna(cols, ["mês de referência", "mes de referencia", "reference_month", "referência", "referencia", "mes_referencia"])
+    col_idfaz = encontrar_nome_coluna(cols, ["idfazenda", "id_property", "código fazenda", "codigo fazenda"])
 
     if not col_codigo or not col_mes:
         print("❌ Colunas obrigatórias ('Código LR', 'Mês de Referência') não foram encontradas na planilha.")
         return 0
 
-    # Colunas descritivas
+    # Colunas descritivas (fuzzy é aceitável aqui — não são valores numéricos de custo/receita)
     col_produtor = encontrar_nome_coluna(cols, ["fazenda - produtor", "property_entrepreneur_label", "nome produtor", "produtor", "fazenda"])
     col_consultor = encontrar_nome_coluna(cols, ["consultor", "grupo de atendimento", "consultor_campo", "consultor de campo"])
     col_agro = encontrar_nome_coluna(cols, ["agroindústria", "agroindustria", "agroindustry_name"])
-    col_projeto = encontrar_nome_coluna(cols, ["filtro 1", "filtro 2", "filter_1", "filter_2", "projeto"])
-    col_regiao = encontrar_nome_coluna(cols, ["região", "regiao", "unidade", "estado"])
-    col_idfaz = encontrar_nome_coluna(cols, ["idfazenda", "id_property", "código fazenda", "codigo fazenda"])
 
-    # Colunas Zootécnicas e Operacionais (Busca Ampla com Rótulos Técnicos Elabore)
-    col_vol_mes = encontrar_nome_coluna(cols, [
-        "volume_leite_vendido", "milk_volume_sold", "volume de leite vendido (litros)", "produção total de leite (litros)",
-        "volume_produzido", "milk_produced", "volume vendido", "volume de leite", "volume (litros)", "volume (l)", "volume"
-    ])
-    col_vol_diario = encontrar_nome_coluna(cols, [
-        "produção diária de leite (litros/dia)", "milk_daily", "produção diária", "volume diário", "volume_diario"
-    ])
-    col_vl = encontrar_nome_coluna(cols, [
-        "vacas_em_lactacao", "lactating_cows", "vacas em lactação (cabeças)", "vacas em lactação", "vacas_lactacao", "vl (cab)", "vl"
-    ])
-    col_vt = encontrar_nome_coluna(cols, [
-        "total_de_vacas", "total_cows", "total de vacas (cabeças)", "total de vacas", "vacas totais", "vacas_totais", "vt (cab)", "vt"
-    ])
-    col_produtividade = encontrar_nome_coluna(cols, [
-        "milk_lactating_cow_day", "produção por vaca em lactação (litros/vaca/dia)", "produtividade", "l/vl/dia", "produtividade_l_vl_dia"
-    ])
+    # Resolver colunas financeiras/zootécnicas por correspondência EXATA (nunca substring)
+    resolvidas_base = {k: resolver_coluna_exata(cols, v) for k, v in MAPA_COLUNAS_BASE.items()}
+    resolvidas_coe = {k: resolver_coluna_exata(cols, v) for k, v in MAPA_COLUNAS_COE.items()}
 
-    # Colunas Financeiras (Busca Ampla com Rótulos Técnicos Elabore)
-    col_receita = encontrar_nome_coluna(cols, [
-        "total_activity_revenue", "receita_bruta_atividade", "total_milk_revenue", "receita bruta da atividade (r$)",
-        "receita total do leite (r$)", "receita com venda de leite (r$)", "receita_leite_total", "receita leite", "receita total", "faturamento"
-    ])
-    col_preco = encontrar_nome_coluna(cols, [
-        "milk_unit_price", "milk_revenue_liter", "preço unitário do leite (r$/litro)", "preço médio recebido (r$/l)",
-        "preco_medio_litro", "preço médio", "preço do leite", "preço", "preco"
-    ])
-    col_coe_total = encontrar_nome_coluna(cols, [
-        "coe_activity_annual", "coe_somaMovel", "coe_total", "coe total (r$)", "custo operacional efetivo (r$)", "coe (r$)", "coe_total_reais"
-    ])
-    col_mb_total = encontrar_nome_coluna(cols, [
-        "gross_margin_annual", "margemBrutaAnual", "margem_bruta_anual", "margem bruta (r$)", "margem bruta total (r$)", "margem_bruta_total", "margem_bruta"
-    ])
+    faltantes = [k for k, v in {**resolvidas_base, **resolvidas_coe}.items() if v is None]
+    if faltantes:
+        print(f"⚠️ Aviso: colunas não encontradas na planilha (tratadas como 0): {faltantes}")
+
+    def num(row: pd.Series, chave_resolvida: dict, chave: str) -> float:
+        col = chave_resolvida.get(chave)
+        return converter_numero_br_float(row.get(col)) if col else 0.0
 
     agora_iso = datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat()
     registros_dict = {}
@@ -368,12 +405,12 @@ def processar_e_carregar_fato_economico(raiz: Path | None = None) -> int:
 
         id_comp = f"{cod_lr}_{mes_str}"
 
-        # Fallback para metadados via sq_raw_vinculos
+        # Fallback para metadados via sq_raw_vinculos (fonte de verdade de projeto/consultor)
         meta_vinculo = mapa_vinculos.get(cod_lr, {})
 
         raw_produtor = row.get(col_produtor) if col_produtor and pd.notna(row.get(col_produtor)) else None
         if raw_produtor and " - " in str(raw_produtor):
-            # Coluna "Fazenda - Produtor" vem composta; mantemos apenas o nome do produtor (após o hífen)
+            # Coluna "Fazenda - Produtor" vem composta; mantemos apenas o nome do produtor (após o PRIMEIRO hífen)
             nome_prod = str(raw_produtor).split(" - ", 1)[1].strip()
         else:
             nome_prod = raw_produtor if raw_produtor else meta_vinculo.get("nome_produtor")
@@ -384,80 +421,105 @@ def processar_e_carregar_fato_economico(raiz: Path | None = None) -> int:
         agro = row.get(col_agro) if col_agro and pd.notna(row.get(col_agro)) else (
             meta_vinculo.get("codigo_agroindustria") or meta_vinculo.get("agroindustria")
         )
-        proj = row.get(col_projeto) if col_projeto and pd.notna(row.get(col_projeto)) else meta_vinculo.get("projeto")
-        reg = row.get(col_regiao) if col_regiao and pd.notna(row.get(col_regiao)) else (
-            meta_vinculo.get("unidade_atendimento") or meta_vinculo.get("regiao") or meta_vinculo.get("estado_produtor")
-        )
+        # Projeto vem exclusivamente do cadastro de vínculos: "Filtro 1/2" do Elabore é posse
+        # da terra (própria/arrendada), não projeto de consultoria.
+        proj = meta_vinculo.get("projeto")
+        reg = meta_vinculo.get("unidade_atendimento") or meta_vinculo.get("regiao") or meta_vinculo.get("estado_produtor")
 
-        # IdFazenda no relatório Elabore é UUID (ex: "00220277-a58e-4b9e-9b89-e6acf8a1a400"), não numérico
-        raw_idfaz = row.get(col_idfaz) if col_idfaz and pd.notna(row.get(col_idfaz)) else meta_vinculo.get("codigo_fazenda") or meta_vinculo.get("idfazenda")
-        id_faz = str(raw_idfaz).strip() if pd.notna(raw_idfaz) and str(raw_idfaz).strip() != "" else None
+        # IdFazenda no relatório Elabore é UUID (ex: "00220277-a58e-4b9e-9b89-e6acf8a1a400")
+        raw_idfaz = row.get(col_idfaz) if col_idfaz and pd.notna(row.get(col_idfaz)) else None
+        id_prop_elabore = str(raw_idfaz).strip() if raw_idfaz and str(raw_idfaz).strip() != "" else None
+        id_faz = str(meta_vinculo.get("codigo_fazenda") or meta_vinculo.get("idfazenda") or "").strip() or None
 
         dt_assoc = meta_vinculo.get("data_associacao")
         dt_assoc_str = str(dt_assoc)[:10] if pd.notna(dt_assoc) and str(dt_assoc).strip() else None
 
-        # Extração/Cálculo Zootécnico com conversão resiliente de string BR
-        vol_mes = converter_numero_br_float(row.get(col_vol_mes)) if col_vol_mes else 0.0
+        # --- Zootécnico ---
+        vol_produzido = num(row, resolvidas_base, "producao_total")
+        vol_vendido = num(row, resolvidas_base, "volume_vendido")
+        dias_no_mes = int(num(row, resolvidas_base, "dias_no_mes")) or calendar.monthrange(dt_mes.year, dt_mes.month)[1]
 
-        if col_vol_diario and pd.notna(row.get(col_vol_diario)):
-            vol_diario = converter_numero_br_float(row.get(col_vol_diario))
-        else:
-            dias_no_mes = calendar.monthrange(dt_mes.year, dt_mes.month)[1]
-            vol_diario = round(vol_mes / dias_no_mes, 2) if dias_no_mes > 0 else 0.0
+        vol_diario_raw = row.get(resolvidas_base.get("producao_diaria")) if resolvidas_base.get("producao_diaria") else None
+        vol_diario = converter_numero_br_float(vol_diario_raw) if pd.notna(vol_diario_raw) else (
+            round(vol_produzido / dias_no_mes, 2) if dias_no_mes > 0 else 0.0
+        )
 
-        vl = int(converter_numero_br_float(row.get(col_vl))) if col_vl else 0
-        vt = int(converter_numero_br_float(row.get(col_vt))) if col_vt else 0
+        vl = num(row, resolvidas_base, "vacas_lactacao")
+        vt = num(row, resolvidas_base, "vacas_totais")
 
-        produtividade = converter_numero_br_float(row.get(col_produtividade)) if col_produtividade else 0.0
-        if (produtividade == 0.0) and vl > 0 and vol_mes > 0:
-            dias_no_mes = calendar.monthrange(dt_mes.year, dt_mes.month)[1]
-            produtividade = round(vol_mes / (vl * dias_no_mes), 2) if dias_no_mes > 0 else 0.0
+        produtividade = num(row, resolvidas_base, "produtividade")
+        if produtividade == 0.0 and vl > 0 and vol_produzido > 0 and dias_no_mes > 0:
+            produtividade = round(vol_produzido / (vl * dias_no_mes), 2)
 
-        # Extração/Cálculo Financeiro
-        receita_total = converter_numero_br_float(row.get(col_receita)) if col_receita else 0.0
-        preco_litro = converter_numero_br_float(row.get(col_preco)) if col_preco else 0.0
+        # --- Financeiro: Receita ---
+        receita_venda = num(row, resolvidas_base, "receita_venda_leite")
+        receita_total_leite = num(row, resolvidas_base, "receita_total_leite")
+        if receita_total_leite == 0.0:
+            receita_total_leite = receita_venda
+        receita_bruta_atividade = num(row, resolvidas_base, "receita_bruta_atividade")
+        if receita_bruta_atividade == 0.0:
+            receita_bruta_atividade = receita_total_leite
 
-        if preco_litro == 0.0 and vol_mes > 0 and receita_total > 0:
-            preco_litro = round(receita_total / vol_mes, 4)
-        if receita_total == 0.0 and vol_mes > 0 and preco_litro > 0:
-            receita_total = round(vol_mes * preco_litro, 2)
+        preco_litro = round(receita_venda / vol_vendido, 4) if vol_vendido > 0 else 0.0
 
-        # Decomposição de COE
-        coe_conc = somar_colunas_linha(row, cols, ["concentrado", "mineral"])
-        coe_vol = somar_colunas_linha(row, cols, ["volumoso", "forrageira"])
-        coe_mo = somar_colunas_linha(row, cols, ["mão de obra", "mao de obra", "labor", "familiar", "contratada"])
-        coe_san = somar_colunas_linha(row, cols, ["medicamento", "vacina", "hormônio", "hormonio", "reprodução", "reproducao", "sanidade"])
-        coe_out = somar_colunas_linha(row, cols, ["energia", "combustível", "combustivel", "ordenha", "imposto", "taxa", "administrativa", "reparo", "conserto", "acessório", "acessorio", "gerais"])
+        # --- Financeiro: COE (fórmula validada 1:1 contra o Elabore Anual) ---
+        coe_conc = num(row, resolvidas_coe, "concentrado_mineral")
+        coe_vol = num(row, resolvidas_coe, "volumoso") + num(row, resolvidas_coe, "forrageira_propria_volumoso")
+        coe_moc = num(row, resolvidas_coe, "mo_contratada")
+        coe_mof = num(row, resolvidas_coe, "mo_familiar")  # NÃO entra no COE — registrado à parte
+        coe_san = (
+            num(row, resolvidas_coe, "medicamentos_vacinas")
+            + num(row, resolvidas_coe, "hormonios")
+            + num(row, resolvidas_coe, "reproducao")
+        )
+        coe_out = (
+            num(row, resolvidas_coe, "acessorios_gerais")
+            + num(row, resolvidas_coe, "despesas_administrativas")
+            + num(row, resolvidas_coe, "arrendamento")
+            + num(row, resolvidas_coe, "assistencia_tecnica")
+            + num(row, resolvidas_coe, "reparos_consertos")
+            + num(row, resolvidas_coe, "impostos_taxas")
+            + num(row, resolvidas_coe, "energia_eletrica")
+            + num(row, resolvidas_coe, "combustivel")
+            + num(row, resolvidas_coe, "leite_bezerras")
+            + num(row, resolvidas_coe, "sucedaneo")
+            + num(row, resolvidas_coe, "reposicao_cama")
+        )
+        coe_total = coe_conc + coe_vol + coe_moc + coe_san + coe_out
 
-        coe_total = converter_numero_br_float(row.get(col_coe_total)) if col_coe_total else 0.0
-        if coe_total == 0.0:
-            coe_total = coe_conc + coe_vol + coe_mo + coe_san + coe_out
+        coe_litro = round(coe_total / vol_produzido, 4) if vol_produzido > 0 else 0.0
 
-        coe_litro = round(coe_total / vol_mes, 4) if vol_mes > 0 else 0.0
-
-        mb_total = converter_numero_br_float(row.get(col_mb_total)) if col_mb_total else 0.0
-        if mb_total == 0.0 and (receita_total > 0 or coe_total > 0):
-            mb_total = receita_total - coe_total
-
-        mb_litro = round(mb_total / vol_mes, 4) if vol_mes > 0 else 0.0
+        mb_total = receita_bruta_atividade - coe_total
+        mb_litro = round(mb_total / vol_produzido, 4) if vol_produzido > 0 else 0.0
         flag_mb_pos = 1 if mb_total > 0 else 0
+
+        # --- Qualidade do dado: só considerar "com dados econômicos" quando a linha tem despesas lançadas ---
+        possui_despesas = int(num(row, resolvidas_base, "possui_dados_despesas"))
+        possui_receita = int(num(row, resolvidas_base, "possui_dados_receita"))
+        possui_dados_econ = 1 if (possui_despesas == 1 or coe_total > 0) and (possui_receita == 1 or receita_bruta_atividade > 0) else 0
+
+        status_consistencia = row.get(resolvidas_base.get("status_consistencia")) if resolvidas_base.get("status_consistencia") else None
+        status_consistencia = str(status_consistencia).strip() if pd.notna(status_consistencia) else None
 
         registros_dict[id_comp] = {
             "id_composto": id_comp,
             "codigo_lr": cod_lr,
             "idfazenda": id_faz,
+            "id_propriedade_elabore": id_prop_elabore,
             "nome_produtor": str(nome_prod).strip() if pd.notna(nome_prod) else None,
             "nome_consultor": str(nome_cons).strip() if pd.notna(nome_cons) else None,
             "projeto": str(proj).strip() if pd.notna(proj) else None,
             "agroindustria": str(agro).strip() if pd.notna(agro) else None,
             "regiao": str(reg).strip() if pd.notna(reg) else None,
             "mes_referencia": mes_str,
-            "volume_leite_mes": vol_mes,
+            "volume_leite_mes": vol_produzido,
+            "volume_leite_vendido": vol_vendido,
             "volume_diario_litros": vol_diario,
             "vacas_lactacao": vl,
             "vacas_totais": vt,
             "produtividade_l_vl_dia": produtividade,
-            "receita_leite_total": receita_total,
+            "receita_leite_total": receita_total_leite,
+            "receita_bruta_atividade": receita_bruta_atividade,
             "preco_medio_litro": preco_litro,
             "coe_total_reais": coe_total,
             "coe_por_litro": coe_litro,
@@ -466,9 +528,12 @@ def processar_e_carregar_fato_economico(raiz: Path | None = None) -> int:
             "flag_mb_positiva": flag_mb_pos,
             "coe_concentrado": coe_conc,
             "coe_volumoso": coe_vol,
-            "coe_mao_de_obra": coe_mo,
+            "coe_mao_de_obra": coe_moc,
+            "custo_mo_familiar": coe_mof,
             "coe_sanidade": coe_san,
             "coe_outros": coe_out,
+            "possui_dados_economicos": possui_dados_econ,
+            "status_consistencia_mensal": status_consistencia,
             "data_associacao": dt_assoc_str,
             "data_processamento": agora_iso
         }

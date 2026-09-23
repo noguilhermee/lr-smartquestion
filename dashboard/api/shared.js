@@ -55,11 +55,23 @@ function getSupabaseClient() {
 }
 
 /** Executa uma query paginando via .range() até esgotar os resultados. */
-async function fetchAll(createQuery, pageSize = 1000) {
+/**
+ * Pagina uma query via .range() até esgotar os resultados.
+ *
+ * IMPORTANTE: sem uma ordenação explícita e estável, o Postgrest/Supabase não garante
+ * que duas chamadas .range() sucessivas vejam o mesmo "snapshot" de ordenação em tabelas
+ * grandes — o que causa linhas duplicadas e/ou linhas nunca retornadas entre páginas
+ * (detectado em 2026-09-23 em sq_fato_economico: .range() sem order() devolvia 15.872
+ * linhas onde a contagem real, via SQL direto, era 12.519). Por isso, sempre que a tabela
+ * tiver uma coluna de chave natural, ela deve ser passada em `orderColumn`.
+ */
+async function fetchAll(createQuery, pageSize = 1000, orderColumn = null) {
   const rows = [];
   let from = 0;
   while (true) {
-    const { data, error } = await createQuery().range(from, from + pageSize - 1);
+    let query = createQuery().range(from, from + pageSize - 1);
+    if (orderColumn) query = query.order(orderColumn, { ascending: true });
+    const { data, error } = await query;
     if (error) throw error;
     if (data && data.length > 0) rows.push(...data);
     if (!data || data.length < pageSize) break;

@@ -2,6 +2,15 @@
 // a API apenas lê as colunas. As antigas importações sanitizeConsultorList/isTestData/
 // ehCadeiaLeite/mapAgroindustria não existem mais em shared.js e faziam esta rota
 // devolver HTTP 500 em toda requisição.
+//
+// 2026-09-23: correção da fórmula do COE/Margem Bruta no ETL (scripts/functions/
+// carregar_fato_economico.py), validada 1:1 contra os indicadores ANUAIS do Elabore
+// (98,75% de aderência em janelas de 12 meses). Esta API foi ajustada para:
+//   1) usar apenas linhas com possui_dados_economicos=1 (exclui também o resíduo de
+//      ~323k linhas da carga legada anterior, que ficam com possui_dados_economicos=0
+//      por padrão e ainda não foram excluídas da tabela);
+//   2) calcular preço/COE/margem por litro como médias PONDERADAS (Σvalor/Σlitros),
+//      não média simples entre linhas de fazendas com portes muito diferentes.
 const {
   getSupabaseClient,
   fetchAll,
@@ -22,10 +31,10 @@ module.exports = async (req, res) => {
     // Leitura das tabelas econômicas e de vínculos
     const [rawEconData, rawVinculosData] = await Promise.all([
       fetchWithCache('FATO_ECONOMICO', () =>
-        fetchAll(() => supabase.from('sq_fato_economico').select('*')).catch(() => [])
+        fetchAll(() => supabase.from('sq_fato_economico').select('*'), 1000, 'id_composto').catch(() => [])
       ),
       fetchWithCache('RAW_VINCULOS_ECON', () =>
-        fetchAll(() => supabase.from('sq_raw_vinculos').select('*')).catch(() => [])
+        fetchAll(() => supabase.from('sq_raw_vinculos').select('*'), 1000, 'id_composto').catch(() => [])
       )
     ]);
 
@@ -74,23 +83,38 @@ module.exports = async (req, res) => {
     if (filterProducer) econList = econList.filter(r => (r.produtor.toUpperCase() === filterProducer || r.codigo_lr === filterProducer));
     if (filterMonth) econList = econList.filter(r => String(r.mes_referencia).startsWith(filterMonth));
 
-    // Cálculos de KPIs do Slide 4 (Econômico e Produção)
-    const totalRegistros = econList.length;
-    const volDiarioTotal = econList.reduce((acc, r) => acc + Number(r.volume_diario_litros || 0), 0);
-    const prodMedia = totalRegistros > 0 ? (econList.reduce((acc, r) => acc + Number(r.produtividade_l_vl_dia || 0), 0) / totalRegistros) : 0;
-    const precoMedio = totalRegistros > 0 ? (econList.reduce((acc, r) => acc + Number(r.preco_medio_litro || 0), 0) / totalRegistros) : 0;
-    const coeMedio = totalRegistros > 0 ? (econList.reduce((acc, r) => acc + Number(r.coe_por_litro || 0), 0) / totalRegistros) : 0;
-    const mbMedia = totalRegistros > 0 ? (econList.reduce((acc, r) => acc + Number(r.margem_bruta_por_litro || 0), 0) / totalRegistros) : 0;
-    
-    const mbPositivas = econList.filter(r => Number(r.margem_bruta_por_litro || r.margem_bruta_total || 0) > 0);
+    // Descarta linhas sem lançamento econômico real no mês (inclui, por ora, o resíduo de
+    // carga legada anterior à correção de 2026-09-23, que ficou com possui_dados_economicos=0
+    // por padrão e não foi excluído da tabela — ver ETL scripts/functions/carregar_fato_economico.py).
+    // Regra 13 (AGENTS.md): a exclusão definitiva do legado deve ocorrer na origem (Supabase),
+    // este filtro é apenas para não diluir os KPIs enquanto o DELETE não é confirmado.
+    const econComDados = econList.filter(r => Number(r.possui_dados_economicos) === 1);
+
+    // Cálculos de KPIs do Slide 4 (Econômico e Produção) — médias PONDERADAS pelo volume/receita
+    // de cada linha, nunca média simples entre fazendas de porte muito diferente.
+    const totalRegistros = econComDados.length;
+    const volDiarioTotal = econComDados.reduce((acc, r) => acc + Number(r.volume_diario_litros || 0), 0);
+    const volumeTotalLitros = econComDados.reduce((acc, r) => acc + Number(r.volume_leite_mes || 0), 0);
+    const receitaTotalBruta = econComDados.reduce((acc, r) => acc + Number(r.receita_bruta_atividade || 0), 0);
+    const coeTotalGeral = econComDados.reduce((acc, r) => acc + Number(r.coe_total_reais || 0), 0);
+    const mbTotalGeral = econComDados.reduce((acc, r) => acc + Number(r.margem_bruta_total || 0), 0);
+    const somaProdutividadePonderada = econComDados.reduce((acc, r) => acc + Number(r.produtividade_l_vl_dia || 0) * Number(r.vacas_lactacao || 0), 0);
+    const somaVacasLactacao = econComDados.reduce((acc, r) => acc + Number(r.vacas_lactacao || 0), 0);
+
+    const prodMedia = somaVacasLactacao > 0 ? (somaProdutividadePonderada / somaVacasLactacao) : 0;
+    const precoMedio = volumeTotalLitros > 0 ? (receitaTotalBruta / volumeTotalLitros) : 0;
+    const coeMedio = volumeTotalLitros > 0 ? (coeTotalGeral / volumeTotalLitros) : 0;
+    const mbMedia = volumeTotalLitros > 0 ? (mbTotalGeral / volumeTotalLitros) : 0;
+
+    const mbPositivas = econComDados.filter(r => Number(r.margem_bruta_total || 0) > 0);
     const percMbPositiva = totalRegistros > 0 ? ((mbPositivas.length / totalRegistros) * 100) : 0;
 
     // Breakdown Top 5 Itens COE
-    const coeConcentrado = econList.reduce((acc, r) => acc + Number(r.coe_concentrado || 0), 0);
-    const coeVolumoso = econList.reduce((acc, r) => acc + Number(r.coe_volumoso || 0), 0);
-    const coeMaoDeObra = econList.reduce((acc, r) => acc + Number(r.coe_mao_de_obra || 0), 0);
-    const coeSanidade = econList.reduce((acc, r) => acc + Number(r.coe_sanidade || 0), 0);
-    const coeOutros = econList.reduce((acc, r) => acc + Number(r.coe_outros || 0), 0);
+    const coeConcentrado = econComDados.reduce((acc, r) => acc + Number(r.coe_concentrado || 0), 0);
+    const coeVolumoso = econComDados.reduce((acc, r) => acc + Number(r.coe_volumoso || 0), 0);
+    const coeMaoDeObra = econComDados.reduce((acc, r) => acc + Number(r.coe_mao_de_obra || 0), 0);
+    const coeSanidade = econComDados.reduce((acc, r) => acc + Number(r.coe_sanidade || 0), 0);
+    const coeOutros = econComDados.reduce((acc, r) => acc + Number(r.coe_outros || 0), 0);
 
     const top5Coe = [
       { item: 'Concentrado', valor: coeConcentrado },
@@ -102,7 +126,7 @@ module.exports = async (req, res) => {
 
     // Série temporal de variação de volume mensal
     const volPorMesMap = new Map();
-    econList.forEach(r => {
+    econComDados.forEach(r => {
       const mesKey = String(r.mes_referencia || '').substring(0, 7);
       if (mesKey) {
         volPorMesMap.set(mesKey, (volPorMesMap.get(mesKey) || 0) + Number(r.volume_leite_mes || (r.volume_diario_litros * 30) || 0));
@@ -131,7 +155,7 @@ module.exports = async (req, res) => {
     let cad2Anos = 0;
     let cad3PlusAnos = 0;
 
-    econList.forEach(r => {
+    econComDados.forEach(r => {
       if (r.data_associacao) {
         const dtAssoc = new Date(r.data_associacao);
         const diffAnos = Math.floor((hoje - dtAssoc) / (1000 * 60 * 60 * 24 * 365.25));
@@ -143,11 +167,11 @@ module.exports = async (req, res) => {
       }
     });
 
-    const totalFazendas = econList.length;
+    const totalFazendas = econComDados.length;
     const mbNegativasCount = totalFazendas - mbPositivas.length;
 
     // Top 10 Fazendas por Margem Bruta
-    const top10MbRanking = [...econList]
+    const top10MbRanking = [...econComDados]
       .sort((a, b) => Number(b.margem_bruta_por_litro || 0) - Number(a.margem_bruta_por_litro || 0))
       .slice(0, 10)
       .map(r => ({
