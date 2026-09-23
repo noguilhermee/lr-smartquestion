@@ -1,4 +1,4 @@
-const { getSupabaseClient, fetchAll, fetchWithCache, monthLabel, formatDate, parseFilters, rowMatchesFilters } = require('./shared');
+const { COLUNAS, getSupabaseClient, fetchAll, fetchWithCache, monthLabel, formatDate, parseFilters, rowMatchesFilters } = require('./shared');
 
 module.exports = async (req, res) => {
   try {
@@ -13,18 +13,18 @@ module.exports = async (req, res) => {
     const isAllMonths = !/^\d{4}-\d{2}-\d{2}$/.test(filters.month);
     const refMonth = isAllMonths ? null : filters.month;
 
-    // Carteira mensal (1 linha por fazenda × mês × consultor), já resolvida pelo ETL
-    const carteiraTodos = await fetchWithCache('CARTEIRA_MENSAL_ALL', () =>
-      fetchAll(() => supabase.from('sq_fato_carteira_mensal').select('*').order('mes_referencia', { ascending: false }), 1000, 'id_composto')
-    );
+    // Carteira mensal (1 linha por fazenda × mês × consultor), já resolvida pelo ETL,
+    // e visitas técnicas válidas (1 linha por atendimento) — buscadas em paralelo
+    const [carteiraTodos, visitasTodas] = await Promise.all([
+      fetchWithCache('CARTEIRA_MENSAL_ALL', () =>
+        fetchAll(() => supabase.from('sq_fato_carteira_mensal').select(COLUNAS.carteira).order('mes_referencia', { ascending: false }), undefined, 'id_composto')),
+      fetchWithCache('FATO_VISITAS_ALL', () =>
+        fetchAll(() => supabase.from('sq_fato_visitas').select(COLUNAS.visitas).order('data_visita', { ascending: false }), undefined, 'id_atendimento'))
+    ]);
 
     const carteiraMes = refMonth ? carteiraTodos.filter(r => String(r.mes_referencia).slice(0, 10) === refMonth) : carteiraTodos;
     const carteiraFiltrada = carteiraMes.filter(r => rowMatchesFilters({ ...r, status: r.status_visita }, filters));
 
-    // Visitas técnicas válidas (1 linha por atendimento)
-    const visitasTodas = await fetchWithCache('FATO_VISITAS_ALL', () =>
-      fetchAll(() => supabase.from('sq_fato_visitas').select('*').order('data_visita', { ascending: false }), 1000, 'id_atendimento')
-    );
     const visitasMes = refMonth ? visitasTodas.filter(v => String(v.mes_referencia).slice(0, 10) === refMonth) : visitasTodas;
     const visitasFiltradas = visitasMes.filter(v => rowMatchesFilters({ ...v, status: v.status_produtor }, filters));
 

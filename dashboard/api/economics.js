@@ -12,6 +12,7 @@
 //   2) calcular preço/COE/margem por litro como médias PONDERADAS (Σvalor/Σlitros),
 //      não média simples entre linhas de fazendas com portes muito diferentes.
 const {
+  COLUNAS,
   getSupabaseClient,
   fetchAll,
   fetchWithCache,
@@ -32,10 +33,10 @@ module.exports = async (req, res) => {
     // Leitura das tabelas econômicas e de vínculos
     const [rawEconData, rawVinculosData] = await Promise.all([
       fetchWithCache('FATO_ECONOMICO', () =>
-        fetchAll(() => supabase.from('sq_fato_economico').select('*'), 1000, 'id_composto').catch(() => [])
+        fetchAll(() => supabase.from('sq_fato_economico').select(COLUNAS.economico).eq('possui_dados_economicos', 1), undefined, 'id_composto').catch(() => [])
       ),
       fetchWithCache('RAW_VINCULOS_ECON', () =>
-        fetchAll(() => supabase.from('sq_raw_vinculos').select('*'), 1000, 'id_composto').catch(() => [])
+        fetchAll(() => supabase.from('sq_raw_vinculos').select(COLUNAS.vinculosEconomico), undefined, 'id_composto').catch(() => [])
       )
     ]);
 

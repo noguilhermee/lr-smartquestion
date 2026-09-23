@@ -1847,6 +1847,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const query = selectedMonth ? `?month=${encodeURIComponent(selectedMonth)}` : '';
+    // Econômico já sai junto (sem await): se loadAllData pedir a mesma query, reaproveita.
+    state.masterQuery = query;
+    state.masterEconomicsRequest = getJson(`/api/economics${query}`);
     const [overview, visits, turnover, consistency] = await Promise.all([
       getJson(`/api/overview${query}`),
       getJson(`/api/visits${query}`),
@@ -1901,14 +1904,18 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   let debounceFilterTimer = null;
+  let loadSequence = 0;
 
   async function loadAllData(isFilterChange = false) {
     showLoading(isFilterChange ? 'Atualizando dashboard com filtros...' : 'Carregando dados...');
+    const loadId = ++loadSequence;
 
     try {
+      let masterJustFetched = false;
       if (!state.masterRows || state.masterRows.length === 0) {
         await fetchMonthMasterData();
         updateAllCrossFilters();
+        masterJustFetched = true;
       }
 
       const filter = currentFilter();
@@ -1922,27 +1929,39 @@ document.addEventListener('DOMContentLoaded', () => {
       if (filter.producer) params.set('producer', filter.producer);
 
       const query = params.toString() ? `?${params.toString()}` : '';
-      const [overview, visits, turnover, consistency, economics] = await Promise.all([
-        getJson(`/api/overview${query}`),
-        getJson(`/api/visits${query}`),
-        getJson(`/api/turnover${query}`),
-        getJson(`/api/consistency${query}`),
-        getJson(`/api/economics${query}`)
-      ]);
+      // Na carga inicial a busca "master" acabou de trazer exatamente estes dados:
+      // reaproveita em vez de repetir as mesmas requisições.
+      const reuseMaster = masterJustFetched && query === state.masterQuery;
+      const economicsRequest = reuseMaster ? state.masterEconomicsRequest : getJson(`/api/economics${query}`);
+      const [overview, visits, turnover, consistency] = reuseMaster
+        ? [state.masterOverview, state.masterVisits, state.masterTurnover, state.masterConsistency]
+        : await Promise.all([
+          getJson(`/api/overview${query}`),
+          getJson(`/api/visits${query}`),
+          getJson(`/api/turnover${query}`),
+          getJson(`/api/consistency${query}`)
+        ]);
+      if (loadId !== loadSequence) return; // um filtro mais novo já está carregando
       state.overview = overview;
       state.visits = visits;
       state.turnover = turnover;
       state.consistency = consistency;
-      state.economics = economics;
       renderVisits(visits);
       renderConsistency(consistency);
       renderOverview(overview);
       renderTurnover(turnover);
-      renderEconomics(economics);
       renderTables();
       updateTimestamp();
-    } finally {
       hideLoading(0);
+
+      // Econômico chega depois sem travar o restante do dashboard
+      const economics = await economicsRequest;
+      if (loadId !== loadSequence) return;
+      state.economics = economics;
+      renderEconomics(economics);
+      renderTables();
+    } finally {
+      if (loadId === loadSequence) hideLoading(0);
     }
   }
 

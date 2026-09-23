@@ -54,9 +54,53 @@ function getSupabaseClient() {
   return createClient(url, key);
 }
 
-/** Executa uma query paginando via .range() até esgotar os resultados. */
 /**
- * Pagina uma query via .range() até esgotar os resultados.
+ * Colunas lidas de cada tabela fato — apenas o que as APIs efetivamente usam.
+ * `select('*')` trazia ~40% de bytes inúteis (data_processamento, id, colunas de rebanho
+ * etc.). Ao usar uma coluna nova em algum endpoint, adicioná-la aqui.
+ */
+const COLUNAS = {
+  carteira: [
+    'id_composto', 'mes_referencia', 'codigo_lr', 'consultor', 'consultores_grupo', 'nome_produtor',
+    'nome_propriedade', 'projeto', 'agroindustria', 'regiao', 'data_associacao', 'visitado_mes',
+    'data_ultima_visita', 'data_visita_mes_anterior', 'dias_sem_visita', 'status_visita',
+    'status_visita_classe', 'consistencia_mensal', 'detalhamento_mensal', 'consistencia_anual',
+    'detalhamento_anual', 'meses_sequenciais', 'excecao', 'em_carencia', 'cadastro_elabore',
+    'dados_elabore_pct', 'dados_elabore_status', 'blocos_elabore'
+  ].join(','),
+  visitas: [
+    'id_atendimento', 'codigo_lr', 'nome_consultor', 'profissao_consultor', 'mes_referencia',
+    'nome_produtor', 'nome_propriedade', 'projeto', 'agroindustria', 'regiao', 'status_produtor',
+    'data_visita', 'tipo_visita', 'valor_pago_produtor', 'valor_pago_agroindustria',
+    'cadastro_elabore', 'dados_elabore_pct', 'dados_elabore_status', 'blocos_elabore'
+  ].join(','),
+  movimentacao: [
+    'id_composto', 'codigo_lr', 'data_movimentacao', 'nome_produtor', 'numero_atendimento',
+    'consultor', 'tipo', 'motivo', 'projeto', 'agroindustria', 'regiao'
+  ].join(','),
+  consistencia: [
+    'id_composto', 'codigo_lr', 'nome_consultor', 'projeto', 'agroindustria', 'regiao', 'mes_referencia',
+    'na_carteira', 'data_carencia_fim', 'consistencia_mensal', 'consistencia_anual',
+    'detalhamento_inconsistencia', 'detalhamento_anual', 'meses_sequenciais', 'excecao',
+    'cadastro_elabore', 'dados_elabore_pct', 'dados_elabore_status', 'blocos_elabore'
+  ].join(','),
+  economico: [
+    'id_composto', 'codigo_lr', 'nome_produtor', 'nome_consultor', 'projeto', 'agroindustria', 'regiao',
+    'mes_referencia', 'data_associacao', 'possui_dados_economicos', 'volume_leite_mes',
+    'volume_diario_litros', 'vacas_lactacao', 'produtividade_l_vl_dia', 'receita_bruta_atividade',
+    'preco_medio_litro', 'coe_total_reais', 'coe_por_litro', 'margem_bruta_total',
+    'margem_bruta_por_litro', 'coe_concentrado', 'coe_volumoso', 'coe_mao_de_obra', 'coe_sanidade',
+    'coe_outros'
+  ].join(','),
+  vinculosEconomico: [
+    'id_composto', 'codigo_lr', 'nome_produtor', 'nome_propriedade', 'projeto', 'cidade_produtor',
+    'estado_produtor', 'data_associacao'
+  ].join(',')
+};
+
+/**
+ * Pagina uma query via .range() até esgotar os resultados, buscando `concurrency` páginas
+ * em paralelo por rodada (antes era uma página de 1000 linhas por vez, em série).
  *
  * IMPORTANTE: sem uma ordenação explícita e estável, o Postgrest/Supabase não garante
  * que duas chamadas .range() sucessivas vejam o mesmo "snapshot" de ordenação em tabelas
@@ -65,17 +109,28 @@ function getSupabaseClient() {
  * linhas onde a contagem real, via SQL direto, era 12.519). Por isso, sempre que a tabela
  * tiver uma coluna de chave natural, ela deve ser passada em `orderColumn`.
  */
-async function fetchAll(createQuery, pageSize = 1000, orderColumn = null) {
+async function fetchAll(createQuery, pageSize = 2500, orderColumn = null, concurrency = 4) {
   const rows = [];
   let from = 0;
   while (true) {
-    let query = createQuery().range(from, from + pageSize - 1);
-    if (orderColumn) query = query.order(orderColumn, { ascending: true });
-    const { data, error } = await query;
-    if (error) throw error;
-    if (data && data.length > 0) rows.push(...data);
-    if (!data || data.length < pageSize) break;
-    from += pageSize;
+    const offsets = Array.from({ length: concurrency }, (_, i) => from + i * pageSize);
+    const pages = await Promise.all(offsets.map(async (start) => {
+      let query = createQuery().range(start, start + pageSize - 1);
+      if (orderColumn) query = query.order(orderColumn, { ascending: true });
+      const { data, error } = await query;
+      if (error) throw error;
+      return data || [];
+    }));
+
+    const firstShort = pages.findIndex(page => page.length < pageSize);
+    // Página curta seguida de página com dados = o "Max rows" da API do Supabase está
+    // abaixo de pageSize; falhar é melhor que devolver o dataset truncado em silêncio.
+    if (firstShort !== -1 && pages.slice(firstShort + 1).some(page => page.length > 0)) {
+      throw new Error(`fetchAll: Supabase limitou a página a ${pages[firstShort].length} linhas (pageSize=${pageSize}). Reduza o pageSize ou aumente "Max rows" na API do Supabase.`);
+    }
+    pages.forEach(page => rows.push(...page));
+    if (firstShort !== -1) break;
+    from += concurrency * pageSize;
   }
   return rows;
 }
@@ -139,6 +194,7 @@ function rowMatchesFilters(row, filters) {
 }
 
 module.exports = {
+  COLUNAS,
   fetchWithCache,
   getCached,
   setCached,

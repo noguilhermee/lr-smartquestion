@@ -1,4 +1,4 @@
-const { getSupabaseClient, fetchAll, fetchWithCache, monthLabel, formatDate, parseFilters, rowMatchesFilters } = require('./shared');
+const { COLUNAS, getSupabaseClient, fetchAll, fetchWithCache, monthLabel, formatDate, parseFilters, rowMatchesFilters } = require('./shared');
 
 module.exports = async (req, res) => {
   try {
@@ -14,8 +14,8 @@ module.exports = async (req, res) => {
     const refMonth = isAllMonths ? null : filters.month;
 
     const [movimentacaoTodas, carteiraTodos] = await Promise.all([
-      fetchWithCache('FATO_MOVIMENTACAO_ALL', () => fetchAll(() => supabase.from('sq_fato_movimentacao').select('*').order('data_movimentacao', { ascending: false }), 1000, 'id_composto')),
-      fetchWithCache('CARTEIRA_MENSAL_ALL', () => fetchAll(() => supabase.from('sq_fato_carteira_mensal').select('*').order('mes_referencia', { ascending: false }), 1000, 'id_composto'))
+      fetchWithCache('FATO_MOVIMENTACAO_ALL', () => fetchAll(() => supabase.from('sq_fato_movimentacao').select(COLUNAS.movimentacao).order('data_movimentacao', { ascending: false }), undefined, 'id_composto')),
+      fetchWithCache('CARTEIRA_MENSAL_ALL', () => fetchAll(() => supabase.from('sq_fato_carteira_mensal').select(COLUNAS.carteira).order('mes_referencia', { ascending: false }), undefined, 'id_composto'))
     ]);
 
     const movimentacaoFiltrada = movimentacaoTodas.filter(m => rowMatchesFilters(m, filters));

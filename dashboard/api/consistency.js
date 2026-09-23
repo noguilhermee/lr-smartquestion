@@ -1,4 +1,4 @@
-const { getSupabaseClient, fetchAll, fetchWithCache, monthLabel, formatDate, parseFilters, rowMatchesFilters } = require('./shared');
+const { COLUNAS, getSupabaseClient, fetchAll, fetchWithCache, monthLabel, formatDate, parseFilters, rowMatchesFilters } = require('./shared');
 
 const SEM_DADOS = 'Sem dados';
 
@@ -50,9 +50,9 @@ module.exports = async (req, res) => {
 
     const [carteiraTodos, consistenciaTodos] = await Promise.all([
       fetchWithCache('CARTEIRA_MENSAL_ALL', () =>
-        fetchAll(() => supabase.from('sq_fato_carteira_mensal').select('*').order('mes_referencia', { ascending: false }), 1000, 'id_composto')),
+        fetchAll(() => supabase.from('sq_fato_carteira_mensal').select(COLUNAS.carteira).order('mes_referencia', { ascending: false }), undefined, 'id_composto')),
       fetchWithCache('FATO_CONSISTENCIA_ALL', () =>
-        fetchAll(() => supabase.from('sq_fato_consistencia').select('*').order('mes_referencia', { ascending: false }), 1000, 'id_composto'))
+        fetchAll(() => supabase.from('sq_fato_consistencia').select(COLUNAS.consistencia).order('mes_referencia', { ascending: false }), undefined, 'id_composto'))
     ]);
 
     // Base do mês: 1 linha por fazenda (a carteira tem 1 linha por consultor)
