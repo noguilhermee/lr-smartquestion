@@ -7,16 +7,33 @@ nas tabelas 'sq_raw_consistencia_mensal' e 'sq_raw_consistencia_anual' do Supaba
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 import tempfile
+import unicodedata
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 import pandas as pd
 import yaml
 from dotenv import load_dotenv
 from supabase import create_client
+
+
+def normalizar_texto_maiusculo(valor: Any) -> str | None:
+    """Padroniza texto (nome_consultor, nome_produtor): MAIÚSCULAS, sem acentos, espaços únicos."""
+    if valor is None or pd.isna(valor):
+        return None
+    texto = str(valor).strip()
+    if not texto:
+        return None
+    texto = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("utf-8")
+    texto = texto.upper()
+    texto = re.sub(r"\s+", " ", texto).strip()
+    return texto or None
+
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -194,12 +211,12 @@ def atualizar_consistencia_mensal(
     df_carga["mes_elabore"] = (pd.to_datetime(df_carga["mes_referencia"]) - pd.DateOffset(months=1)).dt.to_period("M").dt.to_timestamp().dt.strftime("%Y-%m-%d")
 
     if col_produtor:
-        df_carga["nome_produtor"] = df_excel[col_produtor].apply(lambda x: str(x).strip() if pd.notna(x) else None)
+        df_carga["nome_produtor"] = df_excel[col_produtor].apply(normalizar_texto_maiusculo)
     else:
         df_carga["nome_produtor"] = None
 
     if col_consultor:
-        df_carga["nome_consultor"] = df_excel[col_consultor].apply(lambda x: str(x).strip() if pd.notna(x) else None)
+        df_carga["nome_consultor"] = df_excel[col_consultor].apply(normalizar_texto_maiusculo)
     else:
         df_carga["nome_consultor"] = None
 
@@ -312,12 +329,12 @@ def atualizar_consistencia_anual(
         df_carga["mes_elabore"] = df_carga["mes_referencia"]
 
     if col_produtor:
-        df_carga["nome_produtor"] = df_excel[col_produtor].apply(lambda x: str(x).strip() if pd.notna(x) else None)
+        df_carga["nome_produtor"] = df_excel[col_produtor].apply(normalizar_texto_maiusculo)
     else:
         df_carga["nome_produtor"] = None
 
     if col_consultor:
-        df_carga["nome_consultor"] = df_excel[col_consultor].apply(lambda x: str(x).strip() if pd.notna(x) else None)
+        df_carga["nome_consultor"] = df_excel[col_consultor].apply(normalizar_texto_maiusculo)
     else:
         df_carga["nome_consultor"] = None
 

@@ -18,12 +18,18 @@ document.addEventListener('DOMContentLoaded', () => {
       coverage: 6,
       turnover: 6,
       portfolio: 6,
-      consistency: 6
+      consistency: 6,
+      volume: 6
     }
   };
 
   function sliceTimeSeries(seriesObj, monthsCount) {
-    if (!seriesObj || !seriesObj.labels || !seriesObj.labels.length) return seriesObj;
+    if (!seriesObj) return seriesObj;
+    if (Array.isArray(seriesObj)) {
+      if (!monthsCount || monthsCount <= 0 || monthsCount >= seriesObj.length) return seriesObj;
+      return seriesObj.slice(Math.max(0, seriesObj.length - monthsCount));
+    }
+    if (!seriesObj.labels || !seriesObj.labels.length) return seriesObj;
     if (!monthsCount || monthsCount <= 0 || monthsCount >= seriesObj.labels.length) return seriesObj;
     const startIdx = Math.max(0, seriesObj.labels.length - monthsCount);
     const sliced = {};
@@ -1791,12 +1797,15 @@ document.addEventListener('DOMContentLoaded', () => {
     updateValue('kpiEconPercMbPositiva', percent(kpi.perc_mb_positiva));
 
     const top5Coe = data.top5_coe || slide4.top5_coe;
-    const volEvolution = data.volume_evolution || slide4.volume_evolution;
+    const volEvolutionRaw = data.volume_evolution || slide4.volume_evolution;
     const cadBreakdown = data.cadastro_breakdown || slide5.cadastro_breakdown;
     const mbRanking = data.top10_mb_ranking || slide5.top10_mb_ranking;
 
     if (top5Coe) charts.renderTop5CostsPie('chartTop5CostsPie', top5Coe);
-    if (volEvolution) charts.renderVolumeEvolution('chartVolumeEvolution', volEvolution);
+    if (volEvolutionRaw) {
+      const slicedVol = sliceTimeSeries(volEvolutionRaw, state.chartHorizons.volume || 6);
+      charts.renderVolumeEvolution('chartVolumeEvolution', slicedVol);
+    }
     if (cadBreakdown) charts.renderCadastroDonut('chartCadastroBreakdownDonut', cadBreakdown);
     if (mbRanking) charts.renderMbRankingHorizontal('chartMbRankingHorizontal', mbRanking);
   }
@@ -2609,6 +2618,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (horizonKey === 'consistency' && state.consistency) {
           const consistencyData = sliceTimeSeries(state.consistency.evolucaoConsistencia || emptyState.consistency.evolucaoConsistencia, months);
           charts.renderConsistencyHistory('chartConsistencyHistory', consistencyData);
+        } else if (horizonKey === 'volume' && state.economics) {
+          const raw = state.economics.volume_evolution || state.economics.slide4?.volume_evolution;
+          const volData = sliceTimeSeries(raw, months);
+          charts.renderVolumeEvolution('chartVolumeEvolution', volData);
         }
       });
     });

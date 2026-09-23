@@ -43,11 +43,13 @@ Estrutura da Tabela no Supabase (sq_fato_economico):
 from __future__ import annotations
 
 import os
+import re
 import sys
 import math
 import shutil
 import tempfile
 import calendar
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -189,6 +191,21 @@ def converter_numero_br_float(val: Any) -> float:
         return 0.0 if math.isnan(v) or math.isinf(v) else v
     except Exception:
         return 0.0
+
+
+def normalizar_texto_maiusculo(valor: Any) -> str | None:
+    """Padroniza texto (nome_consultor, nome_produtor): MAIÚSCULAS, sem acentos, espaços únicos.
+    Mantém vírgulas/pontuação (ex.: consultor pode trazer múltiplos nomes separados
+    por ", " ou ";" — não é papel desta função separar essa lista, só padronizar grafia)."""
+    if valor is None or pd.isna(valor):
+        return None
+    texto = str(valor).strip()
+    if not texto:
+        return None
+    texto = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("utf-8")
+    texto = texto.upper()
+    texto = re.sub(r"\s+", " ", texto).strip()
+    return texto or None
 
 
 def sanitize_json_records(records: list[dict]) -> list[dict]:
@@ -506,8 +523,8 @@ def processar_e_carregar_fato_economico(raiz: Path | None = None) -> int:
             "codigo_lr": cod_lr,
             "idfazenda": id_faz,
             "id_propriedade_elabore": id_prop_elabore,
-            "nome_produtor": str(nome_prod).strip() if pd.notna(nome_prod) else None,
-            "nome_consultor": str(nome_cons).strip() if pd.notna(nome_cons) else None,
+            "nome_produtor": normalizar_texto_maiusculo(nome_prod),
+            "nome_consultor": normalizar_texto_maiusculo(nome_cons),
             "projeto": str(proj).strip() if pd.notna(proj) else None,
             "agroindustria": str(agro).strip() if pd.notna(agro) else None,
             "regiao": str(reg).strip() if pd.notna(reg) else None,

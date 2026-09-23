@@ -171,7 +171,19 @@ module.exports = async (req, res) => {
     const mbNegativasCount = totalFazendas - mbPositivas.length;
 
     // Top 10 Fazendas por Margem Bruta
-    const top10MbRanking = [...econComDados]
+    // econComDados tem uma linha por fazenda POR MÊS (id_composto = codigo_lr + mes_referencia).
+    // Sem agrupar por fazenda antes de rankear, a mesma fazenda pode ocupar várias posições do
+    // top 10 (uma para cada mês em que ela pontuou alto) sempre que o recorte filtrado abranger
+    // mais de um mês. Aqui mantemos apenas o registro do mês mais recente por codigo_lr.
+    const ultimoRegistroPorFazenda = new Map();
+    econComDados.forEach(r => {
+      const atual = ultimoRegistroPorFazenda.get(r.codigo_lr);
+      if (!atual || String(r.mes_referencia) > String(atual.mes_referencia)) {
+        ultimoRegistroPorFazenda.set(r.codigo_lr, r);
+      }
+    });
+
+    const top10MbRanking = Array.from(ultimoRegistroPorFazenda.values())
       .sort((a, b) => Number(b.margem_bruta_por_litro || 0) - Number(a.margem_bruta_por_litro || 0))
       .slice(0, 10)
       .map(r => ({
