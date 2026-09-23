@@ -1,4 +1,4 @@
-// Agroindústria e região já chegam resolvidas pelo ETL em sq_fato_economico (regra 13):
+// Agroindústria e região já chegam resolvidas pelo ETL em sq_fato_economico (regra 12):
 // a API apenas lê as colunas. As antigas importações sanitizeConsultorList/isTestData/
 // ehCadeiaLeite/mapAgroindustria não existem mais em shared.js e faziam esta rota
 // devolver HTTP 500 em toda requisição.
@@ -74,21 +74,29 @@ module.exports = async (req, res) => {
       };
     });
 
-    // Aplicação dos filtros
+    // Aplicação dos filtros de dimensão (agro/região/projeto/status/consultor/produtor).
+    // O filtro de mês é aplicado separadamente logo abaixo: ele deve valer para os KPIs
+    // pontuais (foto do mês selecionado), mas NUNCA para séries históricas (evolução mensal),
+    // senão o gráfico de tendência fica com um único ponto — mesmo padrão de overview.js
+    // (carteiraTodos vs. carteiraMes).
     if (filterAgro) econList = econList.filter(r => r.agroindustria.toUpperCase() === filterAgro);
     if (filterRegion) econList = econList.filter(r => r.regiao.toUpperCase() === filterRegion);
     if (filterProject) econList = econList.filter(r => r.projeto.toUpperCase() === filterProject);
     if (filterStatus) econList = econList.filter(r => r.status.toUpperCase() === filterStatus);
     if (filterConsultant) econList = econList.filter(r => r.consultor.toUpperCase() === filterConsultant);
     if (filterProducer) econList = econList.filter(r => (r.produtor.toUpperCase() === filterProducer || r.codigo_lr === filterProducer));
-    if (filterMonth) econList = econList.filter(r => String(r.mes_referencia).startsWith(filterMonth));
 
     // Descarta linhas sem lançamento econômico real no mês (inclui, por ora, o resíduo de
     // carga legada anterior à correção de 2026-09-23, que ficou com possui_dados_economicos=0
     // por padrão e não foi excluído da tabela — ver ETL scripts/functions/carregar_fato_economico.py).
-    // Regra 13 (AGENTS.md): a exclusão definitiva do legado deve ocorrer na origem (Supabase),
+    // Regra 12 (AGENTS.md): a exclusão definitiva do legado deve ocorrer na origem (Supabase),
     // este filtro é apenas para não diluir os KPIs enquanto o DELETE não é confirmado.
-    const econComDados = econList.filter(r => Number(r.possui_dados_economicos) === 1);
+    // econSemFiltroMes mantém todos os meses (para séries históricas); econComDados aplica
+    // também o filtro de mês (para KPIs pontuais e ranking do mês selecionado).
+    const econSemFiltroMes = econList.filter(r => Number(r.possui_dados_economicos) === 1);
+    const econComDados = filterMonth
+      ? econSemFiltroMes.filter(r => String(r.mes_referencia).startsWith(filterMonth))
+      : econSemFiltroMes;
 
     // Cálculos de KPIs do Slide 4 (Econômico e Produção) — médias PONDERADAS pelo volume/receita
     // de cada linha, nunca média simples entre fazendas de porte muito diferente.
@@ -124,9 +132,10 @@ module.exports = async (req, res) => {
       { item: 'Outras Despesas', valor: coeOutros }
     ];
 
-    // Série temporal de variação de volume mensal
+    // Série temporal de variação de volume mensal — usa econSemFiltroMes (todos os meses)
+    // para preservar o histórico independentemente do mês selecionado no filtro principal.
     const volPorMesMap = new Map();
-    econComDados.forEach(r => {
+    econSemFiltroMes.forEach(r => {
       const mesKey = String(r.mes_referencia || '').substring(0, 7);
       if (mesKey) {
         volPorMesMap.set(mesKey, (volPorMesMap.get(mesKey) || 0) + Number(r.volume_leite_mes || (r.volume_diario_litros * 30) || 0));

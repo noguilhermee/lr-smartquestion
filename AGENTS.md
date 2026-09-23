@@ -136,39 +136,31 @@ CAMINHO_ARQUIVO = PASTA_SAIDA / f"{DATA_EXPORTACAO}_nome_do_arquivo.ext"
   - Perfil Organizacional: `LaborRural`
 - **Configuração de Push**: O remote `origin` deve conter múltiplos `pushurl` cadastrados para que o comando `git push origin main` envie as alterações para os dois perfis simultaneamente.
 - **Obrigação**: Ao concluir etapas significativas, refatorações ou correção de bugs, o assistente deve **obrigatoriamente sugerir e exibir os comandos Git e Vercel exatos** (`git add .`, `git commit -m "..."`, `git push origin main` e `npx vercel --prod`) formatados em bloco de código para que o próprio usuário revise e execute no terminal.
-
-
----
-
-## 📋 7. Sugestão de Tarefa no Microsoft Planner
-- **Regra**: Ao concluir etapas significativas, o assistente deve **sugerir obrigatoriamente** o nome da tarefa para registro no Microsoft Planner, seguindo o padrão oficial:
-```text
-[NOME-PROJETO] SCRIPT - <Verbo no infinitivo> + <descrição objetiva>
-```
+- **Comando em Linha Única**: Sempre que for tecnicamente possível encadear os comandos (`git add .`, `git commit -m "..."`, `git push origin main`), o assistente deve apresentá-los em **uma única linha** (ex.: usando `&&`), para que o usuário execute tudo de uma vez só no terminal.
 
 ---
 
-## 🗓️ 8. Centralização de Datas e Mês de Referência (`config.yaml`)
+## 🗓️ 7. Centralização de Datas e Mês de Referência (`config.yaml`)
 - **Regra**: O mês de referência e parâmetros de filtro temporal **nunca devem ser hardcoded** nos notebooks ou scripts.
 - **Fonte Única da Verdade**: Lidos exclusivamente de `scripts/config/config.yaml` através de `carregar_config_referencia(raiz_projeto)`.
 
 ---
 
-## 🔒 9. Acesso ao Supabase (Leitura e Inserção para IA / Escrita Controlada via Pipeline ETL)
+## 🔒 8. Acesso ao Supabase (Leitura e Inserção para IA / Escrita Controlada via Pipeline ETL)
 - **Escopo do Assistente de IA**: O assistente de IA pode **CONSULTAR (`SELECT`) e INSERIR dados (`INSERT`)** no Supabase sem pedir autorização prévia.
-- **Criação exige confirmação**: Antes de **criar qualquer objeto** no banco (tabelas, colunas, views, funções, triggers, índices, policies, buckets etc.), o assistente deve **perguntar ao usuário e aguardar aprovação explícita**, descrevendo o que será criado e a nomenclatura proposta (seguindo a regra 11).
+- **Criação exige confirmação**: Antes de **criar qualquer objeto** no banco (tabelas, colunas, views, funções, triggers, índices, policies, buckets etc.), o assistente deve **perguntar ao usuário e aguardar aprovação explícita**, descrevendo o que será criado e a nomenclatura proposta (seguindo a regra 10).
 - **Demais alterações**: `UPDATE`, `DELETE`, `ALTER`, `DROP` ou `TRUNCATE` em objetos já existentes podem ser executados pelo assistente sem pedir autorização prévia.
 - **Escopo do Pipeline ETL**: Os scripts oficiais de pipeline (`reconciliar_movimentacao_e_ativos.py`, `ETL_BI_LR.ipynb`, etc.) possuem autorização para executar operações controladas de gravação/upsert exclusivamente nas tabelas gerenciadas pelo projeto (`sq_*`).
 
 ---
 
-## ⚡ 10. Respostas de Análise de Logs (`análise:`)
+## ⚡ 9. Respostas de Análise de Logs (`análise:`)
 - **Regra**: Quando a mensagem do usuário for iniciada por ou contiver `análise:` acompanhada de um log de execução, o assistente deve fornecer **exclusivamente a análise técnica direta do log** (status, volume de registros, métricas de tempo e eventuais erros).
-- **Exceção de Mensagens**: Nestas respostas de análise direta, **não sugerir nomes de tarefas para o Microsoft Planner** nem **recomendar passos de versionamento Git**, mantendo a resposta estritamente focada na avaliação técnica.
+- **Exceção de Mensagens**: Nestas respostas de análise direta, **não recomendar passos de versionamento Git**, mantendo a resposta estritamente focada na avaliação técnica.
 
 ---
 
-## 🏛️ 11. Padrão Oficial de Nomenclatura de Tabelas no Supabase (`lr-analytics-db`)
+## 🏛️ 10. Padrão Oficial de Nomenclatura de Tabelas no Supabase (`lr-analytics-db`)
 - **Regra**: No banco de dados central `lr-analytics-db` (Workspace `LaborRural Interno`), todas as tabelas devem obrigatoriamente seguir a taxonomia de prefixos por projeto e camadas analíticas:
   - **Estrutura**: `<prefixo_projeto>_<camada>_<entidade>`
   - **Prefixos de Projetos**: `sq_` (SmartQuestion), `elabore_` (Elabore), `meta_` (Metas), etc.
@@ -180,7 +172,7 @@ CAMINHO_ARQUIVO = PASTA_SAIDA / f"{DATA_EXPORTACAO}_nome_do_arquivo.ext"
 
 ---
 
-## 🛑 12. Execução de Scripts do Projeto (Solicitação Obrigatória ao Usuário)
+## 🛑 11. Execução de Scripts do Projeto (Solicitação Obrigatória ao Usuário)
 - **Regra Absoluta**: O assistente de IA **NUNCA deve executar scripts do projeto de forma autônoma no terminal** (sejam rotinas de pipeline, scripts de carga, reconciliação, migração ou execução de notebooks).
 - **Procedimento Obrigatório**:
   1. Preparar e editar os códigos necessários no repositório.
@@ -190,7 +182,7 @@ CAMINHO_ARQUIVO = PASTA_SAIDA / f"{DATA_EXPORTACAO}_nome_do_arquivo.ext"
 
 ---
 
-## 🛠️ 13. Proibição de Correção Paliativa no Frontend/API e Foco no ETL
+## 🛠️ 12. Proibição de Correção Paliativa no Frontend/API e Foco no ETL
 - **Regra Absoluta**: **NUNCA fazer "gambiarras", tratamentos paliativos ou manipulações artificiais de dados no front-end ou nos arquivos JS de API** (`dashboard/api/*`, `dashboard/public/*`).
 - **Procedimento Obrigatório**: Caso seja identificada qualquer inconsistência, divergência de contagem ou ausência de dados na interface, a correção deve ser realizada na raiz da fonte de dados (nos scripts de ETL/Python). O assistente de IA deve **obrigatoriamente estruturar um plano de implementação para ajustar a regra diretamente nos scripts de ETL** (`scripts/`), garantindo que o banco de dados (Supabase) permaneça como a única fonte da verdade e que os dados sejam reconciliados e persistidos corretamente na origem.
 
