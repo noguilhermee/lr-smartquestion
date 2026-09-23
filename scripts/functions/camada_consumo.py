@@ -659,8 +659,7 @@ def construir_fato_movimentacao(f: Fontes, ctx: Contexto) -> pd.DataFrame:
                 or _texto(ctx.vinculo_qualquer.get(cod, {}).get("nome_produtor")) or _texto(inat.get("nome_produtor"))
                 or ("CONTA DE SUPERVISÃO" if rn.eh_codigo_conta_consultor(cod) else cod or "PRODUTOR"))
         linhas.append({
-            **{k: r.get(k) for k in ("id_composto", "codigo_lr", "nome_consultor", "numero_atendimento", "data_movimentacao",
-                                     "movimentacao", "motivo_inativacao", "outro_motivo", "data_solicitacao")},
+            **{k: r.get(k) for k in ("id_composto", "codigo_lr", "numero_atendimento", "data_movimentacao", "data_solicitacao")},
             "nome_produtor": nome,
             "consultor": consultor,
             "tipo": tipo,
@@ -777,9 +776,8 @@ COLS_CONSISTENCIA = ["id_composto", "codigo_lr", "nome_consultor", "profissao_co
                      "agroindustria", "regiao", "na_carteira", "detalhamento_anual",
                      "cadastro_elabore", "dados_elabore_pct", "dados_elabore_status", "blocos_elabore"]
 
-COLS_MOVIMENTACAO = ["id_composto", "codigo_lr", "nome_consultor", "nome_produtor", "numero_atendimento",
-                     "data_movimentacao", "movimentacao", "motivo_inativacao", "outro_motivo", "data_solicitacao",
-                     "consultor", "tipo", "motivo", "projeto", "agroindustria", "regiao"]
+COLS_MOVIMENTACAO = ["id_composto", "codigo_lr", "nome_produtor", "numero_atendimento", "data_movimentacao",
+                     "data_solicitacao", "consultor", "tipo", "motivo", "projeto", "agroindustria", "regiao"]
 
 
 def construir_tudo(f: Fontes, agora: datetime | None = None, data_inicial_consistencia: str = "2025-01-01") -> dict:

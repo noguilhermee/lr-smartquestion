@@ -668,7 +668,7 @@ def executar_reconciliacao(reindex_completo: bool = False):
     #      (sem atendimento), priorizando a linha que tem atendimento.
     # O motivo genérico da visita vira nulo durante a consolidação para não vencer o tipo de
     # cadastro da planilha ("Inclusão de propriedade" etc.) e é restaurado só onde faltar.
-    colunas_mov = (list(movimentacoes_lista[0].keys()) + ["chave_atendimento"]) if movimentacoes_lista else []
+    colunas_mov = list(movimentacoes_lista[0].keys()) if movimentacoes_lista else []
     df_mov = pd.DataFrame(movimentacoes_lista)
     df_mov["_at"] = df_mov["numero_atendimento"].map(_id_atendimento_str)
     df_mov["_tem_at"] = df_mov["_at"].notna()
@@ -691,15 +691,15 @@ def executar_reconciliacao(reindex_completo: bool = False):
 
     # id_composto = codigo_lr_numero_atendimento_movimentacao (ex.: LR02480_420000019_Saída).
     # Entradas de vínculo sem atendimento (histórico) usam a data no lugar do atendimento.
-    # chave_atendimento guarda esse mesmo valor (número ou data) em texto — numero_atendimento é
-    # numeric e não comporta a data como alias, por isso a coluna separada em texto.
-    df_mov_final["chave_atendimento"] = [
+    # numero_atendimento vira sempre texto aqui: número do atendimento quando existe, ou a data
+    # de movimentação como fallback — substitui a antiga coluna separada chave_atendimento.
+    df_mov_final["numero_atendimento"] = [
         at if isinstance(at, str) else dt
         for at, dt in zip(df_mov_final["_at"], df_mov_final["data_movimentacao"])
     ]
     df_mov_final["id_composto"] = [
         f"{cod}_{chave}_{mov}"
-        for cod, chave, mov in zip(df_mov_final["codigo_lr"], df_mov_final["chave_atendimento"],
+        for cod, chave, mov in zip(df_mov_final["codigo_lr"], df_mov_final["numero_atendimento"],
                                     df_mov_final["movimentacao"])
     ]
     df_mov_final = df_mov_final.drop_duplicates(subset=["id_composto"], keep="first")[colunas_mov].copy()
