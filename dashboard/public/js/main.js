@@ -831,8 +831,8 @@ document.addEventListener('DOMContentLoaded', () => {
       tbodyConsultants: ['consultor', 'total_fazendas', 'fazendas_visitadas', 'total_visitas', 'perc_cobertura', 'status'],
       tbodyDataProducers: ['codigo_lr', 'produtor', 'consultor', 'possui_dados', 'referencia', 'status'],
       tbodyInconsistencies: ['codigo_lr', 'produtor', 'consultor', 'meses_sequenciais', 'consistencia_mensal', 'consistencia_anual', 'acao'],
-      tbodyCadastroDetalhe: ['nome_fazenda', 'produtor', 'cidade_uf', 'consultor', 'data_associacao_ts', 'tempo_meses', 'categoria_cadastro', 'status'],
-      tbodyMbRankingDetalhe: ['posicao', 'nome_fazenda', 'produtor', 'consultor', 'mes_referencia', 'volume_diario_litros', 'preco_medio_litro', 'coe_por_litro', 'margem_bruta_por_litro']
+      tbodyCadastroDetalhe: ['nome_fazenda', 'produtor', 'cidade_uf', 'consultor', 'data_associacao_ts', 'tempo_meses', 'categoria_cadastro', 'consistencia_mensal', 'status'],
+      tbodyMbRankingDetalhe: ['posicao', 'nome_fazenda', 'produtor', 'consultor', 'mes_referencia', 'volume_diario_litros', 'preco_medio_litro', 'coe_por_litro', 'margem_bruta_por_litro', 'consistencia_mensal']
     };
 
     Object.entries(MAPPINGS).forEach(([tbodyId, colKeys]) => {
@@ -1273,6 +1273,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     renderTablePagination('paginationInconsistencies', 'tableInconsistencies', inconsistencies.length);
 
+    // Registros inconsistentes aparecem nas tabelas da tela 4, mas ficam fora dos gráficos/KPIs
+    const consistenciaBadge = (row) => `<span class="badge ${row.no_grafico ? 'badge-positive' : 'badge-danger'}" title="${row.no_grafico ? 'Considerado nos gráficos' : 'Fora dos gráficos e KPIs'}">${escapeHtml(row.consistencia_mensal)}</span>`;
+
     // Tabela 7: Tempo de Cadastro dos Produtores (detalhe exibido ao expandir o painel)
     const economics = state.economics || {};
     let cadDetalhe = economics.cadastro_detalhe || economics.slide5?.cadastro_detalhe || [];
@@ -1281,7 +1284,7 @@ document.addEventListener('DOMContentLoaded', () => {
     cadDetalhe = sortRows(cadDetalhe, tableSort.tbodyCadastroDetalhe, (row, key) => row[key]);
     updateTableHeadIcons('tbodyCadastroDetalhe', tableSort.tbodyCadastroDetalhe.colKey, tableSort.tbodyCadastroDetalhe.dir);
     const pCadDetalhe = getPaginatedSlice('tableCadastroDetalhe', cadDetalhe);
-    if (el('tbodyCadastroDetalhe')) el('tbodyCadastroDetalhe').innerHTML = rowsOrEmpty(pCadDetalhe, 8, (row) => `<tr>
+    if (el('tbodyCadastroDetalhe')) el('tbodyCadastroDetalhe').innerHTML = rowsOrEmpty(pCadDetalhe, 9, (row) => `<tr>
       <td class="col-left" title="${escapeHtml(row.nome_fazenda)}"><strong>${escapeHtml(row.nome_fazenda)}</strong></td>
       <td class="col-left" title="${escapeHtml(row.produtor)}">${escapeHtml(row.produtor)}</td>
       <td class="col-left">${escapeHtml(row.cidade_uf)}</td>
@@ -1289,19 +1292,20 @@ document.addEventListener('DOMContentLoaded', () => {
       <td class="col-center">${escapeHtml(row.data_associacao)}</td>
       <td class="col-center">${escapeHtml(row.tempo_cadastro)}</td>
       <td class="col-center">${escapeHtml(row.categoria_cadastro)}</td>
+      <td class="col-center">${consistenciaBadge(row)}</td>
       <td class="col-center"><span class="badge ${String(row.status).toUpperCase().includes('INATIV') ? 'badge-neutral' : 'badge-positive'}">${escapeHtml(row.status)}</span></td>
     </tr>`);
     renderTablePagination('paginationCadastroDetalhe', 'tableCadastroDetalhe', cadDetalhe.length);
 
     // Tabela 8: Top 10 Fazendas por Margem Bruta (detalhe exibido ao expandir o painel)
-    let mbDetalhe = economics.top10_mb_ranking || economics.slide5?.top10_mb_ranking || [];
+    let mbDetalhe = economics.top10_mb_ranking_tabela || economics.top10_mb_ranking || [];
     mbDetalhe = applyColumnFilters(mbDetalhe, 'tableMbRankingDetalhe');
     updateCount('countMbRankingDetalhe', mbDetalhe);
     mbDetalhe = sortRows(mbDetalhe, tableSort.tbodyMbRankingDetalhe, (row, key) => row[key]);
     updateTableHeadIcons('tbodyMbRankingDetalhe', tableSort.tbodyMbRankingDetalhe.colKey, tableSort.tbodyMbRankingDetalhe.dir);
     const pMbDetalhe = getPaginatedSlice('tableMbRankingDetalhe', mbDetalhe);
-    if (el('tbodyMbRankingDetalhe')) el('tbodyMbRankingDetalhe').innerHTML = rowsOrEmpty(pMbDetalhe, 9, (row) => `<tr>
-      <td class="col-center font-tabular">${escapeHtml(row.posicao)}</td>
+    if (el('tbodyMbRankingDetalhe')) el('tbodyMbRankingDetalhe').innerHTML = rowsOrEmpty(pMbDetalhe, 10, (row) => `<tr>
+      <td class="col-center font-tabular">${row.posicao ?? '—'}</td>
       <td class="col-left" title="${escapeHtml(row.nome_fazenda)}"><strong>${escapeHtml(row.nome_fazenda)}</strong></td>
       <td class="col-left" title="${escapeHtml(row.produtor)}">${escapeHtml(row.produtor)}</td>
       <td class="col-left" title="${escapeHtml(row.consultor)}">${escapeHtml(row.consultor)}</td>
@@ -1310,6 +1314,7 @@ document.addEventListener('DOMContentLoaded', () => {
       <td class="col-center font-tabular">R$ ${number(row.preco_medio_litro)}</td>
       <td class="col-center font-tabular">R$ ${number(row.coe_por_litro)}</td>
       <td class="col-center font-tabular"><strong class="${row.flag_positiva ? 'text-positive' : 'text-negative'}">R$ ${number(row.margem_bruta_por_litro)}</strong></td>
+      <td class="col-center">${consistenciaBadge(row)}</td>
     </tr>`);
     renderTablePagination('paginationMbRankingDetalhe', 'tableMbRankingDetalhe', mbDetalhe.length);
   }
@@ -1697,7 +1702,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let data = economics.cadastro_detalhe || economics.slide5?.cadastro_detalhe || [];
       data = applyColumnFilters(data, 'tableCadastroDetalhe');
       return {
-        headers: ['Fazenda', 'Produtor(a)', 'Cidade/UF', 'Consultor(a)', 'Data de Associação', 'Tempo de Cadastro', 'Categoria', 'Status'],
+        headers: ['Fazenda', 'Produtor(a)', 'Cidade/UF', 'Consultor(a)', 'Data de Associação', 'Tempo de Cadastro', 'Categoria', 'Consistência', 'Status'],
         rows: data.map((r) => [
           r.nome_fazenda || '—',
           r.produtor || '—',
@@ -1706,6 +1711,7 @@ document.addEventListener('DOMContentLoaded', () => {
           r.data_associacao || '—',
           r.tempo_cadastro || '—',
           r.categoria_cadastro || '—',
+          r.consistencia_mensal || '—',
           r.status || '—'
         ])
       };
@@ -1713,10 +1719,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (tableId === 'tableMbRankingDetalhe') {
       const economics = state.economics || {};
-      let data = economics.top10_mb_ranking || economics.slide5?.top10_mb_ranking || [];
+      let data = economics.top10_mb_ranking_tabela || economics.top10_mb_ranking || [];
       data = applyColumnFilters(data, 'tableMbRankingDetalhe');
       return {
-        headers: ['#', 'Fazenda', 'Produtor(a)', 'Consultor(a)', 'Mês Referência', 'Volume Diário (L)', 'Preço Médio (R$/L)', 'COE (R$/L)', 'Margem Bruta (R$/L)'],
+        headers: ['#', 'Fazenda', 'Produtor(a)', 'Consultor(a)', 'Mês Referência', 'Volume Diário (L)', 'Preço Médio (R$/L)', 'COE (R$/L)', 'Margem Bruta (R$/L)', 'Consistência'],
         rows: data.map((r) => [
           r.posicao ?? '—',
           r.nome_fazenda || '—',
@@ -1726,7 +1732,8 @@ document.addEventListener('DOMContentLoaded', () => {
           number(r.volume_diario_litros),
           number(r.preco_medio_litro),
           number(r.coe_por_litro),
-          number(r.margem_bruta_por_litro)
+          number(r.margem_bruta_por_litro),
+          r.consistencia_mensal || '—'
         ])
       };
     }

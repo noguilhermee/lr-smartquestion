@@ -90,7 +90,7 @@ const COLUNAS = {
     'volume_diario_litros', 'vacas_lactacao', 'produtividade_l_vl_dia', 'receita_bruta_atividade',
     'preco_medio_litro', 'coe_total_reais', 'coe_por_litro', 'margem_bruta_total',
     'margem_bruta_por_litro', 'coe_concentrado', 'coe_volumoso', 'coe_mao_de_obra', 'coe_sanidade',
-    'coe_outros'
+    'coe_outros', 'status_consistencia_mensal'
   ].join(','),
   vinculosEconomico: [
     'id_composto', 'codigo_lr', 'nome_produtor', 'nome_propriedade', 'projeto', 'cidade_produtor',

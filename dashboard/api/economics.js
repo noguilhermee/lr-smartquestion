@@ -99,9 +99,16 @@ module.exports = async (req, res) => {
     // econSemFiltroMes mantém todos os meses (para séries históricas); econComDados aplica
     // também o filtro de mês (para KPIs pontuais e ranking do mês selecionado).
     const econSemFiltroMes = econList.filter(r => Number(r.possui_dados_economicos) === 1);
-    const econComDados = filterMonth
+    const econTabela = filterMonth
       ? econSemFiltroMes.filter(r => String(r.mes_referencia).startsWith(filterMonth))
       : econSemFiltroMes;
+
+    // Regra de consistência da tela 4: KPIs e gráficos usam apenas fazenda-mês com
+    // status_consistencia_mensal = 'Consistente' (gravado pelo ETL a partir do Elabore).
+    // As tabelas continuam listando todos os registros, sinalizando os inconsistentes.
+    const ehConsistente = r => r.status_consistencia_mensal === 'Consistente';
+    const econHistorico = econSemFiltroMes.filter(ehConsistente);
+    const econComDados = econTabela.filter(ehConsistente);
 
     // Cálculos de KPIs do Slide 4 (Econômico e Produção) — médias PONDERADAS pelo volume/receita
     // de cada linha, nunca média simples entre fazendas de porte muito diferente.
@@ -140,7 +147,7 @@ module.exports = async (req, res) => {
     // Série temporal de variação de volume mensal — usa econSemFiltroMes (todos os meses)
     // para preservar o histórico independentemente do mês selecionado no filtro principal.
     const volPorMesMap = new Map();
-    econSemFiltroMes.forEach(r => {
+    econHistorico.forEach(r => {
       const mesKey = String(r.mes_referencia || '').substring(0, 7);
       if (mesKey) {
         volPorMesMap.set(mesKey, (volPorMesMap.get(mesKey) || 0) + Number(r.volume_leite_mes || (r.volume_diario_litros * 30) || 0));
@@ -173,7 +180,8 @@ module.exports = async (req, res) => {
     // produtores" (exibida ao expandir o gráfico em tela cheia).
     const cadastroDetalhe = [];
 
-    econComDados.forEach(r => {
+    econTabela.forEach(r => {
+      const consistente = ehConsistente(r);
       let categoria;
       let tempoLabel = '—';
       let diffAnos = null;
@@ -189,12 +197,17 @@ module.exports = async (req, res) => {
           ? `${anos} ano${anos !== 1 ? 's' : ''}${meses > 0 ? ` e ${meses} m${meses !== 1 ? 'eses' : 'ês'}` : ''}`
           : `${meses} m${meses !== 1 ? 'eses' : 'ês'}`;
 
-        if (diffAnos <= 1) { cad1Ano++; categoria = '1 ano de cadastro'; }
-        else if (diffAnos === 2) { cad2Anos++; categoria = '2 anos de cadastro'; }
-        else { cad3PlusAnos++; categoria = '3+ anos de cadastro'; }
+        if (diffAnos <= 1) categoria = '1 ano de cadastro';
+        else if (diffAnos === 2) categoria = '2 anos de cadastro';
+        else categoria = '3+ anos de cadastro';
       } else {
-        cad1Ano++; // Fallback padrão
-        categoria = '1 ano de cadastro';
+        categoria = '1 ano de cadastro'; // Fallback padrão
+      }
+      // O donut conta só os consistentes; a tabela lista todos
+      if (consistente) {
+        if (categoria === '1 ano de cadastro') cad1Ano++;
+        else if (categoria === '2 anos de cadastro') cad2Anos++;
+        else cad3PlusAnos++;
       }
 
       cadastroDetalhe.push({
@@ -212,7 +225,9 @@ module.exports = async (req, res) => {
         data_associacao_ts: r.data_associacao ? new Date(r.data_associacao).getTime() : null,
         tempo_cadastro: tempoLabel,
         tempo_meses: tempoMeses,
-        categoria_cadastro: categoria
+        categoria_cadastro: categoria,
+        consistencia_mensal: r.status_consistencia_mensal || 'Sem dados',
+        no_grafico: consistente
       });
     });
 
@@ -230,19 +245,17 @@ module.exports = async (req, res) => {
     // Sem agrupar por fazenda antes de rankear, a mesma fazenda pode ocupar várias posições do
     // top 10 (uma para cada mês em que ela pontuou alto) sempre que o recorte filtrado abranger
     // mais de um mês. Aqui mantemos apenas o registro do mês mais recente por codigo_lr.
-    const ultimoRegistroPorFazenda = new Map();
-    econComDados.forEach(r => {
-      const atual = ultimoRegistroPorFazenda.get(r.codigo_lr);
-      if (!atual || String(r.mes_referencia) > String(atual.mes_referencia)) {
-        ultimoRegistroPorFazenda.set(r.codigo_lr, r);
-      }
-    });
-
-    const top10MbRanking = Array.from(ultimoRegistroPorFazenda.values())
-      .sort((a, b) => Number(b.margem_bruta_por_litro || 0) - Number(a.margem_bruta_por_litro || 0))
-      .slice(0, 10)
-      .map((r, idx) => ({
-        posicao: idx + 1,
+    const ultimoPorFazenda = linhas => {
+      const mapa = new Map();
+      linhas.forEach(r => {
+        const atual = mapa.get(r.codigo_lr);
+        if (!atual || String(r.mes_referencia) > String(atual.mes_referencia)) mapa.set(r.codigo_lr, r);
+      });
+      return Array.from(mapa.values());
+    };
+    const porMargem = (a, b) => Number(b.margem_bruta_por_litro || 0) - Number(a.margem_bruta_por_litro || 0);
+    const linhaRanking = (r, posicao) => ({
+        posicao,
         codigo_lr: r.codigo_lr,
         produtor: r.produtor || r.codigo_lr,
         nome_fazenda: r.nome_fazenda || '—',
@@ -255,8 +268,22 @@ module.exports = async (req, res) => {
         preco_medio_litro: Number(r.preco_medio_litro || 0),
         coe_por_litro: Number(r.coe_por_litro || 0),
         margem_bruta_por_litro: Number(r.margem_bruta_por_litro || 0),
-        flag_positiva: Number(r.margem_bruta_por_litro || 0) > 0
-      }));
+        flag_positiva: Number(r.margem_bruta_por_litro || 0) > 0,
+        consistencia_mensal: r.status_consistencia_mensal || 'Sem dados',
+        no_grafico: ehConsistente(r)
+      });
+
+    // Gráfico: top 10 entre os consistentes
+    const top10MbRanking = ultimoPorFazenda(econComDados).sort(porMargem).slice(0, 10).map((r, idx) => linhaRanking(r, idx + 1));
+
+    // Tabela: o mesmo top 10 + os inconsistentes que entrariam nele (margem ≥ 10º colocado),
+    // sem posição, para evidenciar quem ficou fora do gráfico
+    const corteMargem = top10MbRanking.length === 10 ? top10MbRanking[9].margem_bruta_por_litro : -Infinity;
+    const noTop = new Set(top10MbRanking.map(r => r.codigo_lr));
+    const inconsistentesNoTop = ultimoPorFazenda(econTabela.filter(r => !ehConsistente(r)))
+      .filter(r => !noTop.has(r.codigo_lr) && Number(r.margem_bruta_por_litro || 0) >= corteMargem)
+      .map(r => linhaRanking(r, null));
+    const top10MbRankingTabela = [...top10MbRanking, ...inconsistentesNoTop].sort(porMargem);
 
     const cadastroBreakdown = [
       { categoria: '1 ano de cadastro', count: cad1Ano, perc: totalFazendas > 0 ? Number(((cad1Ano / totalFazendas) * 100).toFixed(1)) : 0 },
@@ -291,6 +318,7 @@ module.exports = async (req, res) => {
       cadastro_breakdown: cadastroBreakdown,
       cadastro_detalhe: cadastroDetalhe,
       top10_mb_ranking: top10MbRanking,
+      top10_mb_ranking_tabela: top10MbRankingTabela,
       slide4: {
         kpis: kpisConsolidados,
         top5_coe: top5Coe,

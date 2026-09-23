@@ -86,15 +86,22 @@ module.exports = async (req, res) => {
     // Evolução: registros Elabore de cada mês (fato de consistência), respeitando os filtros
     const historico = consistenciaTodos.filter(c => rowMatchesFilters({ ...c, status: c.na_carteira ? 'ATIVO' : 'INATIVO' }, filters));
     const referencias = [...new Set(historico.map(c => String(c.mes_referencia).slice(0, 10)))].filter(m => !refMonth || m <= refMonth).sort();
+    // Taxa = Consistentes ÷ registros avaliados (exclui "Sem dados")
+    const taxa = (linhas, campo) => {
+      const avaliados = linhas.filter(c => c[campo] !== SEM_DADOS);
+      return avaliados.length ? Number(pct(avaliados.filter(c => c[campo] === 'Consistente').length, avaliados.length)) : 0;
+    };
     const evolucaoConsistencia = { labels: [], mensal: [], anual: [] };
     referencias.forEach(ref => {
       const doRef = historico.filter(c => String(c.mes_referencia).slice(0, 10) === ref);
-      const mensal = doRef.filter(c => c.consistencia_mensal !== SEM_DADOS);
-      const anual = doRef.filter(c => c.consistencia_anual !== SEM_DADOS);
       evolucaoConsistencia.labels.push(monthLabel(ref));
-      evolucaoConsistencia.mensal.push(mensal.length ? Number(pct(mensal.filter(c => c.consistencia_mensal === 'Consistente').length, mensal.length)) : 0);
-      evolucaoConsistencia.anual.push(anual.length ? Number(pct(anual.filter(c => c.consistencia_anual === 'Consistente').length, anual.length)) : 0);
+      evolucaoConsistencia.mensal.push(taxa(doRef, 'consistencia_mensal'));
+      evolucaoConsistencia.anual.push(taxa(doRef, 'consistencia_anual'));
     });
+    // Cards fixos no último mês da série (mesma regra e mesma base do gráfico)
+    const historicoRef = historico.filter(doMes);
+    const percMensalRef = taxa(historicoRef, 'consistencia_mensal').toFixed(1);
+    const percAnualRef = taxa(historicoRef, 'consistencia_anual').toFixed(1);
 
     const tabelaInconsistentes = base.map(r => ({
       codigo_lr: r.codigo_lr,
@@ -143,8 +150,8 @@ module.exports = async (req, res) => {
       mesFiltro: filters.month,
       mesCompetencia: refMonth,
       kpis: {
-        perc_consistente: pct(consistentes, base.length),
-        perc_anual: pct(anualConsistentes, base.length),
+        perc_consistente: percMensalRef,
+        perc_anual: percAnualRef,
         perc_inconsistente: pct(inconsistentes, base.length),
         produtores_com_dados: base.length - semDados,
         fazendas_aptas: consistentes,
