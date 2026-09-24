@@ -200,7 +200,7 @@
         </div>
 
         <div class="grid-two grid-two--data">
-          <article class="panel-card"><div class="panel-heading panel-heading--with-legend panel-heading--with-controls"><h2>Evolução da consistência</h2><div class="panel-heading-actions"><div class="legend-inline" aria-label="Legenda"><span><i class="legend-swatch swatch-dark"></i>Mensal</span><span><i class="legend-swatch swatch-medium"></i>Anual</span></div><div class="segmented-control chart-horizon-control" data-chart-horizon="consistency" aria-label="Período do gráfico"><button type="button" data-months="1">1M</button><button type="button" data-months="6">6M</button><button class="active" type="button" data-months="12" aria-pressed="true">12M</button><button type="button" data-months="0">Tudo</button></div><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div><div class="chart-box"><canvas id="chartConsistencyHistory"></canvas></div></article>
+          <article class="panel-card"><div class="panel-heading panel-heading--with-legend panel-heading--with-controls"><h2>Evolução da consistência</h2><div class="panel-heading-actions"><div class="legend-inline" aria-label="Legenda"><span class="legend-toggle" role="button" tabindex="0" data-series="0" title="Clique para mostrar/ocultar"><i class="legend-swatch swatch-dark"></i>Mensal</span><span class="legend-toggle" role="button" tabindex="0" data-series="1" title="Clique para mostrar/ocultar"><i class="legend-swatch swatch-medium"></i>Anual</span></div><div class="segmented-control chart-horizon-control" data-chart-horizon="consistency" aria-label="Período do gráfico"><button type="button" data-months="1">1M</button><button type="button" data-months="6">6M</button><button class="active" type="button" data-months="12" aria-pressed="true">12M</button><button type="button" data-months="0">Tudo</button></div><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div><div class="chart-box"><canvas id="chartConsistencyHistory"></canvas></div></article>
           <article class="panel-card panel-card--quality">
             <div class="panel-heading"><h2>Qualidade dos dados</h2><div class="panel-actions"><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div>
             <div class="quality-content">
@@ -252,8 +252,45 @@
             <div class="chart-box"><canvas id="chartVolumeEvolution"></canvas></div>
           </article>
           <article class="panel-card">
-            <div class="panel-heading"><h2>5 principais itens de custo (COE)</h2><div class="panel-actions"><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div>
-            <div class="chart-box"><canvas id="chartTop5CostsPie"></canvas></div>
+            <div class="panel-heading"><h2>5 principais itens de custo (COE) · média por fazenda</h2><div class="panel-actions"><button class="btn-panel-fs" type="button" title="Tela cheia" aria-label="Expandir painel para tela cheia"><span class="material-symbols-rounded">fullscreen</span></button></div></div>
+            <div class="chart-box chart-box--with-table"><canvas id="chartTop5CostsPie"></canvas></div>
+            <div class="panel-table-view">
+              <div class="panel-table-view-heading"><span class="record-count" id="countCoeDetalhe">0 registros</span><button class="btn-table-export" id="btnExportCoeDetalhe" type="button" title="Exportar tabela para CSV (Excel)" aria-label="Exportar para CSV"><span class="material-symbols-rounded" aria-hidden="true">download</span><span>Exportar</span></button></div>
+              <div class="table-scroll"><table class="data-table" id="tableCoeDetalhe">
+                <colgroup><col style="width:10%"><col style="width:11%"><col style="width:5%"><col style="width:8%"><col style="width:9%"><col style="width:6%"><col style="width:6%"><col style="width:6%"><col style="width:7%"><col style="width:7%"><col style="width:7%"><col style="width:8%"><col style="width:10%"></colgroup>
+                <thead><tr>
+                  <th class="col-left">Fazenda</th>
+                  <th class="col-left">Produtor(a)</th>
+                  <th class="col-center">Mês Ref.</th>
+                  <th class="col-center">Volume (L/mês)</th>
+                  <th class="col-center">COE total (R$)</th>
+                  <th class="col-center">COE (R$/L)</th>
+                  <th class="col-center">Concentrado</th>
+                  <th class="col-center">Volumoso</th>
+                  <th class="col-center">Mão de obra</th>
+                  <th class="col-center">Sanidade</th>
+                  <th class="col-center">Outras desp.</th>
+                  <th class="col-center">Maior item</th>
+                  <th class="col-center">Consistência</th>
+                </tr><tr class="table-filter-row">
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="nome_fazenda" placeholder="Filtrar..." aria-label="Filtrar Fazenda"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="produtor" placeholder="Filtrar..." aria-label="Filtrar Produtor(a)"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="mes_label" placeholder="Filtrar..." aria-label="Filtrar Mês Ref."></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="volume_leite_mes" placeholder="Filtrar..." aria-label="Filtrar Volume (L/mês)"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="coe_total_reais" placeholder="Filtrar..." aria-label="Filtrar COE total (R$)"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="coe_por_litro" placeholder="Filtrar..." aria-label="Filtrar COE (R$/L)"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="perc_concentrado" placeholder="Filtrar..." aria-label="Filtrar Concentrado"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="perc_volumoso" placeholder="Filtrar..." aria-label="Filtrar Volumoso"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="perc_mao_de_obra" placeholder="Filtrar..." aria-label="Filtrar Mão de obra"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="perc_sanidade" placeholder="Filtrar..." aria-label="Filtrar Sanidade"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="perc_outros" placeholder="Filtrar..." aria-label="Filtrar Outras desp."></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="maior_item" placeholder="Filtrar..." aria-label="Filtrar Maior item"></th>
+                  <th><input type="text" class="table-col-filter" data-table="tableCoeDetalhe" data-col="consistencia_mensal" placeholder="Filtrar..." aria-label="Filtrar Consistência"></th>
+                </tr></thead>
+                <tbody id="tbodyCoeDetalhe"><tr><td colspan="13" class="empty-cell">Carregando...</td></tr></tbody>
+              </table></div>
+              <div class="table-pagination" id="paginationCoeDetalhe" data-table="tableCoeDetalhe"></div>
+            </div>
           </article>
         </div>
 

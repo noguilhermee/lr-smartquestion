@@ -136,12 +136,14 @@ module.exports = async (req, res) => {
     const coeSanidade = econComDados.reduce((acc, r) => acc + Number(r.coe_sanidade || 0), 0);
     const coeOutros = econComDados.reduce((acc, r) => acc + Number(r.coe_outros || 0), 0);
 
+    // Média por fazenda (fazenda-mês consistente): Σ do bloco ÷ nº de registros
+    const mediaFaz = total => (totalRegistros > 0 ? Number((total / totalRegistros).toFixed(2)) : 0);
     const top5Coe = [
-      { item: 'Concentrado', valor: coeConcentrado },
-      { item: 'Volumoso / Forragem', valor: coeVolumoso },
-      { item: 'Mão de Obra', valor: coeMaoDeObra },
-      { item: 'Sanidade / Hormônios', valor: coeSanidade },
-      { item: 'Outras Despesas', valor: coeOutros }
+      { item: 'Concentrado', valor: mediaFaz(coeConcentrado) },
+      { item: 'Volumoso / Forragem', valor: mediaFaz(coeVolumoso) },
+      { item: 'Mão de Obra', valor: mediaFaz(coeMaoDeObra) },
+      { item: 'Sanidade / Hormônios', valor: mediaFaz(coeSanidade) },
+      { item: 'Outras Despesas', valor: mediaFaz(coeOutros) }
     ];
 
     // Série temporal de variação de volume mensal — usa econSemFiltroMes (todos os meses)
@@ -285,6 +287,38 @@ module.exports = async (req, res) => {
       .map(r => linhaRanking(r, null));
     const top10MbRankingTabela = [...top10MbRanking, ...inconsistentesNoTop].sort(porMargem);
 
+    // Tabela do painel "5 principais itens de custo (COE)": 1 linha por fazenda (mês mais recente
+    // do recorte), com a composição do COE de cada uma. Lista também as inconsistentes (sinalizadas).
+    const NOMES_BLOCO = { conc: 'Concentrado', vol: 'Volumoso', mo: 'Mão de obra', san: 'Sanidade', out: 'Outras despesas' };
+    const coeDetalhe = ultimoPorFazenda(econTabela).map(r => {
+      const blocos = {
+        conc: Number(r.coe_concentrado || 0), vol: Number(r.coe_volumoso || 0), mo: Number(r.coe_mao_de_obra || 0),
+        san: Number(r.coe_sanidade || 0), out: Number(r.coe_outros || 0)
+      };
+      const total = Object.values(blocos).reduce((a, b) => a + b, 0);
+      const perc = v => (total > 0 ? Number(((v / total) * 100).toFixed(1)) : 0);
+      const maior = total > 0 ? Object.entries(blocos).sort((a, b) => b[1] - a[1])[0][0] : null;
+      return {
+        codigo_lr: r.codigo_lr,
+        produtor: r.produtor || r.codigo_lr,
+        nome_fazenda: r.nome_fazenda || '—',
+        consultor: r.consultor || '—',
+        mes_referencia: r.mes_referencia,
+        mes_label: monthLabel(String(r.mes_referencia || '').substring(0, 7)),
+        volume_leite_mes: Number(r.volume_leite_mes || 0),
+        coe_total_reais: Number(total.toFixed(2)),
+        coe_por_litro: Number(r.coe_por_litro || 0),
+        perc_concentrado: perc(blocos.conc),
+        perc_volumoso: perc(blocos.vol),
+        perc_mao_de_obra: perc(blocos.mo),
+        perc_sanidade: perc(blocos.san),
+        perc_outros: perc(blocos.out),
+        maior_item: maior ? NOMES_BLOCO[maior] : '—',
+        consistencia_mensal: r.status_consistencia_mensal || 'Sem dados',
+        no_grafico: ehConsistente(r)
+      };
+    }).sort((a, b) => b.coe_total_reais - a.coe_total_reais);
+
     const cadastroBreakdown = [
       { categoria: '1 ano de cadastro', count: cad1Ano, perc: totalFazendas > 0 ? Number(((cad1Ano / totalFazendas) * 100).toFixed(1)) : 0 },
       { categoria: '2 anos de cadastro', count: cad2Anos, perc: totalFazendas > 0 ? Number(((cad2Anos / totalFazendas) * 100).toFixed(1)) : 0 },
@@ -319,6 +353,7 @@ module.exports = async (req, res) => {
       cadastro_detalhe: cadastroDetalhe,
       top10_mb_ranking: top10MbRanking,
       top10_mb_ranking_tabela: top10MbRankingTabela,
+      coe_detalhe: coeDetalhe,
       slide4: {
         kpis: kpisConsolidados,
         top5_coe: top5Coe,

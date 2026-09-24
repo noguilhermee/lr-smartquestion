@@ -111,7 +111,8 @@ def main():
             print("\n💰 [PÓS-ETL] Processando e alimentando a tabela fato econômica (sq_fato_economico)...")
             processar_e_carregar_fato_economico(raiz_projeto)
         except Exception as e_econ:
-            print(f"⚠️ Aviso na carga econômica: {e_econ}")
+            print(f"❌ Falha na carga econômica: {e_econ}")
+            sys.exit(1)
 
         raw_visitas_ok = False
         try:
@@ -133,7 +134,8 @@ def main():
             print("\n🔄 [PÓS-ETL] Executando reconciliação final de movimentações e ativos...")
             executar_reconciliacao(reindex_completo=True)
         except Exception as e_rec:
-            print(f"⚠️ Aviso na reconciliação: {e_rec}")
+            print(f"❌ Falha na reconciliação (a camada de consumo depende dela): {e_rec}")
+            sys.exit(1)
 
         if not raw_visitas_ok:
             print("\n⛔ Camada de consumo NÃO publicada: a raw de visitas não foi carregada por completo.")

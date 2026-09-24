@@ -565,7 +565,8 @@ document.addEventListener('DOMContentLoaded', () => {
     tbodyDataProducers: { colKey: 'possui_dados', dir: 'asc' },
     tbodyInconsistencies: { colKey: null, dir: 'asc' },
     tbodyCadastroDetalhe: { colKey: null, dir: 'asc' },
-    tbodyMbRankingDetalhe: { colKey: null, dir: 'asc' }
+    tbodyMbRankingDetalhe: { colKey: null, dir: 'asc' },
+    tbodyCoeDetalhe: { colKey: null, dir: 'asc' }
   };
 
   // Estado de paginação para cada tabela do dashboard
@@ -577,7 +578,8 @@ document.addEventListener('DOMContentLoaded', () => {
     tableDataProducers: { page: 1, pageSize: 25 },
     tableInconsistencies: { page: 1, pageSize: 25 },
     tableCadastroDetalhe: { page: 1, pageSize: 25 },
-    tableMbRankingDetalhe: { page: 1, pageSize: 25 }
+    tableMbRankingDetalhe: { page: 1, pageSize: 25 },
+    tableCoeDetalhe: { page: 1, pageSize: 25 }
   };
 
   function getPaginatedSlice(tableId, rows) {
@@ -832,7 +834,8 @@ document.addEventListener('DOMContentLoaded', () => {
       tbodyDataProducers: ['codigo_lr', 'produtor', 'consultor', 'possui_dados', 'referencia', 'status'],
       tbodyInconsistencies: ['codigo_lr', 'produtor', 'consultor', 'meses_sequenciais', 'consistencia_mensal', 'consistencia_anual', 'acao'],
       tbodyCadastroDetalhe: ['nome_fazenda', 'produtor', 'cidade_uf', 'consultor', 'data_associacao_ts', 'tempo_meses', 'categoria_cadastro', 'consistencia_mensal', 'status'],
-      tbodyMbRankingDetalhe: ['posicao', 'nome_fazenda', 'produtor', 'consultor', 'mes_referencia', 'volume_diario_litros', 'preco_medio_litro', 'coe_por_litro', 'margem_bruta_por_litro', 'consistencia_mensal']
+      tbodyMbRankingDetalhe: ['posicao', 'nome_fazenda', 'produtor', 'consultor', 'mes_referencia', 'volume_diario_litros', 'preco_medio_litro', 'coe_por_litro', 'margem_bruta_por_litro', 'consistencia_mensal'],
+      tbodyCoeDetalhe: ['nome_fazenda', 'produtor', 'mes_referencia', 'volume_leite_mes', 'coe_total_reais', 'coe_por_litro', 'perc_concentrado', 'perc_volumoso', 'perc_mao_de_obra', 'perc_sanidade', 'perc_outros', 'maior_item', 'consistencia_mensal']
     };
 
     Object.entries(MAPPINGS).forEach(([tbodyId, colKeys]) => {
@@ -1317,6 +1320,31 @@ document.addEventListener('DOMContentLoaded', () => {
       <td class="col-center">${consistenciaBadge(row)}</td>
     </tr>`);
     renderTablePagination('paginationMbRankingDetalhe', 'tableMbRankingDetalhe', mbDetalhe.length);
+
+    // Tabela 9: Composição do COE por fazenda (detalhe do painel "5 principais itens de custo")
+    let coeDetalhe = economics.coe_detalhe || [];
+    coeDetalhe = applyColumnFilters(coeDetalhe, 'tableCoeDetalhe');
+    updateCount('countCoeDetalhe', coeDetalhe);
+    coeDetalhe = sortRows(coeDetalhe, tableSort.tbodyCoeDetalhe, (row, key) => row[key]);
+    updateTableHeadIcons('tbodyCoeDetalhe', tableSort.tbodyCoeDetalhe.colKey, tableSort.tbodyCoeDetalhe.dir);
+    const pCoeDetalhe = getPaginatedSlice('tableCoeDetalhe', coeDetalhe);
+    const reais = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    if (el('tbodyCoeDetalhe')) el('tbodyCoeDetalhe').innerHTML = rowsOrEmpty(pCoeDetalhe, 13, (row) => `<tr>
+      <td class="col-left" title="${escapeHtml(row.nome_fazenda)}"><strong>${escapeHtml(row.nome_fazenda)}</strong></td>
+      <td class="col-left" title="${escapeHtml(row.produtor)}">${escapeHtml(row.produtor)}</td>
+      <td class="col-center">${escapeHtml(row.mes_label)}</td>
+      <td class="col-center font-tabular">${number(row.volume_leite_mes)}</td>
+      <td class="col-center font-tabular">${reais(row.coe_total_reais)}</td>
+      <td class="col-center font-tabular">R$ ${number(row.coe_por_litro)}</td>
+      <td class="col-center font-tabular">${percent(row.perc_concentrado)}</td>
+      <td class="col-center font-tabular">${percent(row.perc_volumoso)}</td>
+      <td class="col-center font-tabular">${percent(row.perc_mao_de_obra)}</td>
+      <td class="col-center font-tabular">${percent(row.perc_sanidade)}</td>
+      <td class="col-center font-tabular">${percent(row.perc_outros)}</td>
+      <td class="col-center">${escapeHtml(row.maior_item)}</td>
+      <td class="col-center">${consistenciaBadge(row)}</td>
+    </tr>`);
+    renderTablePagination('paginationCoeDetalhe', 'tableCoeDetalhe', coeDetalhe.length);
   }
 
   // ─── LÓGICA DE FILTRAGEM MULTIDIRECIONAL ESTILO POWER BI ──────────────
@@ -1717,6 +1745,19 @@ document.addEventListener('DOMContentLoaded', () => {
       };
     }
 
+    if (tableId === 'tableCoeDetalhe') {
+      let data = state.economics?.coe_detalhe || [];
+      data = applyColumnFilters(data, 'tableCoeDetalhe');
+      return {
+        headers: ['Fazenda', 'Produtor(a)', 'Mês Referência', 'Volume (L/mês)', 'COE total (R$)', 'COE (R$/L)', 'Concentrado (%)', 'Volumoso (%)', 'Mão de obra (%)', 'Sanidade (%)', 'Outras despesas (%)', 'Maior item', 'Consistência'],
+        rows: data.map((r) => [
+          r.nome_fazenda || '—', r.produtor || '—', r.mes_label || '—', number(r.volume_leite_mes),
+          number(r.coe_total_reais), number(r.coe_por_litro), r.perc_concentrado, r.perc_volumoso,
+          r.perc_mao_de_obra, r.perc_sanidade, r.perc_outros, r.maior_item || '—', r.consistencia_mensal || '—'
+        ])
+      };
+    }
+
     if (tableId === 'tableMbRankingDetalhe') {
       const economics = state.economics || {};
       let data = economics.top10_mb_ranking_tabela || economics.top10_mb_ranking || [];
@@ -1836,6 +1877,7 @@ document.addEventListener('DOMContentLoaded', () => {
     el('btnExportDataProducers')?.addEventListener('click', () => exportTableToCsv('tableDataProducers', 'produtores_com_dados'));
     el('btnExportInconsistencies')?.addEventListener('click', exportInconsistenciesToCsv);
     el('btnExportCadastroDetalhe')?.addEventListener('click', () => exportTableToCsv('tableCadastroDetalhe', 'tempo_cadastro_produtores'));
+    el('btnExportCoeDetalhe')?.addEventListener('click', () => exportTableToCsv('tableCoeDetalhe', 'composicao_coe_fazendas'));
     el('btnExportMbRankingDetalhe')?.addEventListener('click', () => exportTableToCsv('tableMbRankingDetalhe', 'top10_margem_bruta'));
   }
 

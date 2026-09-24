@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import math
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -58,13 +59,13 @@ MAPA_COLUNAS = {
     "Código do atendimento": "id_atendimento",
     "Código do(a) produtor(a)": "codigo_lr",
     "Produtor(a)": "nome_produtor",
-    "Propriedade:": "nome_propriedade",
     "Propriedade": "nome_propriedade",
     "Consultor(a)": "nome_consultor",
     "Data da visita": "data_visita",
     "Tipo de visita": "tipo_visita",
     "Projeto": "projeto",
 }
+COLUNAS_OPCIONAIS = {"Propriedade"}
 CAMPOS_ZOOTECNICOS = [
     "area_pecuaria_ha", "mdo_dias_homem", "producao_l_dia", "ccs_mensal", "cpp_mensal",
     "gordura_mensal", "proteina_mensal", "vacas_lactacao", "vacas_secas",
@@ -162,9 +163,16 @@ def carregar_configuracao(raiz: Path) -> dict:
 
 def ler_lista_geral(caminho: Path, origem: str) -> pd.DataFrame:
     df = pd.read_excel(caminho, sheet_name="BD")
-    faltando = [c for c in MAPA_COLUNAS if c not in df.columns]
+    if "Propriedade:" in df.columns and "Propriedade" not in df.columns:
+        df = df.rename(columns={"Propriedade:": "Propriedade"})
+    # As exportações atuais da LISTA_GERAL não trazem mais "Propriedade"; o nome vem dos
+    # relatórios específicos e de sq_dim_fazendas_ativas (camada_consumo).
+    faltando = [c for c in MAPA_COLUNAS if c not in df.columns and c not in COLUNAS_OPCIONAIS]
     if faltando:
         raise ValueError(f"{caminho.name}: colunas ausentes {faltando}")
+    for c in COLUNAS_OPCIONAIS:
+        if c not in df.columns:
+            df[c] = None
     df = df[list(MAPA_COLUNAS)].rename(columns=MAPA_COLUNAS)
     df["origem_dados"] = origem
     df["arquivo"] = caminho.name
@@ -320,6 +328,40 @@ def ids_no_supabase(supabase) -> set[int]:
         inicio += LOTE
 
 
+def enviar_lote(supabase, lote: list[dict], tentativas: int = 5) -> None:
+    """Upsert com retry: conexões longas com o Supabase caem de vez em quando (WinError 10054)."""
+    for t in range(1, tentativas + 1):
+        try:
+            supabase.table(TABELA_RAW).upsert(lote, on_conflict="id_composto").execute()
+            return
+        except Exception as e:
+            if t == tentativas:
+                raise
+            print(f"   ⚠️ Falha no lote ({e}); tentativa {t}/{tentativas}, aguardando...")
+            time.sleep(2 * t)
+
+
+def preservar_nome_propriedade(supabase, base: pd.DataFrame) -> None:
+    """A LISTA_GERAL não traz mais a propriedade: reaproveita o nome já gravado na raw
+    para que o upsert não o sobrescreva com nulo."""
+    sem_nome = base["nome_propriedade"].isna() | (base["nome_propriedade"].astype(str).str.strip() == "")
+    if not sem_nome.any():
+        return
+    existentes, inicio = {}, 0
+    while True:
+        dados = (supabase.table(TABELA_RAW).select("id_atendimento,nome_propriedade")
+                 .range(inicio, inicio + LOTE - 1).execute().data or [])
+        existentes.update({int(d["id_atendimento"]): d["nome_propriedade"] for d in dados
+                           if d.get("id_atendimento") is not None and d.get("nome_propriedade")})
+        if len(dados) < LOTE:
+            break
+        inicio += LOTE
+    base.loc[sem_nome, "nome_propriedade"] = base.loc[sem_nome, "id_atendimento"].map(existentes)
+    faltam = int(base["nome_propriedade"].isna().sum())
+    print(f"   ℹ️ LISTA_GERAL sem coluna 'Propriedade': nome preservado da raw para "
+          f"{int(sem_nome.sum()) - faltam} atendimentos; {faltam} ficam sem nome (camada de consumo usa sq_dim_fazendas_ativas).")
+
+
 def executar_carga_historico_visitas(raiz: Path | None = None) -> pd.DataFrame:
     raiz = raiz or raiz_projeto
     print("=" * 70)
@@ -332,10 +374,11 @@ def executar_carga_historico_visitas(raiz: Path | None = None) -> pd.DataFrame:
           f"({base['data_visita'].min():%Y-%m-%d} a {base['data_visita'].max():%Y-%m-%d})")
 
     supabase = obter_cliente_supabase(raiz)
+    preservar_nome_propriedade(supabase, base)
     registros = registros_para_supabase(base)
     print(f"\n⬆️ Enviando {len(registros)} registros para {TABELA_RAW}...")
     for i in range(0, len(registros), LOTE):
-        supabase.table(TABELA_RAW).upsert(registros[i:i + LOTE], on_conflict="id_composto").execute()
+        enviar_lote(supabase, registros[i:i + LOTE])
     print("   ✅ Upsert concluído.")
 
     faltando = set(base["id_atendimento"].astype(int)) - ids_no_supabase(supabase)

@@ -42,6 +42,8 @@ Estrutura da Tabela no Supabase (sq_fato_economico):
 """
 from __future__ import annotations
 
+import zipfile
+
 import os
 import re
 import sys
@@ -144,7 +146,8 @@ def localizar_arquivo_recente(diretorio_principal: Path, fallback_dirs: list[Pat
     pastas_busca = [diretorio_principal] + fallback_dirs
     for pasta in pastas_busca:
         if pasta.is_dir():
-            arquivos = list(pasta.glob(padrao_glob))
+            # Ignora xlsx ainda em gravação por outro processo (zip incompleto).
+            arquivos = [a for a in pasta.glob(padrao_glob) if zipfile.is_zipfile(a)]
             if arquivos:
                 recente = max(arquivos, key=lambda f: f.stat().st_mtime)
                 print(f"📖 Arquivo de indicadores localizado ({recente.parent.name}): {recente.name}")

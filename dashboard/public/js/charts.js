@@ -103,14 +103,14 @@ class DashboardCharts {
               if (requestedPosition === 'inside') {
                 const isPositive = element.x >= element.base;
                 const barLength = Math.abs(element.x - element.base);
-                if (barLength >= 45) {
+                if (barLength >= (options.fitLabel ? context.measureText(label).width + 20 : 45)) {
                   x = isPositive ? element.x - 10 : element.x + 10;
                   align = isPositive ? 'right' : 'left';
                   fill = requestedColor || '#ffffff';
                 } else {
                   x = isPositive ? element.x + 7 : element.x - 7;
                   align = isPositive ? 'left' : 'right';
-                  fill = color.ink;
+                  fill = options.outsideColor || color.ink;
                 }
               } else {
                 x += 7;
@@ -123,13 +123,27 @@ class DashboardCharts {
             }
 
             context.textAlign = align;
-            context.lineWidth = 3;
-            context.strokeStyle = requestedPosition === 'inside'
+            context.lineWidth = options.strokeColor ? 4 : 3;
+            context.lineJoin = 'round';
+            context.strokeStyle = options.strokeColor ? options.strokeColor : requestedPosition === 'inside'
               ? 'rgba(0, 0, 0, 0.45)'
               : (requestedPosition === 'insideBase'
                 ? String(dataset.backgroundColor || color.dark)
                 : (isDoughnut ? 'rgba(0, 40, 35, 0.55)' : color.surface));
-            context.strokeText(label, x, y);
+            if (options.pill) {
+              const w = context.measureText(label).width + 10;
+              const h = (options.fontSize || 11.2) + 8;
+              const left = align === 'left' ? x - 5 : (align === 'right' ? x - w + 5 : x - w / 2);
+              context.save();
+              context.shadowColor = 'rgba(0, 0, 0, 0.18)';
+              context.shadowBlur = 4;
+              context.fillStyle = '#ffffff';
+              context.beginPath();
+              context.roundRect(left, y - h / 2, w, h, 5);
+              context.fill();
+              context.restore();
+            }
+            if (!options.noStroke) context.strokeText(label, x, y);
             context.fillStyle = fill;
             context.fillText(label, x, y);
           });
@@ -492,6 +506,26 @@ class DashboardCharts {
         })
       }
     });
+
+    const chart = this.instances[id];
+    this.consistencyHidden = this.consistencyHidden || new Set();
+    const toggles = ctx.closest('.panel-card')?.querySelectorAll('.legend-toggle[data-series]') || [];
+    const sync = () => toggles.forEach(el => el.classList.toggle('is-off', this.consistencyHidden.has(Number(el.dataset.series))));
+    this.consistencyHidden.forEach(i => chart.setDatasetVisibility(i, false));
+    chart.update('none');
+    sync();
+    toggles.forEach(el => {
+      const toggle = () => {
+        const i = Number(el.dataset.series);
+        const visible = this.consistencyHidden.has(i);
+        if (visible) this.consistencyHidden.delete(i); else this.consistencyHidden.add(i);
+        chart.setDatasetVisibility(i, visible);
+        chart.update();
+        sync();
+      };
+      el.onclick = toggle;
+      el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+    });
   }
 
   renderQuality(id, data = {}) {
@@ -586,7 +620,7 @@ class DashboardCharts {
                 const val = context.raw || 0;
                 const total = (context.dataset.data || []).reduce((a, b) => a + Number(b || 0), 0);
                 const pct = total > 0 ? ((val / total) * 100).toFixed(1).replace('.', ',') : '0,0';
-                return ` ${context.label}: R$ ${val.toLocaleString('pt-BR')} (${pct}%)`;
+                return ` ${context.label}: R$ ${val.toLocaleString('pt-BR')} por fazenda (${pct}%)`;
               }
             }
           }
@@ -614,7 +648,7 @@ class DashboardCharts {
           const prefix = num > 0 ? '+' : '';
           return `${prefix}${num.toFixed(1).replace('.', ',')}%`;
         },
-        { fontSize: 10, color: color.warning }
+        { fontSize: 11, color: '#e6a800', strokeColor: '#ffffff' }
       )],
       data: {
         labels,
@@ -749,7 +783,7 @@ class DashboardCharts {
       type: 'bar',
       plugins: [this.valueLabels(
         (value) => `R$ ${Number(value || 0).toFixed(2)}`,
-        { position: 'inside', color: '#ffffff', fontSize: 11 }
+        { position: 'inside', color: '#ffffff', fontSize: 11, noStroke: true, fitLabel: true, outsideColor: color.dark }
       )],
       data: {
         labels,

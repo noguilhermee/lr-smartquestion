@@ -3614,3 +3614,6 @@ th.col-center .table-col-filter { text-align: center !important; }
 
 
 
+
+.legend-toggle { cursor: pointer; user-select: none; transition: opacity .15s; }
+.legend-toggle.is-off { opacity: .4; text-decoration: line-through; }
